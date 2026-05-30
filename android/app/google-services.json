@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "436256385822",
+    "project_id": "persipal-app",
+    "storage_bucket": "persipal-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:436256385822:android:1c436ae6f6c4ba6388770f",
+        "android_client_info": {
+          "package_name": "com.example.persipal_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBr4p_M-2KX8CevKnEubECO0iyPZEDLB7s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

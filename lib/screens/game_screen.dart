@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
+// screens/game_screen.dart
 import 'dart:async';
-import 'tap_effects.dart';
+import 'package:flutter/material.dart';
+import '../services/activity_service.dart';
+import '../widgets/tap_effects.dart';
+import 'feed_screen.dart';
+import 'play_screen.dart';
+import 'groom_screen.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -10,31 +15,27 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> {
-  String catName = "Meow Meow";
+  final _service = ActivityService.instance;
+
+  String catName = 'Meow Meow';
   Timer? _timer;
 
   int happiness = 70;
-  int hunger = 80;
+  int hunger = 30; // 0 = full, 100 = starving
   int cleanliness = 90;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _askCatName());
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      askCatName();
-    });
-
-    // ⏱ START REAL-TIME DECAY TIMER
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    // Real-time stat decay
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
       setState(() {
-        hunger += 5;
-        happiness -= 5;
-        cleanliness -= 3;
-
-        hunger = hunger.clamp(0, 100);
-        happiness = happiness.clamp(0, 100);
-        cleanliness = cleanliness.clamp(0, 100);
+        hunger = (hunger + 2).clamp(0, 100);
+        happiness = (happiness - 1).clamp(0, 100);
+        cleanliness = (cleanliness - 1).clamp(0, 100);
       });
     });
   }
@@ -45,158 +46,146 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
-  // 🐾 NAME INPUT
-  void askCatName() {
-    TextEditingController controller = TextEditingController();
+  // ── Cat name dialog ───────────────────────────────────────────────────────
 
+  void _askCatName() {
+    final ctrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Enter your cat's name"),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: "e.g. Mochi"),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  catName = controller.text.isEmpty
-                      ? "Meow Meow"
-                      : controller.text;
-                });
-                Navigator.pop(context);
-              },
-              child: const Text("Save"),
-            ),
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: const Color(0xFFFFF5EE),
+        title: const Row(
+          children: [
+            Text('🐱 ', style: TextStyle(fontSize: 22)),
+            Text('Name your cat!',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ],
-        );
-      },
+        ),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'e.g. Mochi',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF8C69),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              setState(() {
+                catName =
+                    ctrl.text.trim().isEmpty ? 'Meow Meow' : ctrl.text.trim();
+              });
+              _service.logActivity(
+                icon: Icons.pets,
+                iconColor: const Color(0xFF32CD32),
+                title: 'Started simulation with cat — $catName',
+              );
+              Navigator.pop(ctx);
+            },
+            child: const Text('Let\'s Go!'),
+          ),
+        ],
+      ),
     );
   }
 
-  // 🐾 ACTION SYSTEM
-  void update(String action) {
-    setState(() {
-      if (action == "feed") {
-        hunger -= 20; // stronger effect
-        happiness += 10;
-      }
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-      if (action == "groom") {
-        cleanliness += 20;
-        happiness += 5;
-      }
-
-      if (action == "play") {
-        happiness += 20;
-        hunger += 10;
-      }
-
-      hunger = hunger.clamp(0, 100);
-      happiness = happiness.clamp(0, 100);
-      cleanliness = cleanliness.clamp(0, 100);
-    });
+  String _getEmotion() {
+    final avg = (happiness + cleanliness + (100 - hunger)) ~/ 3;
+    if (avg >= 60) return 'happy';
+    if (avg >= 30) return 'normal';
+    return 'sad';
   }
 
-  // 🐾 HEART SYSTEM
-  String getHearts() {
-    if (happiness > 80) return "❤️ ❤️ ❤️";
-    if (happiness > 50) return "❤️ ❤️ 🤍";
-    return "❤️ 🤍 🤍";
+  String _getHair() {
+    if (cleanliness >= 70) return 'clean';
+    if (cleanliness >= 40) return 'messy';
+    return 'very_messy';
   }
 
-  // 🐾 EMOTION SYSTEM
-  String getCatEmotion() {
-    int avg = ((happiness + cleanliness + (100 - hunger)) / 3).round();
-
-    // 👇 STRICT TEST MODE (faster reaction)
-    if (avg >= 60) return "happy";
-    if (avg >= 30) return "normal";
-    return "sad";
+  String _getHearts() {
+    if (happiness > 80) return '❤️ ❤️ ❤️';
+    if (happiness > 50) return '❤️ ❤️ 🤍';
+    return '❤️ 🤍 🤍';
   }
+
+  Color _statColor(int val, {bool invert = false}) {
+    final v = invert ? 100 - val : val;
+    if (v >= 66) return const Color(0xFF32CD32);
+    if (v >= 33) return const Color(0xFFFFA500);
+    return Colors.redAccent;
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final emotion = _getEmotion();
+    final hair = _getHair();
+
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
-
       body: Stack(
-        fit: StackFit.expand,
         children: [
-          // 🌸 BACKGROUND
           Positioned.fill(
             child: Opacity(
               opacity: 0.12,
-              child: Image.asset(
-                "assets/images/paws_bg.png",
-                fit: BoxFit.cover,
-              ),
+              child:
+                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
             ),
           ),
-
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // TOP BAR
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Top bar
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 16, 0),
+                  child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.home),
+                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
                         onPressed: () => Navigator.pop(context),
                       ),
-                      const Icon(Icons.menu),
+                      const Icon(Icons.pets,
+                          color: Color(0xFFFF8C69), size: 22),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '$catName\'s World',
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      Text(_getHearts(), style: const TextStyle(fontSize: 16)),
                     ],
                   ),
+                ),
 
-                  const SizedBox(height: 10),
-
-                  // TITLE
-                  Text(
-                    "Hello $catName!",
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Serif',
-                    ),
-                  ),
-
-                  const Text(
-                    "Take care of your Persian today!",
-                    style: TextStyle(fontSize: 16),
-                  ),
-
-                  const SizedBox(height: 15),
-
-                  // HEARTS
-                  Row(
-                    children: [
-                      Text("$catName:", style: const TextStyle(fontSize: 18)),
-                      const SizedBox(width: 10),
-                      Text(getHearts(), style: const TextStyle(fontSize: 18)),
-                    ],
-                  ),
-
-                  const SizedBox(height: 15),
-
-                  // 🐱 CAT AREA
-                  Container(
-                    width: double.infinity,
+                // Cat scene
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Container(
                     height: 180,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(25),
-                      border: Border.all(color: Colors.black54),
+                      borderRadius: BorderRadius.circular(20),
                       image: const DecorationImage(
-                        image: AssetImage("assets/images/cat_bg_room.png"),
+                        image: AssetImage('assets/images/cat_bg_room.png'),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -207,66 +196,79 @@ class _GameScreenState extends State<GameScreen> {
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
                           child: Image.asset(
-                            "assets/images/cat_${getCatEmotion()}.png",
-                            key: ValueKey(getCatEmotion()),
-                            height: 90,
+                            'assets/images/cat_${emotion}_$hair.png',
+                            key: ValueKey('${emotion}_$hair'),
+                            height: 100,
                           ),
                         ),
                       ),
                     ),
                   ),
+                ),
 
-                  const SizedBox(height: 20),
-
-                  // BUTTON GRID
-                  Expanded(
-                    child: GridView.count(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.3,
+                // Stat bars
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
                       children: [
-                        BounceButton(
-                          onTap: () => update("feed"),
-                          child: buildMenuButton("🍗", "Feed"),
-                        ),
-
-                        BounceButton(
-                          onTap: () => update("groom"),
-                          child: buildMenuButton("✂️", "Groom"),
-                        ),
-
-                        BounceButton(
-                          onTap: () async {
-                            await Future.delayed(
-                              const Duration(milliseconds: 120),
-                            );
-
-                            if (!mounted) return;
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => StatusScreen(
-                                  catName: catName,
-                                  hunger: hunger,
-                                  happiness: happiness,
-                                  cleanliness: cleanliness,
-                                ),
-                              ),
-                            );
-                          },
-                          child: buildMenuButton("❤️", "Status"),
-                        ),
-
-                        BounceButton(
-                          onTap: () => update("play"),
-                          child: buildMenuButton("🐱", "Play"),
-                        ),
+                        _statRow('🍗', 'Hunger', hunger,
+                            _statColor(hunger, invert: true)),
+                        _statRow('😺', 'Happiness', happiness,
+                            _statColor(happiness)),
+                        _statRow('🧼', 'Cleanliness', cleanliness,
+                            _statColor(cleanliness),
+                            isLast: true),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // Action label
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'WHAT WOULD YOU LIKE TO DO?',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: Color(0xFFAA7755),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Action grid
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: GridView.count(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 1.6,
+                      children: [
+                        _actionCard(
+                            '🍗', 'Feed', const Color(0xFFFF8C69), _onFeed),
+                        _actionCard(
+                            '✂️', 'Groom', const Color(0xFF7B68EE), _onGroom),
+                        _actionCard(
+                            '🎾', 'Play', const Color(0xFF20B2AA), _onPlay),
+                        _actionCard(
+                            '❤️', 'Status', const Color(0xFFDC143C), _onStatus),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -274,124 +276,176 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // 🔘 BUTTON DESIGN
-  Widget buildMenuButton(String emoji, String label) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFD9B3C6),
-        borderRadius: BorderRadius.circular(15),
+  Widget _statRow(String emoji, String label, int value, Color color,
+      {bool isLast = false}) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 72,
+            child: Text(label,
+                style:
+                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: value / 100,
+                minHeight: 8,
+                backgroundColor: color.withOpacity(0.15),
+                valueColor: AlwaysStoppedAnimation(color),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 32,
+            child: Text(
+              '$value%',
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.bold, color: color),
+            ),
+          ),
+        ],
       ),
-      child: Center(
+    );
+  }
+
+  Widget _actionCard(
+      String emoji, String label, Color color, VoidCallback onTap) {
+    return BounceButton(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(emoji, style: const TextStyle(fontSize: 26)),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 18, fontFamily: 'Serif'),
-            ),
+            Text(emoji, style: const TextStyle(fontSize: 28)),
+            const SizedBox(height: 4),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.bold, color: color)),
           ],
         ),
       ),
     );
   }
-}
 
-class StatusScreen extends StatelessWidget {
-  final String catName;
-  final int hunger;
-  final int happiness;
-  final int cleanliness;
+  // ── Actions ───────────────────────────────────────────────────────────────
 
-  const StatusScreen({
-    super.key,
-    required this.catName,
-    required this.hunger,
-    required this.happiness,
-    required this.cleanliness,
-  });
+  Future<void> _onFeed() async {
+    final result = await Navigator.push<Map<String, int>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FeedScreen(
+          hunger: hunger,
+          happiness: happiness,
+          cleanliness: cleanliness,
+          onUpdate: (h, hp, c) {
+            setState(() {
+              hunger = h;
+              happiness = hp;
+              cleanliness = c;
+            });
+          },
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        hunger = result['hunger'] ?? hunger;
+        happiness = result['happiness'] ?? happiness;
+        cleanliness = result['cleanliness'] ?? cleanliness;
+      });
+    }
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFE6CC),
+  Future<void> _onGroom() async {
+    final result = await Navigator.push<Map<String, int>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GroomScreen(
+          cleanliness: cleanliness,
+          onAction: (action) {
+            if (action == 'groom') {
+              setState(() {
+                cleanliness = (cleanliness + 20).clamp(0, 100);
+                happiness = (happiness + 5).clamp(0, 100);
+              });
+            }
+          },
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        cleanliness = result['cleanliness'] ?? cleanliness;
+      });
+    }
+  }
 
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.12,
-              child: Image.asset(
-                "assets/images/paws_bg.png",
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text("$catName (2 MONTHS)"),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  Text(
-                    "$catName's STATUS",
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Serif',
-                    ),
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  buildBar("Hunger", hunger, Colors.grey),
-                  buildBar("Happiness", happiness, Colors.pink),
-                  buildBar("Cleanliness", cleanliness, Colors.green),
-
-                  const SizedBox(height: 20),
-
-                  Text(
-                    "$catName is your virtual Persian cat. Take care of it daily to keep it healthy and happy.",
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+  void _onPlay() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayScreen(
+          onAction: (action) {
+            if (action == 'play') {
+              setState(() {
+                happiness = (happiness + 20).clamp(0, 100);
+                hunger = (hunger + 10).clamp(0, 100);
+              });
+            }
+          },
+        ),
       ),
     );
   }
 
-  Widget buildBar(String label, int value, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label),
-        const SizedBox(height: 5),
-        LinearProgressIndicator(
-          value: value / 100,
-          minHeight: 10,
-          backgroundColor: Colors.grey[300],
-          valueColor: AlwaysStoppedAnimation(color),
+  void _onStatus() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFFFFF5EE),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text('❤️ ', style: TextStyle(fontSize: 20)),
+                Text(
+                  '$catName\'s Status',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _statRow('🍗', 'Hunger', hunger, _statColor(hunger, invert: true)),
+            _statRow('😺', 'Happiness', happiness, _statColor(happiness)),
+            _statRow('🧼', 'Cleanliness', cleanliness, _statColor(cleanliness),
+                isLast: true),
+            const SizedBox(height: 16),
+            Text(
+              '$catName is your virtual Persian cat. Take care of it daily!',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
         ),
-        const SizedBox(height: 15),
-      ],
+      ),
     );
   }
 }
