@@ -149,16 +149,6 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                                     color: Colors.white70, fontSize: 13),
                               ),
                               const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  _miniStat('${pet.feedCount}', '🍗', 'Fed'),
-                                  const SizedBox(width: 10),
-                                  _miniStat(
-                                      '${pet.groomCount}', '✂️', 'Groomed'),
-                                  const SizedBox(width: 10),
-                                  _miniStat('${pet.playCount}', '🎾', 'Played'),
-                                ],
-                              ),
                             ],
                           ),
                         ),

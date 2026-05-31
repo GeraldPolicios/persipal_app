@@ -258,11 +258,10 @@ class _PlayScreenState extends State<PlayScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: _toys.length,
                     gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 1.4,
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 120,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
                     ),
                     itemBuilder: (_, i) => _draggable(_toys[i]),
                   ),

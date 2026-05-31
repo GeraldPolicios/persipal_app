@@ -314,8 +314,8 @@ class _GroomScreenState extends State<GroomScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: _tools.length,
                     gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 120,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
                     ),

@@ -319,8 +319,8 @@ class _FeedScreenState extends State<FeedScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: _foods.length,
                     gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 120,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
                     ),
