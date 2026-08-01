@@ -3,6 +3,14 @@
 // Manages FullPetProfile CRUD.
 // Hive is the primary store (offline-first).
 // Firestore sync is background-only.
+//
+// WHAT'S NEW:
+//   • completeVaccinationDose() — marks a pending dose's linked reminder
+//     done (kept in the Done tab), clears the old record's pending schedule,
+//     and inserts a NEW completed VaccinationRecord so dose history is never
+//     overwritten. Optionally schedules + links a reminder for the next dose.
+//     This is the single place both the Vaccination screen and Reminder
+//     screen call into, so the two stay in sync automatically.
 
 import 'dart:async';
 import 'dart:convert';
@@ -12,6 +20,7 @@ import 'package:uuid/uuid.dart';
 import '../models/pet_extended_models.dart';
 import '../services/auth_service.dart';
 import '../services/activity_log_service.dart';
+import '../services/activity_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 const _boxName = 'full_pet_profiles';
@@ -243,6 +252,75 @@ class PetProfileProvider extends ChangeNotifier {
     if (profile == null) return;
     final vax = profile.vaccinations.where((v) => v.id != vaccId).toList();
     await updateDetails(profile.copyWith(vaccinations: vax));
+  }
+
+  /// NEW — Marks a pending vaccination dose as completed:
+  ///  • marks the linked reminder DONE (kept in the Done tab, not deleted)
+  ///  • clears the old record's pending schedule (its history is untouched)
+  ///  • inserts a NEW completed VaccinationRecord (dose history is preserved,
+  ///    never overwritten)
+  ///  • optionally schedules + links a reminder for the following dose
+  ///
+  /// Both the Vaccination screen ("Mark Given") and the Reminder screen
+  /// (marking a vaccine-linked reminder done) call this same method, so the
+  /// health record and the reminder list can never drift out of sync.
+  Future<void> completeVaccinationDose(
+    String petId,
+    String oldRecordId, {
+    required DateTime givenDate,
+    DateTime? nextSchedule,
+    bool reminderEnabled = false,
+  }) async {
+    final pet = _getById(petId);
+    if (pet == null) return;
+
+    VaccinationRecord? old;
+    for (final r in pet.vaccinations) {
+      if (r.id == oldRecordId) old = r;
+    }
+    if (old == null) return;
+
+    // Keep the reminder around as completed history — don't delete it.
+    if (old.linkedReminderId != null) {
+      ActivityService.instance.markReminderDone(old.linkedReminderId!);
+    }
+
+    // The old record is fulfilled now — clear its pending schedule.
+    await updateVaccination(
+      petId,
+      old.copyWith(
+        nextSchedule: null,
+        reminderEnabled: false,
+        linkedReminderId: null,
+      ),
+    );
+
+    final newId = _uuid.v4();
+    String? newLinkedReminderId;
+    if (nextSchedule != null && reminderEnabled) {
+      newLinkedReminderId = _uuid.v4();
+      ActivityService.instance.addReminder(ReminderItem(
+        id: newLinkedReminderId,
+        title: "💉 ${old.vaccineName} — ${pet.name}'s next dose",
+        type: 'Vet Visit',
+        scheduledAt: nextSchedule,
+        petId: petId,
+        linkedVaccinationId: newId,
+      ));
+    }
+
+    await addVaccination(
+      petId,
+      VaccinationRecord(
+        id: newId,
+        vaccineName: old.vaccineName,
+        completedDate: givenDate,
+        nextSchedule: nextSchedule,
+        vetNotes: old.vetNotes,
+        reminderEnabled: nextSchedule != null && reminderEnabled,
+        linkedReminderId: newLinkedReminderId,
+      ),
+    );
   }
 
   // ── Activity counters (called from game screens) ──────────────────────────

@@ -2,14 +2,24 @@
 //
 // Hub screen after selecting a cat.
 // Shows 4 module cards: Pet Details, Growth Tracker, Vaccinations, Achievements.
+//
+// WHAT'S NEW:
+//  • Hero card content is now centered (avatar, name, breed stacked and
+//    centered) instead of left-aligned in a row.
+//  • A "What's Next" card surfaces the nearest upcoming reminder and the
+//    nearest vaccine due for THIS cat, pulled live from Care Reminders —
+//    so parents don't have to hop between screens to know what's coming up.
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
+import '../../services/activity_service.dart';
 import 'pet_details_screen.dart';
 import 'growth_tracker_screen.dart';
 import 'vaccination_screen.dart';
 import 'achievements_screen.dart';
+import 'reminder_screen.dart';
 import '../../widgets/tap_effects.dart';
 
 class MyPetProfileScreen extends StatefulWidget {
@@ -22,22 +32,42 @@ class MyPetProfileScreen extends StatefulWidget {
 
 class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
   final _provider = PetProfileProvider.instance;
+  final _activity = ActivityService.instance;
 
   @override
   void initState() {
     super.initState();
     _provider.addListener(_refresh);
+    _activity.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _provider.removeListener(_refresh);
+    _activity.removeListener(_refresh);
     super.dispose();
   }
 
   void _refresh() => setState(() {});
 
   FullPetProfile? get _pet => _provider.getById(widget.petId);
+
+  ReminderItem? get _nextReminder {
+    final upcoming = _activity
+        .remindersForPet(widget.petId)
+        .where((r) => !r.isDone)
+        .toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+    return upcoming.isEmpty ? null : upcoming.first;
+  }
+
+  VaccinationRecord? _nextVaccine(FullPetProfile pet) {
+    final withSchedule = pet.vaccinations
+        .where((v) => v.nextSchedule != null)
+        .toList()
+      ..sort((a, b) => a.nextSchedule!.compareTo(b.nextSchedule!));
+    return withSchedule.isEmpty ? null : withSchedule.first;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +81,8 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
 
     final unlockedCount = pet.achievements.where((a) => a.unlocked).length;
     final vaccineDue = pet.vaccinations.where((v) => v.isOverdue).length;
+    final nextReminder = _nextReminder;
+    final nextVaccine = _nextVaccine(pet);
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -83,20 +115,26 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      Text(pet.breed,
-                          style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFFAA7755),
-                              fontStyle: FontStyle.italic)),
+                      IconButton(
+                        tooltip: 'Care Reminders',
+                        icon: const Icon(Icons.alarm, size: 22),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const ReminderScreen()),
+                        ),
+                      ),
                     ],
                   ),
                 ),
 
-                // ── Hero cat card ─────────────────────────────────────
+                // ── Hero cat card (now centered) ───────────────────────
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                   child: Container(
-                    padding: const EdgeInsets.all(18),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 22, horizontal: 18),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -115,49 +153,68 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                         ),
                       ],
                     ),
-                    child: Row(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // Big avatar
+                        // Centered avatar
                         Container(
-                          width: 80,
-                          height: 80,
+                          width: 84,
+                          height: 84,
+                          alignment: Alignment.center,
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.35),
                             shape: BoxShape.circle,
                           ),
-                          child: const Center(
-                            child: Text('🐱', style: TextStyle(fontSize: 42)),
+                          child:
+                              const Text('🐱', style: TextStyle(fontSize: 44)),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          pet.name,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                pet.name,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                pet.breed,
-                                style: const TextStyle(
-                                    color: Colors.white70, fontSize: 13),
-                              ),
-                              const SizedBox(height: 8),
-                            ],
-                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          pet.breed,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 13),
                         ),
                       ],
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
+
+                // ── What's Next card ────────────────────────────────────
+                if (nextReminder != null || nextVaccine != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _WhatsNextCard(
+                      reminder: nextReminder,
+                      vaccine: nextVaccine,
+                      onTapReminders: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const ReminderScreen()),
+                      ),
+                      onTapVaccines: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                VaccinationScreen(petId: widget.petId)),
+                      ),
+                    ),
+                  ),
+
+                const SizedBox(height: 14),
 
                 // ── Section label ─────────────────────────────────────
                 const Padding(
@@ -255,18 +312,104 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
       ),
     );
   }
+}
 
-  Widget _miniStat(String count, String emoji, String label) {
-    return Column(
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 14)),
-        Text(count,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.white)),
-        Text(label, style: const TextStyle(fontSize: 9, color: Colors.white70)),
-      ],
+// ─── What's Next Card ───────────────────────────────────────────────────────
+
+class _WhatsNextCard extends StatelessWidget {
+  final ReminderItem? reminder;
+  final VaccinationRecord? vaccine;
+  final VoidCallback onTapReminders;
+  final VoidCallback onTapVaccines;
+
+  const _WhatsNextCard({
+    required this.reminder,
+    required this.vaccine,
+    required this.onTapReminders,
+    required this.onTapVaccines,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.90),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('WHAT\'S NEXT',
+              style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                  color: Color(0xFFAA7755))),
+          const SizedBox(height: 8),
+          if (reminder != null)
+            _row(
+              onTap: onTapReminders,
+              emoji: '⏰',
+              text: reminder!.title,
+              sub:
+                  DateFormat('MMM d  •  hh:mm a').format(reminder!.scheduledAt),
+              overdue: reminder!.scheduledAt.isBefore(DateTime.now()),
+            ),
+          if (reminder != null && vaccine != null) const SizedBox(height: 8),
+          if (vaccine != null)
+            _row(
+              onTap: onTapVaccines,
+              emoji: '💉',
+              text: '${vaccine!.vaccineName} due',
+              sub: DateFormat('MMM d, yyyy').format(vaccine!.nextSchedule!),
+              overdue: vaccine!.isOverdue,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row({
+    required VoidCallback onTap,
+    required String emoji,
+    required String text,
+    required String sub,
+    required bool overdue,
+  }) {
+    final color = overdue ? Colors.redAccent : const Color(0xFF7B68EE);
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(text,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                Text(
+                  overdue ? 'Overdue · $sub' : sub,
+                  style: TextStyle(
+                      fontSize: 11, color: color, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, size: 18, color: color),
+        ],
+      ),
     );
   }
 }

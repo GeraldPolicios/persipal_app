@@ -1,4 +1,4 @@
-name: persipal
+name: persipal_app
 description: Persian Cat Care Companion - Virtual pet, learning, and care management app.
 publish_to: 'none'
 version: 1.0.0+1
@@ -22,6 +22,10 @@ dependencies:
   # Local Storage (Hive)
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+
+  # notification
+  flutter_local_notifications: ^17.0.0
+  timezone: ^0.9.0
 
   # Connectivity
   connectivity_plus: ^6.0.3
@@ -48,3 +52,4 @@ flutter:
 
   assets:
     - assets/images/
+

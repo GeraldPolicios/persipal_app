@@ -9,8 +9,18 @@
 // shared_preferences / sqflite / hive calls.  The public API is
 // identical regardless of the backing store, so the migration is
 // a one-file change.
+//
+// WHAT'S NEW:
+//   • ReminderItem now carries petId (which cat it's for), linkedVaccinationId
+//     (set when it was auto-created from a vaccine's "next dose"), and
+//     recurrence ('none' | 'daily' | 'weekly' | 'monthly').
+//   • ReminderItem.copyWith() — uses a sentinel so petId/linkedVaccinationId
+//     can be explicitly cleared (copyWith(petId: null)), not just skipped.
+//   • remindersForPet() and scheduleNextOccurrence() helpers.
 
 import 'package:flutter/material.dart';
+
+const Object _unset = Object();
 
 // ─── Activity Entry ──────────────────────────────────────────────────────────
 
@@ -38,6 +48,9 @@ class ReminderItem {
   String type;
   DateTime scheduledAt;
   bool isDone;
+  String? petId; // NEW — which cat this reminder belongs to
+  String? linkedVaccinationId; // NEW — set if auto-created from a vaccine dose
+  String recurrence; // NEW — 'none' | 'daily' | 'weekly' | 'monthly'
 
   ReminderItem({
     required this.id,
@@ -45,10 +58,40 @@ class ReminderItem {
     required this.type,
     required this.scheduledAt,
     this.isDone = false,
+    this.petId,
+    this.linkedVaccinationId,
+    this.recurrence = 'none',
   });
+
+  /// Returns a new ReminderItem with the given fields replaced.
+  /// Pass `petId: null` / `linkedVaccinationId: null` explicitly to CLEAR
+  /// those fields (they use a sentinel default so "not passed" != "null").
+  ReminderItem copyWith({
+    String? title,
+    String? type,
+    DateTime? scheduledAt,
+    bool? isDone,
+    Object? petId = _unset,
+    Object? linkedVaccinationId = _unset,
+    String? recurrence,
+  }) =>
+      ReminderItem(
+        id: id,
+        title: title ?? this.title,
+        type: type ?? this.type,
+        scheduledAt: scheduledAt ?? this.scheduledAt,
+        isDone: isDone ?? this.isDone,
+        petId: identical(petId, _unset) ? this.petId : petId as String?,
+        linkedVaccinationId: identical(linkedVaccinationId, _unset)
+            ? this.linkedVaccinationId
+            : linkedVaccinationId as String?,
+        recurrence: recurrence ?? this.recurrence,
+      );
 }
 
 // ─── Pet Profile Model ───────────────────────────────────────────────────────
+// (Legacy/simple profile model used elsewhere in the app — unrelated to
+// FullPetProfile in pet_extended_models.dart, left untouched.)
 
 class PetProfile {
   String id;
@@ -162,7 +205,42 @@ class ActivityService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Pet Profiles ──────────────────────────────────────────────────────────
+  /// NEW — reminders for one cat, or all reminders if petId is null.
+  List<ReminderItem> remindersForPet(String? petId) {
+    if (petId == null) return reminders;
+    return _reminders.where((r) => r.petId == petId).toList();
+  }
+
+  /// NEW — call right after markReminderDone() for a recurring reminder
+  /// (daily/weekly/monthly feeding, grooming, litter, etc.) to automatically
+  /// schedule the next occurrence.
+  void scheduleNextOccurrence(ReminderItem completed) {
+    if (completed.recurrence == 'none') return;
+    addReminder(ReminderItem(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      title: completed.title,
+      type: completed.type,
+      scheduledAt: _nextDate(completed.scheduledAt, completed.recurrence),
+      petId: completed.petId,
+      recurrence: completed.recurrence,
+    ));
+  }
+
+  DateTime _nextDate(DateTime from, String recurrence) {
+    switch (recurrence) {
+      case 'daily':
+        return from.add(const Duration(days: 1));
+      case 'weekly':
+        return from.add(const Duration(days: 7));
+      case 'monthly':
+        return DateTime(
+            from.year, from.month + 1, from.day, from.hour, from.minute);
+      default:
+        return from;
+    }
+  }
+
+  // ── Pet Profiles (legacy, unrelated to FullPetProfile) ────────────────────
 
   void addProfile(PetProfile profile) {
     _profiles.add(profile);

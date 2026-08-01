@@ -1,7 +1,23 @@
 // screens/reminder_screen.dart
+//
+// WHAT'S NEW:
+//  • Reminders can belong to a specific cat (petId) — a filter row lets
+//    multi-cat households view "All Pets" or just one. Cards show a small
+//    pet chip so it's obvious whose reminder it is.
+//  • Recurring reminders (daily / weekly / monthly) — feeding, grooming,
+//    litter changes, etc. auto-reschedule themselves when marked done.
+//  • Snooze (+1 hour / +1 day / +1 week) on any pending reminder — no need
+//    to delete and recreate one just because today got busy.
+//  • Vaccine-linked reminders (created from the Vaccinations screen) open
+//    the shared "mark dose given" flow instead of a plain checkbox, so the
+//    health record and the reminder never drift out of sync.
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/activity_service.dart';
+import '../providers/pet_profile_provider.dart';
+import '../models/pet_extended_models.dart';
+import '../widgets/vaccination_complete_dialog.dart';
 
 // ─── Type Config ─────────────────────────────────────────────────────────────
 
@@ -11,11 +27,23 @@ const _kTypes = [
   {'label': 'Vitamins', 'emoji': '💊', 'color': Color(0xFF32CD32)},
   {'label': 'Exercise', 'emoji': '🎾', 'color': Color(0xFF20B2AA)},
   {'label': 'Vet Visit', 'emoji': '🏥', 'color': Color(0xFFDC143C)},
+  {'label': 'Litter Box', 'emoji': '🧹', 'color': Color(0xFF9370DB)},
   {'label': 'Other', 'emoji': '📌', 'color': Color(0xFF4682B4)},
+];
+
+const _kRecurrences = [
+  {'label': 'None', 'value': 'none'},
+  {'label': 'Daily', 'value': 'daily'},
+  {'label': 'Weekly', 'value': 'weekly'},
+  {'label': 'Monthly', 'value': 'monthly'},
 ];
 
 Map<String, dynamic> _typeConfig(String label) =>
     _kTypes.firstWhere((t) => t['label'] == label, orElse: () => _kTypes.last);
+
+String _recurrenceLabel(String value) =>
+    _kRecurrences.firstWhere((r) => r['value'] == value,
+        orElse: () => _kRecurrences.first)['label'] as String;
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -29,19 +57,23 @@ class ReminderScreen extends StatefulWidget {
 class _ReminderScreenState extends State<ReminderScreen>
     with SingleTickerProviderStateMixin {
   final _service = ActivityService.instance;
+  final _petProvider = PetProfileProvider.instance;
   late TabController _tab;
+  String? _filterPetId; // null = All Pets
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
     _service.addListener(_refresh);
+    _petProvider.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _tab.dispose();
     _service.removeListener(_refresh);
+    _petProvider.removeListener(_refresh);
     super.dispose();
   }
 
@@ -49,13 +81,70 @@ class _ReminderScreenState extends State<ReminderScreen>
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
+  List<FullPetProfile> get _pets => _petProvider.profiles;
+
+  List<ReminderItem> get _allForFilter => _filterPetId == null
+      ? _service.reminders
+      : _service.reminders.where((r) => r.petId == _filterPetId).toList();
+
   List<ReminderItem> get _pending =>
-      _service.reminders.where((r) => !r.isDone).toList()
+      _allForFilter.where((r) => !r.isDone).toList()
         ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
-  List<ReminderItem> get _done =>
-      _service.reminders.where((r) => r.isDone).toList()
-        ..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
+  List<ReminderItem> get _done => _allForFilter.where((r) => r.isDone).toList()
+    ..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
+
+  FullPetProfile? _petFor(String? petId) =>
+      petId == null ? null : _petProvider.getById(petId);
+
+  VaccinationRecord? _vaccinationFor(ReminderItem item) {
+    if (item.petId == null || item.linkedVaccinationId == null) return null;
+    final pet = _petProvider.getById(item.petId!);
+    if (pet == null) return null;
+    for (final v in pet.vaccinations) {
+      if (v.id == item.linkedVaccinationId) return v;
+    }
+    return null;
+  }
+
+  // ── Mark done ─────────────────────────────────────────────────────────────
+
+  Future<void> _handleMarkDone(ReminderItem item) async {
+    final vaccination = _vaccinationFor(item);
+    if (vaccination != null && item.petId != null) {
+      // Vaccine-linked: hand off to the shared completion flow, which marks
+      // this reminder done AND keeps the vaccination record in sync.
+      await showVaccinationCompleteDialog(
+        context,
+        petId: item.petId!,
+        record: vaccination,
+      );
+      return;
+    }
+
+    _service.markReminderDone(item.id);
+
+    if (item.recurrence != 'none') {
+      _service.scheduleNextOccurrence(item);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content:
+            Text('Nice! Next ${item.title} reminder scheduled automatically.'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF32CD32),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+  void _snooze(ReminderItem item, Duration by) {
+    _service
+        .updateReminder(item.copyWith(scheduledAt: item.scheduledAt.add(by)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Snoozed "${item.title}".'),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+    ));
+  }
 
   // ── Add / Edit Dialog ────────────────────────────────────────────────────
 
@@ -63,6 +152,10 @@ class _ReminderScreenState extends State<ReminderScreen>
     final titleCtrl = TextEditingController(text: editing?.title ?? '');
     String selectedType = editing?.type ?? 'Feeding';
     DateTime? pickedDt = editing?.scheduledAt;
+    String recurrence = editing?.recurrence ?? 'none';
+    String? selectedPetId = editing?.petId ??
+        (_filterPetId ?? (_pets.length == 1 ? _pets.first.id : null));
+    final isVaccineLinked = editing?.linkedVaccinationId != null;
 
     showDialog(
       context: context,
@@ -75,211 +168,330 @@ class _ReminderScreenState extends State<ReminderScreen>
               const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title bar
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF8C69).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.alarm_add,
-                          color: Color(0xFFFF8C69), size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      editing == null ? 'New Reminder' : 'Edit Reminder',
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                // Title field
-                _dialogField(titleCtrl, 'What to remind?', Icons.notes),
-                const SizedBox(height: 14),
-
-                // Type chips
-                const Text('Type',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFFAA7755))),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: _kTypes.map((t) {
-                    final isSelected = selectedType == t['label'];
-                    final color = t['color'] as Color;
-                    return GestureDetector(
-                      onTap: () =>
-                          setD(() => selectedType = t['label'] as String),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title bar
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: isSelected ? color : color.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: isSelected ? color : Colors.transparent),
+                          color: const Color(0xFFFF8C69).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(t['emoji'] as String,
-                                style: const TextStyle(fontSize: 13)),
-                            const SizedBox(width: 4),
-                            Text(
-                              t['label'] as String,
+                        child: const Icon(Icons.alarm_add,
+                            color: Color(0xFFFF8C69), size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          editing == null ? 'New Reminder' : 'Edit Reminder',
+                          style: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  // Title field
+                  _dialogField(titleCtrl, 'What to remind?', Icons.notes,
+                      enabled: !isVaccineLinked),
+                  const SizedBox(height: 14),
+
+                  // Pet picker (only if there are profiles)
+                  if (_pets.isNotEmpty) ...[
+                    const Text('For which cat?',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFAA7755))),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: _pets.map((p) {
+                        final isSelected = selectedPetId == p.id;
+                        return GestureDetector(
+                          onTap: isVaccineLinked
+                              ? null
+                              : () => setD(() => selectedPetId = p.id),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? p.avatarColor
+                                  : p.avatarColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              p.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color:
+                                    isSelected ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // Type chips
+                  const Text('Type',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFAA7755))),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: _kTypes.map((t) {
+                      final isSelected = selectedType == t['label'];
+                      final color = t['color'] as Color;
+                      return GestureDetector(
+                        onTap: isVaccineLinked
+                            ? null
+                            : () =>
+                                setD(() => selectedType = t['label'] as String),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected ? color : color.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: isSelected ? color : Colors.transparent),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(t['emoji'] as String,
+                                  style: const TextStyle(fontSize: 13)),
+                              const SizedBox(width: 4),
+                              Text(
+                                t['label'] as String,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : color.withOpacity(0.85),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Date-time picker
+                  const Text('Date & Time',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFAA7755))),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: isVaccineLinked
+                        ? null
+                        : () async {
+                            final date = await showDatePicker(
+                              context: ctx,
+                              initialDate: pickedDt ?? DateTime.now(),
+                              firstDate: DateTime.now()
+                                  .subtract(const Duration(days: 1)),
+                              lastDate: DateTime(2100),
+                              builder: (c, child) => Theme(
+                                data: Theme.of(c).copyWith(
+                                  colorScheme: const ColorScheme.light(
+                                      primary: Color(0xFFFF8C69)),
+                                ),
+                                child: child!,
+                              ),
+                            );
+                            if (date == null) return;
+                            final time = await showTimePicker(
+                              context: ctx,
+                              initialTime: pickedDt != null
+                                  ? TimeOfDay.fromDateTime(pickedDt!)
+                                  : TimeOfDay.now(),
+                              builder: (c, child) => Theme(
+                                data: Theme.of(c).copyWith(
+                                  colorScheme: const ColorScheme.light(
+                                      primary: Color(0xFFFF8C69)),
+                                ),
+                                child: child!,
+                              ),
+                            );
+                            if (time == null) return;
+                            setD(() => pickedDt = DateTime(date.year,
+                                date.month, date.day, time.hour, time.minute));
+                          },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: const Color(0xFFFF8C69).withOpacity(0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_today,
+                              size: 18, color: Color(0xFFFF8C69)),
+                          const SizedBox(width: 10),
+                          Text(
+                            pickedDt == null
+                                ? 'Pick date & time'
+                                : DateFormat('MMM d, yyyy  •  hh:mm a')
+                                    .format(pickedDt!),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: pickedDt == null
+                                  ? Colors.grey
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Recurrence
+                  if (!isVaccineLinked) ...[
+                    const Text('Repeat',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFAA7755))),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      children: _kRecurrences.map((r) {
+                        final value = r['value'] as String;
+                        final isSelected = recurrence == value;
+                        return GestureDetector(
+                          onTap: () => setD(() => recurrence = value),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? const Color(0xFF20B2AA)
+                                  : const Color(0xFF20B2AA).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              r['label'] as String,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 color: isSelected
                                     ? Colors.white
-                                    : color.withOpacity(0.85),
+                                    : const Color(0xFF20B2AA),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 14),
-
-                // Date-time picker
-                const Text('Date & Time',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFFAA7755))),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: () async {
-                    final date = await showDatePicker(
-                      context: ctx,
-                      initialDate: pickedDt ?? DateTime.now(),
-                      firstDate:
-                          DateTime.now().subtract(const Duration(days: 1)),
-                      lastDate: DateTime(2100),
-                      builder: (c, child) => Theme(
-                        data: Theme.of(c).copyWith(
-                          colorScheme: const ColorScheme.light(
-                              primary: Color(0xFFFF8C69)),
-                        ),
-                        child: child!,
-                      ),
-                    );
-                    if (date == null) return;
-                    final time = await showTimePicker(
-                      context: ctx,
-                      initialTime: pickedDt != null
-                          ? TimeOfDay.fromDateTime(pickedDt!)
-                          : TimeOfDay.now(),
-                      builder: (c, child) => Theme(
-                        data: Theme.of(c).copyWith(
-                          colorScheme: const ColorScheme.light(
-                              primary: Color(0xFFFF8C69)),
-                        ),
-                        child: child!,
-                      ),
-                    );
-                    if (time == null) return;
-                    setD(() => pickedDt = DateTime(date.year, date.month,
-                        date.day, time.hour, time.minute));
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: const Color(0xFFFF8C69).withOpacity(0.4)),
+                          ),
+                        );
+                      }).toList(),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today,
-                            size: 18, color: Color(0xFFFF8C69)),
-                        const SizedBox(width: 10),
-                        Text(
-                          pickedDt == null
-                              ? 'Pick date & time'
-                              : DateFormat('MMM d, yyyy  •  hh:mm a')
-                                  .format(pickedDt!),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color:
-                                pickedDt == null ? Colors.grey : Colors.black87,
+                    const SizedBox(height: 8),
+                  ] else ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC143C).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(children: const [
+                        Icon(Icons.link, size: 14, color: Color(0xFFDC143C)),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'This reminder is linked to a vaccination record. '
+                            'Edit the date from the Vaccinations screen.',
+                            style: TextStyle(
+                                fontSize: 11, color: Color(0xFFDC143C)),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Actions
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel',
-                          style: TextStyle(color: Colors.grey)),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF8C69),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 22, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () {
-                        if (titleCtrl.text.trim().isEmpty || pickedDt == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content:
-                                    Text('Please fill in title & date/time.')),
-                          );
-                          return;
-                        }
-                        if (editing == null) {
-                          _service.addReminder(ReminderItem(
-                            id: DateTime.now()
-                                .microsecondsSinceEpoch
-                                .toString(),
-                            title: titleCtrl.text.trim(),
-                            type: selectedType,
-                            scheduledAt: pickedDt!,
-                          ));
-                        } else {
-                          _service.updateReminder(ReminderItem(
-                            id: editing.id,
-                            title: titleCtrl.text.trim(),
-                            type: selectedType,
-                            scheduledAt: pickedDt!,
-                            isDone: editing.isDone,
-                          ));
-                        }
-                        Navigator.pop(ctx);
-                      },
-                      child: Text(editing == null ? 'Add' : 'Save'),
+                      ]),
                     ),
                   ],
-                ),
-              ],
+                  const SizedBox(height: 20),
+
+                  // Actions
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel',
+                            style: TextStyle(color: Colors.grey)),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF8C69),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 22, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () {
+                          if (titleCtrl.text.trim().isEmpty ||
+                              pickedDt == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text(
+                                      'Please fill in title & date/time.')),
+                            );
+                            return;
+                          }
+                          if (editing == null) {
+                            _service.addReminder(ReminderItem(
+                              id: DateTime.now()
+                                  .microsecondsSinceEpoch
+                                  .toString(),
+                              title: titleCtrl.text.trim(),
+                              type: selectedType,
+                              scheduledAt: pickedDt!,
+                              petId: selectedPetId,
+                              recurrence: recurrence,
+                            ));
+                          } else {
+                            _service.updateReminder(editing.copyWith(
+                              title: titleCtrl.text.trim(),
+                              type: selectedType,
+                              scheduledAt: pickedDt!,
+                              petId: selectedPetId,
+                              recurrence: recurrence,
+                            ));
+                          }
+                          Navigator.pop(ctx);
+                        },
+                        child: Text(editing == null ? 'Add' : 'Save'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -287,9 +499,11 @@ class _ReminderScreenState extends State<ReminderScreen>
     );
   }
 
-  Widget _dialogField(TextEditingController ctrl, String hint, IconData icon) {
+  Widget _dialogField(TextEditingController ctrl, String hint, IconData icon,
+      {bool enabled = true}) {
     return TextField(
       controller: ctrl,
+      enabled: enabled,
       decoration: InputDecoration(
         hintText: hint,
         prefixIcon: Icon(icon, size: 18, color: const Color(0xFFFF8C69)),
@@ -366,10 +580,30 @@ class _ReminderScreenState extends State<ReminderScreen>
                   ),
                 ),
 
+                // ── Pet filter row (multi-cat households) ───────────────
+                if (_pets.length > 1)
+                  SizedBox(
+                    height: 36,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: [
+                        _petFilterChip(
+                            'All Pets', null, const Color(0xFFAA7755)),
+                        const SizedBox(width: 6),
+                        for (final p in _pets) ...[
+                          _petFilterChip(p.name, p.id, p.avatarColor),
+                          const SizedBox(width: 6),
+                        ],
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 8),
+
                 // ── Stats row ──────────────────────────────────────────
                 Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Row(
                     children: [
                       _statChip('${_pending.length}', 'Pending',
@@ -380,6 +614,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                     ],
                   ),
                 ),
+                const SizedBox(height: 8),
 
                 // ── Tabs ───────────────────────────────────────────────
                 Container(
@@ -421,6 +656,26 @@ class _ReminderScreenState extends State<ReminderScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _petFilterChip(String label, String? petId, Color color) {
+    final isSelected = _filterPetId == petId;
+    return GestureDetector(
+      onTap: () => setState(() => _filterPetId = petId),
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? color : color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: isSelected ? Colors.white : Colors.black87)),
       ),
     );
   }
@@ -490,6 +745,8 @@ class _ReminderScreenState extends State<ReminderScreen>
     final cfg = _typeConfig(item.type);
     final color = cfg['color'] as Color;
     final isOverdue = !item.isDone && item.scheduledAt.isBefore(DateTime.now());
+    final pet = _petFor(item.petId);
+    final isVaccineLinked = item.linkedVaccinationId != null;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -512,6 +769,7 @@ class _ReminderScreenState extends State<ReminderScreen>
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Color badge
             Container(
@@ -544,7 +802,10 @@ class _ReminderScreenState extends State<ReminderScreen>
                     ),
                   ),
                   const SizedBox(height: 3),
-                  Row(
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -561,7 +822,39 @@ class _ReminderScreenState extends State<ReminderScreen>
                               fontWeight: FontWeight.w700),
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      if (pet != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: pet.avatarColor.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text('🐱 ${pet.name}',
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF4A2C1A))),
+                        ),
+                      if (item.recurrence != 'none')
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF20B2AA).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.repeat,
+                                size: 10, color: Color(0xFF20B2AA)),
+                            const SizedBox(width: 2),
+                            Text(_recurrenceLabel(item.recurrence),
+                                style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Color(0xFF20B2AA),
+                                    fontWeight: FontWeight.w700)),
+                          ]),
+                        ),
                       if (isOverdue)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -595,28 +888,59 @@ class _ReminderScreenState extends State<ReminderScreen>
                 if (!item.isDone) ...[
                   // Mark done
                   _iconAction(
-                    Icons.check_circle_outline,
+                    isVaccineLinked
+                        ? Icons.vaccines
+                        : Icons.check_circle_outline,
                     const Color(0xFF32CD32),
                     'Done',
-                    () => _service.markReminderDone(item.id),
+                    () => _handleMarkDone(item),
+                  ),
+                  const SizedBox(height: 4),
+                  // Snooze
+                  PopupMenuButton<Duration>(
+                    tooltip: 'Snooze',
+                    padding: EdgeInsets.zero,
+                    icon: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.snooze,
+                          size: 18, color: Colors.orange),
+                    ),
+                    onSelected: (d) => _snooze(item, d),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                          value: Duration(hours: 1),
+                          child: Text('Snooze 1 hour')),
+                      PopupMenuItem(
+                          value: Duration(days: 1),
+                          child: Text('Snooze 1 day')),
+                      PopupMenuItem(
+                          value: Duration(days: 7),
+                          child: Text('Snooze 1 week')),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   // Edit
-                  _iconAction(
-                    Icons.edit_outlined,
-                    const Color(0xFF4682B4),
-                    'Edit',
-                    () => _showDialog(editing: item),
-                  ),
-                  const SizedBox(height: 4),
+                  if (!isVaccineLinked)
+                    _iconAction(
+                      Icons.edit_outlined,
+                      const Color(0xFF4682B4),
+                      'Edit',
+                      () => _showDialog(editing: item),
+                    ),
+                  if (!isVaccineLinked) const SizedBox(height: 4),
                 ],
                 // Delete
-                _iconAction(
-                  Icons.delete_outline,
-                  Colors.redAccent,
-                  'Del',
-                  () => _confirmDelete(item),
-                ),
+                if (!isVaccineLinked)
+                  _iconAction(
+                    Icons.delete_outline,
+                    Colors.redAccent,
+                    'Del',
+                    () => _confirmDelete(item),
+                  ),
               ],
             ),
           ],

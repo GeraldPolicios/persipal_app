@@ -11,6 +11,7 @@ import 'services/connectivity_service.dart';
 import 'services/firebase_sync_service.dart';
 import 'services/local_storage_service.dart';
 import 'services/session_manager.dart';
+import 'services/notification_service.dart';
 import 'screens/splash_screen.dart';
 
 Future<void> main() async {
@@ -35,6 +36,9 @@ Future<void> main() async {
 
   // 6. Activity log — loads from Hive
   await ActivityLogService.instance.init();
+
+  // 7. Notification service — requests permissions, sets up channels
+  await NotificationService.instance.init();
 
   runApp(const PersipalApp());
 }

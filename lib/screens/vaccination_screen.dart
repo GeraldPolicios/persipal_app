@@ -1,14 +1,36 @@
 // screens/pet_profiles/vaccination_screen.dart
 //
-// Vaccination Records — full CRUD.
-// Shows vaccine name, completion date, next schedule, vet notes.
-// Overdue badges, reminder toggle, sorted by next schedule.
+// Vaccination Records — full CRUD, now wired into Care Reminders.
+//
+// WHAT'S NEW:
+//  • Setting a "Next Schedule" + enabling the reminder toggle auto-creates
+//    (and keeps in sync) a matching entry in Care Reminders.
+//  • Turning the reminder off, clearing the date, or deleting the record
+//    removes the linked reminder automatically.
+//  • "Mark Given" button on any card with a pending dose runs the shared
+//    completion flow (see widgets/vaccination_complete_dialog.dart) — it
+//    marks the linked reminder done (kept in the Done tab) and adds a new
+//    completed record, so full dose history is never overwritten.
+//  • Quick-add chips for the 4 core cat vaccines/treatments.
+//  • Due-in-X-days / overdue-by-X-days labels instead of just a raw date.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
+import '../../services/activity_service.dart';
+import '../../widgets/vaccination_complete_dialog.dart';
+
+// ─── Quick vaccine templates ────────────────────────────────────────────────
+// Tapping one fills the name field and, if no next-schedule is set yet,
+// suggests a sensible follow-up interval so parents don't have to remember it.
+const _kVaccineTemplates = [
+  {'label': 'FVRCP', 'days': 365},
+  {'label': 'Rabies', 'days': 365},
+  {'label': 'FeLV', 'days': 365},
+  {'label': 'Deworming', 'days': 90},
+];
 
 class VaccinationScreen extends StatefulWidget {
   final String petId;
@@ -38,6 +60,69 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
 
   FullPetProfile? get _pet => _provider.getById(widget.petId);
 
+  VaccinationRecord? _findRecord(String id) {
+    for (final r in _pet?.vaccinations ?? const <VaccinationRecord>[]) {
+      if (r.id == id) return r;
+    }
+    return null;
+  }
+
+  // ── Reminder sync ────────────────────────────────────────────────────────
+
+  Future<void> _syncReminder({
+    required String recordId,
+    required String vaccineName,
+    required DateTime? nextSchedule,
+    required bool reminderEnabled,
+    required String? existingLinkedReminderId,
+  }) async {
+    final pet = _pet;
+    if (pet == null) return;
+    final service = ActivityService.instance;
+
+    // No date, or reminders off -> tear down any existing linked reminder.
+    if (nextSchedule == null || !reminderEnabled) {
+      if (existingLinkedReminderId != null) {
+        service.deleteReminder(existingLinkedReminderId);
+        final rec = _findRecord(recordId);
+        if (rec != null) {
+          await _provider.updateVaccination(
+              widget.petId, rec.copyWith(linkedReminderId: null));
+        }
+      }
+      return;
+    }
+
+    final title = "💉 $vaccineName — ${pet.name}'s next dose";
+    final stillExists = existingLinkedReminderId != null &&
+        service.reminders.any((r) => r.id == existingLinkedReminderId);
+
+    if (stillExists) {
+      final old =
+          service.reminders.firstWhere((r) => r.id == existingLinkedReminderId);
+      service.updateReminder(old.copyWith(
+        title: title,
+        scheduledAt: nextSchedule,
+        isDone: false,
+      ));
+    } else {
+      final reminderId = _uuid.v4();
+      service.addReminder(ReminderItem(
+        id: reminderId,
+        title: title,
+        type: 'Vet Visit',
+        scheduledAt: nextSchedule,
+        petId: widget.petId,
+        linkedVaccinationId: recordId,
+      ));
+      final rec = _findRecord(recordId);
+      if (rec != null) {
+        await _provider.updateVaccination(
+            widget.petId, rec.copyWith(linkedReminderId: reminderId));
+      }
+    }
+  }
+
   // ── Add / Edit dialog ─────────────────────────────────────────────────────
 
   void _showDialog({VaccinationRecord? existing}) {
@@ -46,6 +131,7 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
     DateTime completedDate = existing?.completedDate ?? DateTime.now();
     DateTime? nextSchedule = existing?.nextSchedule;
     bool reminderEnabled = existing?.reminderEnabled ?? false;
+    final existingLinkedReminderId = existing?.linkedReminderId;
 
     showDialog(
       context: context,
@@ -81,7 +167,50 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                           fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ]),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
+
+                  // Quick templates
+                  if (existing == null) ...[
+                    const _SLabel('Quick Add (core vaccines & care)'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: _kVaccineTemplates.map((t) {
+                        final label = t['label'] as String;
+                        final days = t['days'] as int;
+                        return GestureDetector(
+                          onTap: () {
+                            setD(() {
+                              nameCtrl.text = label;
+                              if (nextSchedule == null) {
+                                nextSchedule =
+                                    completedDate.add(Duration(days: days));
+                                reminderEnabled = true;
+                              }
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF7B68EE).withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color:
+                                      const Color(0xFF7B68EE).withOpacity(0.3)),
+                            ),
+                            child: Text(label,
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF7B68EE))),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
 
                   // Vaccine name
                   _field(nameCtrl, 'Vaccine Name *', Icons.medical_services,
@@ -120,11 +249,19 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                           initial: nextSchedule ?? DateTime.now(),
                           first: DateTime.now(),
                           last: DateTime(2100));
-                      if (d != null) setD(() => nextSchedule = d);
+                      if (d != null) {
+                        setD(() {
+                          nextSchedule = d;
+                          reminderEnabled = true;
+                        });
+                      }
                     },
                     trailing: nextSchedule != null
                         ? GestureDetector(
-                            onTap: () => setD(() => nextSchedule = null),
+                            onTap: () => setD(() {
+                              nextSchedule = null;
+                              reminderEnabled = false;
+                            }),
                             child: const Icon(Icons.close,
                                 size: 16, color: Colors.grey),
                           )
@@ -157,16 +294,25 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                           size: 18, color: Color(0xFF7B68EE)),
                       const SizedBox(width: 10),
                       const Expanded(
-                        child: Text('Enable reminder',
+                        child: Text('Sync to Care Reminders',
                             style: TextStyle(fontSize: 13)),
                       ),
                       Switch(
-                        value: reminderEnabled,
-                        onChanged: (v) => setD(() => reminderEnabled = v),
+                        value: reminderEnabled && nextSchedule != null,
+                        onChanged: nextSchedule == null
+                            ? null
+                            : (v) => setD(() => reminderEnabled = v),
                         activeColor: const Color(0xFF7B68EE),
                       ),
                     ]),
                   ),
+                  if (nextSchedule == null) ...[
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Set a next schedule date to enable a reminder.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
                   const SizedBox(height: 18),
 
                   // Actions
@@ -199,31 +345,44 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                                         Text('Vaccine name is required.')));
                             return;
                           }
+                          final recordId = existing?.id ?? _uuid.v4();
+                          final vaccineName = nameCtrl.text.trim();
+                          final effectiveReminderEnabled =
+                              reminderEnabled && nextSchedule != null;
                           Navigator.pop(ctx);
+
                           if (existing == null) {
                             await _provider.addVaccination(
                               widget.petId,
                               VaccinationRecord(
-                                id: _uuid.v4(),
-                                vaccineName: nameCtrl.text.trim(),
+                                id: recordId,
+                                vaccineName: vaccineName,
                                 completedDate: completedDate,
                                 nextSchedule: nextSchedule,
                                 vetNotes: notesCtrl.text.trim(),
-                                reminderEnabled: reminderEnabled,
+                                reminderEnabled: effectiveReminderEnabled,
                               ),
                             );
                           } else {
                             await _provider.updateVaccination(
                               widget.petId,
                               existing.copyWith(
-                                vaccineName: nameCtrl.text.trim(),
+                                vaccineName: vaccineName,
                                 completedDate: completedDate,
                                 nextSchedule: nextSchedule,
                                 vetNotes: notesCtrl.text.trim(),
-                                reminderEnabled: reminderEnabled,
+                                reminderEnabled: effectiveReminderEnabled,
                               ),
                             );
                           }
+
+                          await _syncReminder(
+                            recordId: recordId,
+                            vaccineName: vaccineName,
+                            nextSchedule: nextSchedule,
+                            reminderEnabled: effectiveReminderEnabled,
+                            existingLinkedReminderId: existingLinkedReminderId,
+                          );
                         },
                       ),
                     ],
@@ -263,7 +422,9 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
         backgroundColor: const Color(0xFFFFF5EE),
         title: const Text('Delete Record?',
             style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text('Remove "${record.vaccineName}" vaccination record?',
+        content: Text(
+            'Remove "${record.vaccineName}" vaccination record?'
+            '${record.linkedReminderId != null ? ' Its linked reminder will be removed too.' : ''}',
             style: const TextStyle(fontSize: 13)),
         actions: [
           TextButton(
@@ -278,6 +439,10 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                     borderRadius: BorderRadius.circular(10))),
             onPressed: () async {
               Navigator.pop(ctx);
+              if (record.linkedReminderId != null) {
+                ActivityService.instance
+                    .deleteReminder(record.linkedReminderId!);
+              }
               await _provider.deleteVaccination(widget.petId, record.id);
             },
             child: const Text('Delete'),
@@ -310,6 +475,8 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
       });
 
     final overdueCount = records.where((r) => r.isOverdue).length;
+    final upcomingCount =
+        records.where((r) => !r.isOverdue && r.nextSchedule != null).length;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -336,23 +503,24 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                         TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ),
               if (overdueCount > 0)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '$overdueCount overdue',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.redAccent),
-                  ),
-                ),
+                _headerBadge('$overdueCount overdue', Colors.redAccent),
             ]),
           ),
+
+          // Stats row
+          if (records.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(children: [
+                _statChip(
+                    '${records.length}', 'Total', const Color(0xFF7B68EE)),
+                const SizedBox(width: 8),
+                _statChip(
+                    '$upcomingCount', 'Upcoming', const Color(0xFF20B2AA)),
+                const SizedBox(width: 8),
+                _statChip('$overdueCount', 'Overdue', Colors.redAccent),
+              ]),
+            ),
           const SizedBox(height: 4),
 
           Expanded(
@@ -365,12 +533,22 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                       record: records[i],
                       onEdit: () => _showDialog(existing: records[i]),
                       onDelete: () => _confirmDelete(records[i]),
+                      onMarkGiven: () => showVaccinationCompleteDialog(
+                        context,
+                        petId: widget.petId,
+                        record: records[i],
+                      ),
                       onReminderToggle: () async {
-                        await _provider.updateVaccination(
-                          widget.petId,
-                          records[i].copyWith(
-                            reminderEnabled: !records[i].reminderEnabled,
-                          ),
+                        final rec = records[i];
+                        final newVal = !rec.reminderEnabled;
+                        await _provider.updateVaccination(widget.petId,
+                            rec.copyWith(reminderEnabled: newVal));
+                        await _syncReminder(
+                          recordId: rec.id,
+                          vaccineName: rec.vaccineName,
+                          nextSchedule: rec.nextSchedule,
+                          reminderEnabled: newVal,
+                          existingLinkedReminderId: rec.linkedReminderId,
                         );
                       },
                     ),
@@ -388,6 +566,36 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
       ),
     );
   }
+
+  Widget _headerBadge(String text, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.bold, color: color)),
+      );
+
+  Widget _statChip(String count, String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(count,
+              style: TextStyle(
+                  fontWeight: FontWeight.bold, color: color, fontSize: 13)),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11,
+                  color: color.withOpacity(0.85),
+                  fontWeight: FontWeight.w600)),
+        ]),
+      );
 
   Widget _emptyState() => Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -466,6 +674,19 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
       );
 }
 
+// ─── Due-date label helper ─────────────────────────────────────────────────
+
+String _dueLabel(DateTime next) {
+  final now = DateTime.now();
+  final days = DateTime(next.year, next.month, next.day)
+      .difference(DateTime(now.year, now.month, now.day))
+      .inDays;
+  if (days < 0) return 'Overdue by ${-days} day${-days == 1 ? '' : 's'}';
+  if (days == 0) return 'Due today';
+  if (days == 1) return 'Due tomorrow';
+  return 'Due in $days days';
+}
+
 // ─── Vaccine Card ─────────────────────────────────────────────────────────────
 
 class _VaccineCard extends StatelessWidget {
@@ -473,12 +694,14 @@ class _VaccineCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onReminderToggle;
+  final VoidCallback onMarkGiven;
 
   const _VaccineCard({
     required this.record,
     required this.onEdit,
     required this.onDelete,
     required this.onReminderToggle,
+    required this.onMarkGiven,
   });
 
   @override
@@ -551,7 +774,7 @@ class _VaccineCard extends StatelessWidget {
                 ),
             ]),
 
-            // Next schedule
+            // Next schedule + due countdown
             if (hasNext) ...[
               const SizedBox(height: 8),
               Container(
@@ -571,15 +794,23 @@ class _VaccineCard extends StatelessWidget {
                         isOverdue ? Colors.redAccent : const Color(0xFF7B68EE),
                   ),
                   const SizedBox(width: 6),
-                  Text(
-                    'Next: ${DateFormat('MMM d, yyyy').format(record.nextSchedule!)}',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Text(
+                      '${DateFormat('MMM d, yyyy').format(record.nextSchedule!)} · ${_dueLabel(record.nextSchedule!)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isOverdue
+                              ? Colors.redAccent
+                              : const Color(0xFF7B68EE)),
+                    ),
+                  ),
+                  if (record.linkedReminderId != null)
+                    Icon(Icons.notifications_active,
+                        size: 13,
                         color: isOverdue
                             ? Colors.redAccent
                             : const Color(0xFF7B68EE)),
-                  ),
                 ]),
               ),
             ],
@@ -602,7 +833,6 @@ class _VaccineCard extends StatelessWidget {
 
             // Bottom actions row
             Row(children: [
-              // Reminder switch
               const Icon(Icons.notifications_outlined,
                   size: 14, color: Color(0xFF7B68EE)),
               const SizedBox(width: 4),
@@ -611,13 +841,18 @@ class _VaccineCard extends StatelessWidget {
               Transform.scale(
                 scale: 0.75,
                 child: Switch(
-                  value: record.reminderEnabled,
-                  onChanged: (_) => onReminderToggle(),
+                  value: record.reminderEnabled && hasNext,
+                  onChanged: hasNext ? (_) => onReminderToggle() : null,
                   activeColor: const Color(0xFF7B68EE),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
               const Spacer(),
+              if (hasNext) ...[
+                _pillBtn('Mark Given', Icons.check, const Color(0xFF32CD32),
+                    onMarkGiven),
+                const SizedBox(width: 6),
+              ],
               _actionBtn(Icons.edit_outlined, const Color(0xFF4682B4), onEdit),
               const SizedBox(width: 6),
               _actionBtn(Icons.delete_outline, Colors.redAccent, onDelete),
@@ -627,6 +862,26 @@ class _VaccineCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _pillBtn(
+          String label, IconData icon, Color color, VoidCallback onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.bold, color: color)),
+          ]),
+        ),
+      );
 
   Widget _actionBtn(IconData icon, Color color, VoidCallback onTap) =>
       GestureDetector(

@@ -8,6 +8,10 @@
 
 import 'package:flutter/material.dart';
 
+// Sentinel used so copyWith() can tell "not passed" apart from
+// "explicitly passed null" (needed to CLEAR nextSchedule / linkedReminderId).
+const Object _unset = Object();
+
 // ─── GrowthEntry ──────────────────────────────────────────────────────────────
 
 class GrowthEntry {
@@ -60,6 +64,7 @@ class VaccinationRecord {
   final DateTime? nextSchedule;
   final String vetNotes;
   final bool reminderEnabled;
+  final String? linkedReminderId; // NEW — id of the auto-synced ReminderItem
 
   const VaccinationRecord({
     required this.id,
@@ -68,6 +73,7 @@ class VaccinationRecord {
     this.nextSchedule,
     this.vetNotes = '',
     this.reminderEnabled = false,
+    this.linkedReminderId, // NEW
   });
 
   bool get isUpcoming =>
@@ -76,20 +82,29 @@ class VaccinationRecord {
   bool get isOverdue =>
       nextSchedule != null && nextSchedule!.isBefore(DateTime.now());
 
+  // NOTE: nextSchedule and linkedReminderId use the _unset sentinel so that
+  // copyWith(nextSchedule: null) actually CLEARS the date instead of being
+  // swallowed by a `??` fallback. Passing nothing leaves the value as-is.
   VaccinationRecord copyWith({
     String? vaccineName,
     DateTime? completedDate,
-    DateTime? nextSchedule,
+    Object? nextSchedule = _unset,
     String? vetNotes,
     bool? reminderEnabled,
+    Object? linkedReminderId = _unset,
   }) =>
       VaccinationRecord(
         id: id,
         vaccineName: vaccineName ?? this.vaccineName,
         completedDate: completedDate ?? this.completedDate,
-        nextSchedule: nextSchedule ?? this.nextSchedule,
+        nextSchedule: identical(nextSchedule, _unset)
+            ? this.nextSchedule
+            : nextSchedule as DateTime?,
         vetNotes: vetNotes ?? this.vetNotes,
         reminderEnabled: reminderEnabled ?? this.reminderEnabled,
+        linkedReminderId: identical(linkedReminderId, _unset)
+            ? this.linkedReminderId
+            : linkedReminderId as String?,
       );
 
   Map<String, dynamic> toMap() => {
@@ -99,6 +114,7 @@ class VaccinationRecord {
         'nextSchedule': nextSchedule?.toIso8601String(),
         'vetNotes': vetNotes,
         'reminderEnabled': reminderEnabled,
+        'linkedReminderId': linkedReminderId,
       };
 
   factory VaccinationRecord.fromMap(Map<String, dynamic> m) =>
@@ -112,6 +128,7 @@ class VaccinationRecord {
             : null,
         vetNotes: m['vetNotes'] as String? ?? '',
         reminderEnabled: m['reminderEnabled'] as bool? ?? false,
+        linkedReminderId: m['linkedReminderId'] as String?,
       );
 }
 
