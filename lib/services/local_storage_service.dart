@@ -1,12 +1,8 @@
-// lib/services/local_storage_service.dart
-//
-// Hive-backed offline-first primary data store.
-// ALL app data is written here first — Firestore is only a backup.
-// Uses String boxes with JSON serialisation (no generated adapters needed).
-
 import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/models.dart';
+import '../models/virtual_pet_state.dart';
+import '../models/reminder_item_model.dart';
 
 class LocalStorageService {
   LocalStorageService._();
@@ -19,6 +15,9 @@ class LocalStorageService {
   static const _bSettings = 'ls_settings';
   static const _bQuizzes = 'ls_quizzes';
   static const _bPending = 'ls_pending_sync'; // ops queued while offline
+  static const _bVirtualPet = 'ls_virtual_pet'; // single-record: virtual pet
+
+  static const _kVirtualPetKey = 'virtual_pet_state';
 
   bool _ready = false;
   bool get isReady => _ready;
@@ -34,6 +33,7 @@ class LocalStorageService {
       Hive.openBox<String>(_bSettings),
       Hive.openBox<String>(_bQuizzes),
       Hive.openBox<String>(_bPending),
+      Hive.openBox<String>(_bVirtualPet),
     ]);
     _ready = true;
   }
@@ -46,6 +46,7 @@ class LocalStorageService {
   Box<String> get _settings => Hive.box<String>(_bSettings);
   Box<String> get _quizzes => Hive.box<String>(_bQuizzes);
   Box<String> get _pending => Hive.box<String>(_bPending);
+  Box<String> get _virtualPet => Hive.box<String>(_bVirtualPet);
 
   Map<String, dynamic> _dec(String raw) =>
       jsonDecode(raw) as Map<String, dynamic>;
@@ -95,6 +96,20 @@ class LocalStorageService {
 
   Future<void> deleteAllReminders() async => _reminders.clear();
 
+  // ── Reminder Items (real pets) ──────────────────────────────────────────
+  // NEW: persists the richer ReminderItem shape (petId, linkedVaccinationId,
+  // recurrence) that the Reminder/Vaccination screens actually use. Shares
+  // the same ls_reminders box as the methods above; those are left as-is
+  // (unused today) rather than removed, per "don't touch unrelated code."
+
+  Future<List<ReminderItem>> fetchReminderItems() async =>
+      _reminders.values.map((r) => ReminderItem.fromMap(_dec(r))).toList();
+
+  Future<void> saveReminderItem(ReminderItem item) async =>
+      _reminders.put(item.id, jsonEncode(item.toMap()));
+
+  Future<void> deleteReminderItem(String id) async => _reminders.delete(id);
+
   // ── Settings ──────────────────────────────────────────────────────────────
 
   Future<AppSettings> fetchSettings() async {
@@ -121,6 +136,19 @@ class LocalStorageService {
 
   Future<void> saveQuizResult(QuizResult r) async =>
       _quizzes.put(r.id, jsonEncode(r.toMap()));
+
+  // ── Virtual Pet (single record — NOT a real pet profile) ───────────────────
+  // Deliberately separate from the pets/full_pet_profiles storage: there is
+  // exactly one virtual pet, stored under one fixed key, never keyed by id.
+
+  Future<VirtualPetState?> fetchVirtualPet() async {
+    final raw = _virtualPet.get(_kVirtualPetKey);
+    if (raw == null) return null;
+    return VirtualPetState.fromMap(_dec(raw));
+  }
+
+  Future<void> saveVirtualPet(VirtualPetState pet) async =>
+      _virtualPet.put(_kVirtualPetKey, jsonEncode(pet.toMap()));
 
   // ── Pending sync ops ──────────────────────────────────────────────────────
   // We store simple string tokens like "pet:id", "reminder:id", "log:id"

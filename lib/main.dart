@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
 import 'providers/app_provider.dart';
+import 'providers/virtual_pet_provider.dart';
+import 'providers/reminder_provider.dart';
 import 'services/activity_log_service.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
@@ -51,6 +53,8 @@ class PersipalApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AppProvider()..init()),
+        ChangeNotifierProvider(create: (_) => VirtualPetProvider()..init()),
+        ChangeNotifierProvider(create: (_) => ReminderProvider()..init()),
         ChangeNotifierProvider.value(value: ActivityLogService.instance),
         ChangeNotifierProvider.value(value: AuthService.instance),
         ChangeNotifierProvider.value(value: SessionManager.instance),

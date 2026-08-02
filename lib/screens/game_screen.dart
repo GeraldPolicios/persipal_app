@@ -1,6 +1,7 @@
 // screens/game_screen.dart
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/virtual_pet_provider.dart';
 import '../services/activity_service.dart';
 import '../widgets/tap_effects.dart';
 import 'feed_screen.dart';
@@ -17,38 +18,11 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> {
   final _service = ActivityService.instance;
 
-  String catName = 'Meow Meow';
-  Timer? _timer;
-
-  int happiness = 70;
-  int hunger = 30; // 0 = full, 100 = starving
-  int cleanliness = 90;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _askCatName());
-
-    // Real-time stat decay
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!mounted) return;
-      setState(() {
-        hunger = (hunger + 2).clamp(0, 100);
-        happiness = (happiness - 1).clamp(0, 100);
-        cleanliness = (cleanliness - 1).clamp(0, 100);
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
+  bool _askedName = false;
 
   // ── Cat name dialog ───────────────────────────────────────────────────────
 
-  void _askCatName() {
+  void _askCatName(VirtualPetProvider vp) {
     final ctrl = TextEditingController();
     showDialog(
       context: context,
@@ -85,14 +59,13 @@ class _GameScreenState extends State<GameScreen> {
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () {
-              setState(() {
-                catName =
-                    ctrl.text.trim().isEmpty ? 'Meow Meow' : ctrl.text.trim();
-              });
+              final name =
+                  ctrl.text.trim().isEmpty ? 'Meow Meow' : ctrl.text.trim();
+              vp.setName(name);
               _service.logActivity(
                 icon: Icons.pets,
                 iconColor: const Color(0xFF32CD32),
-                title: 'Started simulation with cat — $catName',
+                title: 'Started simulation with cat — $name',
               );
               Navigator.pop(ctx);
             },
@@ -105,20 +78,20 @@ class _GameScreenState extends State<GameScreen> {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  String _getEmotion() {
+  String _getEmotion(int hunger, int happiness, int cleanliness) {
     final avg = (happiness + cleanliness + (100 - hunger)) ~/ 3;
     if (avg >= 60) return 'happy';
     if (avg >= 30) return 'normal';
     return 'sad';
   }
 
-  String _getHair() {
+  String _getHair(int cleanliness) {
     if (cleanliness >= 70) return 'clean';
     if (cleanliness >= 40) return 'messy';
     return 'very_messy';
   }
 
-  String _getHearts() {
+  String _getHearts(int happiness) {
     if (happiness > 80) return '❤️ ❤️ ❤️';
     if (happiness > 50) return '❤️ ❤️ 🤍';
     return '❤️ 🤍 🤍';
@@ -135,8 +108,27 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final emotion = _getEmotion();
-    final hair = _getHair();
+    final vp = context.watch<VirtualPetProvider>();
+
+    if (vp.loading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFFFE6CC),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (vp.needsNaming && !_askedName) {
+      _askedName = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _askCatName(vp));
+    }
+
+    final catName = vp.catName.isEmpty ? 'Meow Meow' : vp.catName;
+    final hunger = vp.hunger;
+    final happiness = vp.happiness;
+    final cleanliness = vp.cleanliness;
+
+    final emotion = _getEmotion(hunger, happiness, cleanliness);
+    final hair = _getHair(cleanliness);
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -172,7 +164,8 @@ class _GameScreenState extends State<GameScreen> {
                               fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      Text(_getHearts(), style: const TextStyle(fontSize: 16)),
+                      Text(_getHearts(happiness),
+                          style: const TextStyle(fontSize: 16)),
                     ],
                   ),
                 ),
@@ -256,14 +249,18 @@ class _GameScreenState extends State<GameScreen> {
                       crossAxisSpacing: 10,
                       childAspectRatio: 1.6,
                       children: [
+                        _actionCard('🍗', 'Feed', const Color(0xFFFF8C69),
+                            () => _onFeed(vp)),
+                        _actionCard('✂️', 'Groom', const Color(0xFF7B68EE),
+                            () => _onGroom(vp)),
+                        _actionCard('🎾', 'Play', const Color(0xFF20B2AA),
+                            () => _onPlay(vp)),
                         _actionCard(
-                            '🍗', 'Feed', const Color(0xFFFF8C69), _onFeed),
-                        _actionCard(
-                            '✂️', 'Groom', const Color(0xFF7B68EE), _onGroom),
-                        _actionCard(
-                            '🎾', 'Play', const Color(0xFF20B2AA), _onPlay),
-                        _actionCard(
-                            '❤️', 'Status', const Color(0xFFDC143C), _onStatus),
+                            '❤️',
+                            'Status',
+                            const Color(0xFFDC143C),
+                            () => _onStatus(
+                                catName, hunger, happiness, cleanliness)),
                       ],
                     ),
                   ),
@@ -341,68 +338,69 @@ class _GameScreenState extends State<GameScreen> {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
-  Future<void> _onFeed() async {
-    final result = await Navigator.push<Map<String, int>>(
+  Future<void> _onFeed(VirtualPetProvider vp) async {
+    // Snapshot the values handed to FeedScreen. Every onUpdate report from
+    // FeedScreen is applied to VirtualPetProvider as a DELTA relative to this
+    // snapshot (not an absolute overwrite), so any background decay tick that
+    // happens to land while FeedScreen is open is preserved rather than lost.
+    int lastHunger = vp.hunger;
+    int lastHappiness = vp.happiness;
+    int lastCleanliness = vp.cleanliness;
+
+    await Navigator.push<Map<String, int>>(
       context,
       MaterialPageRoute(
         builder: (_) => FeedScreen(
-          hunger: hunger,
-          happiness: happiness,
-          cleanliness: cleanliness,
+          hunger: lastHunger,
+          happiness: lastHappiness,
+          cleanliness: lastCleanliness,
           onUpdate: (h, hp, c) {
-            setState(() {
-              hunger = h;
-              happiness = hp;
-              cleanliness = c;
-            });
+            vp.feed(
+              hungerDelta: h - lastHunger,
+              happinessDelta: hp - lastHappiness,
+              cleanlinessDelta: c - lastCleanliness,
+            );
+            lastHunger = h;
+            lastHappiness = hp;
+            lastCleanliness = c;
           },
         ),
       ),
     );
-    if (result != null) {
-      setState(() {
-        hunger = result['hunger'] ?? hunger;
-        happiness = result['happiness'] ?? happiness;
-        cleanliness = result['cleanliness'] ?? cleanliness;
-      });
-    }
+    // No further action needed on the popped result — FeedScreen's final
+    // back-press payload duplicates the last onUpdate call already applied.
   }
 
-  Future<void> _onGroom() async {
+  Future<void> _onGroom(VirtualPetProvider vp) async {
     final result = await Navigator.push<Map<String, int>>(
       context,
       MaterialPageRoute(
         builder: (_) => GroomScreen(
-          cleanliness: cleanliness,
+          cleanliness: vp.cleanliness,
           onAction: (action) {
             if (action == 'groom') {
-              setState(() {
-                cleanliness = (cleanliness + 20).clamp(0, 100);
-                happiness = (happiness + 5).clamp(0, 100);
-              });
+              vp.groom(cleanlinessDelta: 20, happinessDelta: 5);
             }
           },
         ),
       ),
     );
-    if (result != null) {
-      setState(() {
-        cleanliness = result['cleanliness'] ?? cleanliness;
-      });
+    if (result != null && result['cleanliness'] != null) {
+      // GroomScreen tracks its own authoritative progress-based cleanliness
+      // internally; reconcile to that final value without double-counting
+      // the groom action (already counted by vp.groom() above).
+      vp.reconcile(cleanliness: result['cleanliness']);
     }
   }
 
-  void _onPlay() {
+  void _onPlay(VirtualPetProvider vp) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PlayScreen(
           onAction: (action) {
             if (action == 'play') {
-              setState(() {
-                happiness = (happiness + 20).clamp(0, 100);
-                hunger = (hunger + 10).clamp(0, 100);
-              });
+              vp.play(happinessDelta: 20, hungerDelta: 10);
             }
           },
         ),
@@ -410,7 +408,7 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  void _onStatus() {
+  void _onStatus(String catName, int hunger, int happiness, int cleanliness) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFFFFF5EE),
