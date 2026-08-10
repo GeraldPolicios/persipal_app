@@ -9,9 +9,12 @@ class LocalStorageService {
   static final LocalStorageService instance = LocalStorageService._();
 
   // Box names
+  // Box names
   static const _bPets = 'ls_pets';
   static const _bLogs = 'ls_logs';
   static const _bReminders = 'ls_reminders';
+  static const _bReminderItems =
+      'ls_reminder_items'; // ReminderItem (new system)
   static const _bSettings = 'ls_settings';
   static const _bQuizzes = 'ls_quizzes';
   static const _bPending = 'ls_pending_sync'; // ops queued while offline
@@ -30,6 +33,7 @@ class LocalStorageService {
       Hive.openBox<String>(_bPets),
       Hive.openBox<String>(_bLogs),
       Hive.openBox<String>(_bReminders),
+      Hive.openBox<String>(_bReminderItems),
       Hive.openBox<String>(_bSettings),
       Hive.openBox<String>(_bQuizzes),
       Hive.openBox<String>(_bPending),
@@ -43,6 +47,7 @@ class LocalStorageService {
   Box<String> get _pets => Hive.box<String>(_bPets);
   Box<String> get _logs => Hive.box<String>(_bLogs);
   Box<String> get _reminders => Hive.box<String>(_bReminders);
+  Box<String> get _reminderItems => Hive.box<String>(_bReminderItems);
   Box<String> get _settings => Hive.box<String>(_bSettings);
   Box<String> get _quizzes => Hive.box<String>(_bQuizzes);
   Box<String> get _pending => Hive.box<String>(_bPending);
@@ -98,17 +103,18 @@ class LocalStorageService {
 
   // ── Reminder Items (real pets) ──────────────────────────────────────────
   // NEW: persists the richer ReminderItem shape (petId, linkedVaccinationId,
-  // recurrence) that the Reminder/Vaccination screens actually use. Shares
-  // the same ls_reminders box as the methods above; those are left as-is
-  // (unused today) rather than removed, per "don't touch unrelated code."
+  // recurrence) that the Reminder/Vaccination screens actually use. Uses its
+  // OWN dedicated box (ls_reminder_items) — kept separate from ls_reminders
+  // above (the old ReminderModel path) so AppProvider's unrelated reminder
+  // loading can never misparse this data.
 
   Future<List<ReminderItem>> fetchReminderItems() async =>
-      _reminders.values.map((r) => ReminderItem.fromMap(_dec(r))).toList();
+      _reminderItems.values.map((r) => ReminderItem.fromMap(_dec(r))).toList();
 
   Future<void> saveReminderItem(ReminderItem item) async =>
-      _reminders.put(item.id, jsonEncode(item.toMap()));
+      _reminderItems.put(item.id, jsonEncode(item.toMap()));
 
-  Future<void> deleteReminderItem(String id) async => _reminders.delete(id);
+  Future<void> deleteReminderItem(String id) async => _reminderItems.delete(id);
 
   // ── Settings ──────────────────────────────────────────────────────────────
 

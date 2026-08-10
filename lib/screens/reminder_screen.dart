@@ -14,7 +14,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../services/activity_service.dart';
+import 'package:provider/provider.dart';
+import 'package:persipal_app/providers/reminder_provider.dart';
+import 'package:persipal_app/models/reminder_item_model.dart';
 import '../providers/pet_profile_provider.dart';
 import '../models/pet_extended_models.dart';
 import '../widgets/vaccination_complete_dialog.dart';
@@ -56,7 +58,6 @@ class ReminderScreen extends StatefulWidget {
 
 class _ReminderScreenState extends State<ReminderScreen>
     with SingleTickerProviderStateMixin {
-  final _service = ActivityService.instance;
   final _petProvider = PetProfileProvider.instance;
   late TabController _tab;
   String? _filterPetId; // null = All Pets
@@ -65,14 +66,12 @@ class _ReminderScreenState extends State<ReminderScreen>
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
-    _service.addListener(_refresh);
     _petProvider.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _tab.dispose();
-    _service.removeListener(_refresh);
     _petProvider.removeListener(_refresh);
     super.dispose();
   }
@@ -83,16 +82,17 @@ class _ReminderScreenState extends State<ReminderScreen>
 
   List<FullPetProfile> get _pets => _petProvider.profiles;
 
-  List<ReminderItem> get _allForFilter => _filterPetId == null
-      ? _service.reminders
-      : _service.reminders.where((r) => r.petId == _filterPetId).toList();
+  List<ReminderItem> _filtered(List<ReminderItem> all) => _filterPetId == null
+      ? all
+      : all.where((r) => r.petId == _filterPetId).toList();
 
-  List<ReminderItem> get _pending =>
-      _allForFilter.where((r) => !r.isDone).toList()
+  List<ReminderItem> _pendingFrom(List<ReminderItem> all) =>
+      _filtered(all).where((r) => !r.isDone).toList()
         ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
-  List<ReminderItem> get _done => _allForFilter.where((r) => r.isDone).toList()
-    ..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
+  List<ReminderItem> _doneFrom(List<ReminderItem> all) =>
+      _filtered(all).where((r) => r.isDone).toList()
+        ..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
 
   FullPetProfile? _petFor(String? petId) =>
       petId == null ? null : _petProvider.getById(petId);
@@ -122,10 +122,11 @@ class _ReminderScreenState extends State<ReminderScreen>
       return;
     }
 
-    _service.markReminderDone(item.id);
+    final reminders = context.read<ReminderProvider>();
+    await reminders.markReminderDone(item.id);
 
     if (item.recurrence != 'none') {
-      _service.scheduleNextOccurrence(item);
+      await reminders.scheduleNextOccurrence(item);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:
             Text('Nice! Next ${item.title} reminder scheduled automatically.'),
@@ -137,7 +138,8 @@ class _ReminderScreenState extends State<ReminderScreen>
   }
 
   void _snooze(ReminderItem item, Duration by) {
-    _service
+    context
+        .read<ReminderProvider>()
         .updateReminder(item.copyWith(scheduledAt: item.scheduledAt.add(by)));
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('Snoozed "${item.title}".'),
@@ -464,8 +466,9 @@ class _ReminderScreenState extends State<ReminderScreen>
                             );
                             return;
                           }
+                          final reminders = context.read<ReminderProvider>();
                           if (editing == null) {
-                            _service.addReminder(ReminderItem(
+                            reminders.addReminder(ReminderItem(
                               id: DateTime.now()
                                   .microsecondsSinceEpoch
                                   .toString(),
@@ -476,7 +479,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                               recurrence: recurrence,
                             ));
                           } else {
-                            _service.updateReminder(editing.copyWith(
+                            reminders.updateReminder(editing.copyWith(
                               title: titleCtrl.text.trim(),
                               type: selectedType,
                               scheduledAt: pickedDt!,
@@ -530,6 +533,9 @@ class _ReminderScreenState extends State<ReminderScreen>
 
   @override
   Widget build(BuildContext context) {
+    final allReminders = context.watch<ReminderProvider>().reminders;
+    final pending = _pendingFrom(allReminders);
+    final done = _doneFrom(allReminders);
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
       body: Stack(
@@ -606,11 +612,11 @@ class _ReminderScreenState extends State<ReminderScreen>
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Row(
                     children: [
-                      _statChip('${_pending.length}', 'Pending',
+                      _statChip('${pending.length}', 'Pending',
                           const Color(0xFFFF8C69)),
                       const SizedBox(width: 10),
                       _statChip(
-                          '${_done.length}', 'Done', const Color(0xFF32CD32)),
+                          '${done.length}', 'Done', const Color(0xFF32CD32)),
                     ],
                   ),
                 ),
@@ -647,8 +653,8 @@ class _ReminderScreenState extends State<ReminderScreen>
                   child: TabBarView(
                     controller: _tab,
                     children: [
-                      _buildList(_pending, done: false),
-                      _buildList(_done, done: true),
+                      _buildList(pending, done: false),
+                      _buildList(done, done: true),
                     ],
                   ),
                 ),
@@ -986,7 +992,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () {
-              _service.deleteReminder(item.id);
+              context.read<ReminderProvider>().deleteReminder(item.id);
               Navigator.pop(ctx);
             },
             child: const Text('Delete'),

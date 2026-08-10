@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
+import '../providers/reminder_provider.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../themes/app_theme.dart';
@@ -22,7 +23,11 @@ class HomeScreen extends StatelessWidget {
     final auth = AuthService.instance;
     final isOnline = ConnectivityService.instance.isOnline;
 
-    final pending = prov.pendingReminderCount;
+    final pending = context
+        .watch<ReminderProvider>()
+        .reminders
+        .where((r) => !r.isDone)
+        .length;
     final petCount = prov.pets.length;
     final actCount = prov.logs.length;
 

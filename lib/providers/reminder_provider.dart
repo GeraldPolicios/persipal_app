@@ -12,9 +12,11 @@
 import 'package:flutter/material.dart';
 import '../models/reminder_item_model.dart';
 import '../services/local_storage_service.dart';
+import '../services/notification_service.dart';
 
 class ReminderProvider extends ChangeNotifier {
   final _local = LocalStorageService.instance;
+  final _notifications = NotificationService.instance;
 
   final List<ReminderItem> _reminders = [];
   bool _loading = true;
@@ -32,6 +34,15 @@ class ReminderProvider extends ChangeNotifier {
     _reminders
       ..clear()
       ..addAll(loaded);
+
+    // Reconcile notifications for whatever was just loaded from disk:
+    // reschedule anything still pending/future (scheduling with the same
+    // notification ID simply replaces any existing one, so this is safe to
+    // repeat every launch), and cancel anything done or already in the past
+    // so a stale notification can't fire after the fact.
+    for (final r in _reminders) {
+      await _syncNotification(r);
+    }
 
     _loading = false;
     notifyListeners();
@@ -58,6 +69,7 @@ class ReminderProvider extends ChangeNotifier {
     _reminders.add(reminder);
     notifyListeners();
     await _local.saveReminderItem(reminder);
+    await _syncNotification(reminder);
   }
 
   Future<void> updateReminder(ReminderItem updated) async {
@@ -66,12 +78,17 @@ class ReminderProvider extends ChangeNotifier {
     _reminders[idx] = updated;
     notifyListeners();
     await _local.saveReminderItem(updated);
+    // Scheduling again under the same notification ID replaces whatever was
+    // previously scheduled for this reminder — this covers "cancel the old
+    // notification and schedule the updated one" in a single call.
+    await _syncNotification(updated);
   }
 
   Future<void> deleteReminder(String id) async {
     _reminders.removeWhere((r) => r.id == id);
     notifyListeners();
     await _local.deleteReminderItem(id);
+    await _cancelNotification(id);
   }
 
   Future<void> markReminderDone(String id) async {
@@ -81,6 +98,9 @@ class ReminderProvider extends ChangeNotifier {
     _reminders[idx] = updated;
     notifyListeners();
     await _local.saveReminderItem(updated);
+    // isDone is now true, so _syncNotification's own check cancels it —
+    // same code path used for the restart-reconciliation loop in init().
+    await _syncNotification(updated);
   }
 
   /// Call after markReminderDone() for a recurring reminder (daily/weekly/
@@ -96,8 +116,37 @@ class ReminderProvider extends ChangeNotifier {
       petId: completed.petId,
       recurrence: completed.recurrence,
     );
-    await addReminder(next);
+    await addReminder(next); // addReminder already schedules its notification
   }
+
+  // ── Notification sync (private — screens never touch NotificationService
+  //    directly; this keeps them unaware of notification mechanics) ─────────
+
+  /// Schedules (or cancels, if done/past) the notification for one reminder.
+  /// Safe to call repeatedly — scheduling under the same ID just replaces
+  /// whatever was previously scheduled.
+  Future<void> _syncNotification(ReminderItem r) async {
+    final id = NotificationService.careNotifId(r.id);
+    if (r.isDone || r.scheduledAt.isBefore(DateTime.now())) {
+      await _notifications.cancelCareReminder(id);
+      return;
+    }
+    await _notifications.scheduleCareReminder(
+      notificationId: id,
+      title: r.title,
+      body: _bodyFor(r),
+      scheduledDate: r.scheduledAt,
+      payload: 'care:${r.id}',
+    );
+  }
+
+  Future<void> _cancelNotification(String reminderId) async {
+    await _notifications
+        .cancelCareReminder(NotificationService.careNotifId(reminderId));
+  }
+
+  String _bodyFor(ReminderItem r) =>
+      r.type.isNotEmpty ? '${r.type} reminder' : 'Reminder';
 
   DateTime _nextDate(DateTime from, String recurrence) {
     switch (recurrence) {

@@ -12,9 +12,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:persipal_app/providers/reminder_provider.dart';
+import 'package:persipal_app/models/reminder_item_model.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
-import '../../services/activity_service.dart';
 import 'pet_details_screen.dart';
 import 'growth_tracker_screen.dart';
 import 'vaccination_screen.dart';
@@ -32,19 +34,16 @@ class MyPetProfileScreen extends StatefulWidget {
 
 class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
   final _provider = PetProfileProvider.instance;
-  final _activity = ActivityService.instance;
 
   @override
   void initState() {
     super.initState();
     _provider.addListener(_refresh);
-    _activity.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _provider.removeListener(_refresh);
-    _activity.removeListener(_refresh);
     super.dispose();
   }
 
@@ -52,10 +51,9 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
 
   FullPetProfile? get _pet => _provider.getById(widget.petId);
 
-  ReminderItem? get _nextReminder {
-    final upcoming = _activity
-        .remindersForPet(widget.petId)
-        .where((r) => !r.isDone)
+  ReminderItem? _nextReminderFrom(List<ReminderItem> allReminders) {
+    final upcoming = allReminders
+        .where((r) => r.petId == widget.petId && !r.isDone)
         .toList()
       ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
     return upcoming.isEmpty ? null : upcoming.first;
@@ -81,7 +79,8 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
 
     final unlockedCount = pet.achievements.where((a) => a.unlocked).length;
     final vaccineDue = pet.vaccinations.where((v) => v.isOverdue).length;
-    final nextReminder = _nextReminder;
+    final allReminders = context.watch<ReminderProvider>().reminders;
+    final nextReminder = _nextReminderFrom(allReminders);
     final nextVaccine = _nextVaccine(pet);
 
     return Scaffold(

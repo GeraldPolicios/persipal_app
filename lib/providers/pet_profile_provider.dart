@@ -18,9 +18,10 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/pet_extended_models.dart';
+import '../models/reminder_item_model.dart';
 import '../services/auth_service.dart';
 import '../services/activity_log_service.dart';
-import '../services/activity_service.dart';
+import 'reminder_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 const _boxName = 'full_pet_profiles';
@@ -270,6 +271,7 @@ class PetProfileProvider extends ChangeNotifier {
     required DateTime givenDate,
     DateTime? nextSchedule,
     bool reminderEnabled = false,
+    ReminderProvider? reminderProvider,
   }) async {
     final pet = _getById(petId);
     if (pet == null) return;
@@ -280,9 +282,23 @@ class PetProfileProvider extends ChangeNotifier {
     }
     if (old == null) return;
 
+    // ── Series dose: just flip this SAME record to completed. The next
+    //    dose (if any) was already generated when the series was created —
+    //    there is nothing new to create here.
+    if (old.status == 'upcoming') {
+      if (old.linkedReminderId != null) {
+        await reminderProvider?.markReminderDone(old.linkedReminderId!);
+      }
+      await updateVaccination(
+        petId,
+        old.copyWith(status: 'completed', completedDate: givenDate),
+      );
+      return;
+    }
+
     // Keep the reminder around as completed history — don't delete it.
     if (old.linkedReminderId != null) {
-      ActivityService.instance.markReminderDone(old.linkedReminderId!);
+      await reminderProvider?.markReminderDone(old.linkedReminderId!);
     }
 
     // The old record is fulfilled now — clear its pending schedule.
@@ -299,7 +315,7 @@ class PetProfileProvider extends ChangeNotifier {
     String? newLinkedReminderId;
     if (nextSchedule != null && reminderEnabled) {
       newLinkedReminderId = _uuid.v4();
-      ActivityService.instance.addReminder(ReminderItem(
+      await reminderProvider?.addReminder(ReminderItem(
         id: newLinkedReminderId,
         title: "💉 ${old.vaccineName} — ${pet.name}'s next dose",
         type: 'Vet Visit',
@@ -323,6 +339,96 @@ class PetProfileProvider extends ChangeNotifier {
     );
   }
 
+  /// NEW — Automatic vaccination scheduling. Creates an ENTIRE recurring
+  /// series at once:
+  ///  • dose 1 as status:'completed' (the one just given today)
+  ///  • doses 2..N as status:'upcoming' (planned, not yet given), each with
+  ///    its OWN VaccinationRecord id and its OWN linked reminder — never a
+  ///    shared id, so completing any dose later never touches the wrong one
+  ///
+  /// [totalDoses] is always a bounded, explicit count (includes dose 1) —
+  /// this never generates an open-ended/infinite recurrence.
+  ///
+  /// Only ever called from the "Add Vaccination" flow for a brand-new
+  /// record — editing an existing record never calls this, which is what
+  /// prevents the same series from being generated twice.
+  Future<void> addVaccinationSeries({
+    required String petId,
+    required String vaccineName,
+    required DateTime firstGivenDate,
+    required String vetNotes,
+    required String recurrenceType, // 'everyXDays' | 'annual'
+    int? intervalDays, // required when recurrenceType == 'everyXDays'
+    required int totalDoses, // includes dose 1; bounded, never infinite
+    required bool reminderEnabled,
+    ReminderProvider? reminderProvider,
+  }) async {
+    final pet = _getById(petId);
+    if (pet == null) return;
+    if (totalDoses < 1) return;
+
+    final seriesId = _uuid.v4();
+    final stepDays = recurrenceType == 'annual' ? 365 : (intervalDays ?? 7);
+
+    DateTime dateForDose(int indexFromZero) =>
+        firstGivenDate.add(Duration(days: stepDays * indexFromZero));
+
+    // Dose 1: already given today — no reminder needed for itself.
+    await addVaccination(
+      petId,
+      VaccinationRecord(
+        id: _uuid.v4(),
+        vaccineName: vaccineName,
+        completedDate: firstGivenDate,
+        vetNotes: vetNotes,
+        status: 'completed',
+        recurrenceType: recurrenceType,
+        recurrenceIntervalDays:
+            recurrenceType == 'everyXDays' ? stepDays : null,
+        seriesId: seriesId,
+        doseNumber: 1,
+        totalDosesInSeries: totalDoses,
+      ),
+    );
+
+    // Doses 2..N: planned/upcoming, each with its own record id and its own
+    // linked reminder, all created up front (not lazily on completion).
+    for (var i = 1; i < totalDoses; i++) {
+      final recordId = _uuid.v4();
+      final plannedDate = dateForDose(i);
+      String? reminderId;
+
+      if (reminderEnabled && reminderProvider != null) {
+        reminderId = _uuid.v4();
+        await reminderProvider.addReminder(ReminderItem(
+          id: reminderId,
+          title: "💉 $vaccineName — ${pet.name}'s dose ${i + 1} of $totalDoses",
+          type: 'Vet Visit',
+          scheduledAt: plannedDate,
+          petId: petId,
+          linkedVaccinationId: recordId,
+        ));
+      }
+
+      await addVaccination(
+        petId,
+        VaccinationRecord(
+          id: recordId,
+          vaccineName: vaccineName,
+          completedDate: plannedDate, // planned date, not yet given
+          reminderEnabled: reminderId != null,
+          linkedReminderId: reminderId,
+          status: 'upcoming',
+          recurrenceType: recurrenceType,
+          recurrenceIntervalDays:
+              recurrenceType == 'everyXDays' ? stepDays : null,
+          seriesId: seriesId,
+          doseNumber: i + 1,
+          totalDosesInSeries: totalDoses,
+        ),
+      );
+    }
+  }
   // ── Activity counters (called from game screens) ──────────────────────────
 
   Future<void> incrementFeedCount(String petId) async =>
