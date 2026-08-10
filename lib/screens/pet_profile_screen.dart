@@ -54,7 +54,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     }
     final nameCtrl = TextEditingController();
     final breedCtrl = TextEditingController(text: 'Persian');
-    int colorVal = _kColors[_provider.count % _kColors.length].value;
+    int colorVal = _kColors[_provider.count % _kColors.length].toARGB32();
 
     showDialog(
       context: context,
@@ -76,7 +76,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFF8C69).withOpacity(0.15),
+                        color: const Color(0xFFFF8C69).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(Icons.pets,
@@ -98,9 +98,9 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                     spacing: 10,
                     runSpacing: 10,
                     children: _kColors.map((c) {
-                      final sel = c.value == colorVal;
+                      final sel = c.toARGB32() == colorVal;
                       return GestureDetector(
-                        onTap: () => setD(() => colorVal = c.value),
+                        onTap: () => setD(() => colorVal = c.toARGB32()),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           width: 36,
@@ -115,7 +115,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                             boxShadow: sel
                                 ? [
                                     BoxShadow(
-                                        color: c.withOpacity(0.5),
+                                        color: c.withValues(alpha: 0.5),
                                         blurRadius: 6)
                                   ]
                                 : null,
@@ -205,7 +205,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide:
-                BorderSide(color: const Color(0xFFFF8C69).withOpacity(0.2)),
+                BorderSide(color: const Color(0xFFFF8C69).withValues(alpha: 0.2)),
           ),
         ),
         style: const TextStyle(fontSize: 14),
@@ -243,7 +243,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFF8C69).withOpacity(0.15),
+                    color: const Color(0xFFFF8C69).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text('${profiles.length}/10',
@@ -303,18 +303,18 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     );
   }
 
-  Widget _emptyState() => Center(
+  Widget _emptyState() => const Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Opacity(
+          Opacity(
               opacity: 0.35, child: Text('🐱', style: TextStyle(fontSize: 80))),
-          const SizedBox(height: 16),
-          const Text('No cat profiles yet!',
+          SizedBox(height: 16),
+          Text('No cat profiles yet!',
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFFAA7755))),
-          const SizedBox(height: 8),
-          const Text('Tap + Add Cat to create your\nfirst Persian cat profile.',
+          SizedBox(height: 8),
+          Text('Tap + Add Cat to create your\nfirst Persian cat profile.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.grey)),
         ]),
@@ -336,24 +336,24 @@ class _PetCard extends StatelessWidget {
               builder: (_) => MyPetProfileScreen(petId: profile.id))),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.90),
+          color: Colors.white.withValues(alpha: 0.90),
           borderRadius: BorderRadius.circular(22),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.07),
+                color: Colors.black.withValues(alpha: 0.07),
                 blurRadius: 12,
                 offset: const Offset(0, 4))
           ],
         ),
         child: Stack(children: [
           // Watermark paw
-          Positioned(
+          const Positioned(
               right: -8,
               bottom: -8,
               child: Opacity(
                 opacity: 0.06,
                 child:
-                    const Icon(Icons.pets, size: 68, color: Color(0xFFFF8C69)),
+                    Icon(Icons.pets, size: 68, color: Color(0xFFFF8C69)),
               )),
 
           Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -366,7 +366,7 @@ class _PetCard extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                      color: profile.avatarColor.withOpacity(0.5),
+                      color: profile.avatarColor.withValues(alpha: 0.5),
                       blurRadius: 10,
                       offset: const Offset(0, 4))
                 ],
@@ -396,7 +396,7 @@ class _PetCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFFFF8C69).withOpacity(0.12),
+                color: const Color(0xFFFF8C69).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -415,7 +415,7 @@ class _PetCard extends StatelessWidget {
               top: 10,
               right: 10,
               child: Icon(Icons.chevron_right,
-                  size: 18, color: Colors.grey.withOpacity(0.35))),
+                  size: 18, color: Colors.grey.withValues(alpha: 0.35))),
         ]),
       ),
     );

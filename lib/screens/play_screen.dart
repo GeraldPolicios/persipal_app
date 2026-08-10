@@ -2,11 +2,19 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/activity_service.dart';
+import '../widgets/play_pet.dart';
+import '../widgets/play_thought.dart';
+import '../models/dirty_state.dart';
 
 class PlayScreen extends StatefulWidget {
   final Function(String) onAction;
+  final bool isDirty;
 
-  const PlayScreen({super.key, required this.onAction});
+  const PlayScreen({
+    super.key,
+    required this.onAction,
+    required this.isDirty,
+  });
 
   @override
   State<PlayScreen> createState() => _PlayScreenState();
@@ -17,8 +25,12 @@ class _PlayScreenState extends State<PlayScreen> {
   final _random = Random();
 
   bool _hovering = false;
+
   String _feedbackText = '';
-  int _starCount = 0;
+  String _feedbackEmoji = '😺';
+
+  bool _isPlaying = false;
+  String? _currentToy;
 
   final List<Map<String, dynamic>> _toys = const [
     {'emoji': '🎾', 'name': 'Tennis Ball', 'color': Color(0xFFDCEDC8)},
@@ -27,12 +39,35 @@ class _PlayScreenState extends State<PlayScreen> {
     {'emoji': '🧶', 'name': 'Yarn Ball', 'color': Color(0xFFFFF3E0)},
   ];
 
-  void _play(String toy) {
-    setState(() {
-      _feedbackText = _getFeedback(toy);
-      _starCount = 8;
-    });
+  Future<void> _play(String toy) async {
+    if (_isPlaying) return;
 
+    if (DirtyState.instance.isDirty) {
+      setState(() {
+        _feedbackEmoji = "🧼";
+        _feedbackText = "Clean me first!";
+      });
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
+
+      setState(() {
+        _feedbackText = "";
+      });
+
+      return;
+    }
+
+    final feedback = _getFeedback(toy);
+
+    setState(() {
+      _currentToy = toy;
+      _isPlaying = true;
+
+      _feedbackEmoji = feedback['emoji']!;
+      _feedbackText = feedback['text']!;
+    });
     widget.onAction('play');
 
     _service.logActivity(
@@ -41,33 +76,78 @@ class _PlayScreenState extends State<PlayScreen> {
       title: 'Played with cat — $toy',
     );
 
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      setState(() {
-        _starCount = 0;
-        _feedbackText = '';
-      });
+    // Wait for the animation
+    int frames = 301;
+
+    switch (toy) {
+      case 'Tennis Ball':
+        frames = 301;
+        break;
+
+      case 'Yarn Ball':
+        frames = 302;
+        break;
+
+      case 'Laser Dot':
+        frames = 302;
+        break;
+
+      case 'Feather':
+        frames = 302;
+        break;
+    }
+
+    await Future.delayed(
+      Duration(milliseconds: ((frames / 60) * 1000).round()),
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isPlaying = false;
+      _currentToy = null;
     });
 
-    // Go back after a brief delay so player sees the reaction
-    Future.delayed(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-      Navigator.pop(context);
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackText = '';
     });
   }
 
-  String _getFeedback(String toy) {
+  Map<String, String> _getFeedback(String toy) {
     switch (toy) {
       case 'Tennis Ball':
-        return 'Pouncing! 🎾';
+        return {
+          'emoji': '😆',
+          'text': 'Catch!',
+        };
+
       case 'Feather':
-        return 'Swat swat! 🪶';
+        return {
+          'emoji': '😻',
+          'text': 'Purrr~',
+        };
+
       case 'Laser Dot':
-        return 'ZOOM!! 🔴';
+        return {
+          'emoji': '😳',
+          'text': 'There!',
+        };
+
       case 'Yarn Ball':
-        return 'So tangled! 🧶';
+        return {
+          'emoji': '🤩',
+          'text': 'Spin!',
+        };
+
       default:
-        return 'Playtime! 😸';
+        return {
+          'emoji': '😺',
+          'text': 'Meow!',
+        };
     }
   }
 
@@ -96,6 +176,13 @@ class _PlayScreenState extends State<PlayScreen> {
   }
 
   Widget _draggable(Map<String, dynamic> item) {
+    if (_isPlaying) {
+      return Opacity(
+        opacity: .45,
+        child: _toyCard(item),
+      );
+    }
+
     return Draggable<String>(
       data: item['name'] as String,
       feedback: Material(
@@ -158,14 +245,14 @@ class _PlayScreenState extends State<PlayScreen> {
                 Stack(
                   children: [
                     DragTarget<String>(
-                      onWillAccept: (_) {
+                      onWillAcceptWithDetails: (_) {
                         setState(() => _hovering = true);
                         return true;
                       },
                       onLeave: (_) => setState(() => _hovering = false),
-                      onAccept: (data) {
+                      onAcceptWithDetails: (details) {
                         setState(() => _hovering = false);
-                        _play(data);
+                        _play(details.data);
                       },
                       builder: (_, __, ___) => AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
@@ -183,70 +270,49 @@ class _PlayScreenState extends State<PlayScreen> {
                               ? [
                                   BoxShadow(
                                     color: const Color(0xFF20B2AA)
-                                        .withOpacity(0.35),
+                                        .withValues(alpha: 0.35),
                                     blurRadius: 16,
                                   )
                                 ]
                               : null,
                           image: const DecorationImage(
-                            image: AssetImage('assets/images/cat_bg_room.png'),
+                            image: AssetImage(
+                                'assets/images/cat_room/play_cat_room.png'),
                             fit: BoxFit.cover,
                           ),
                         ),
-                        child: const Align(
+                        child: Align(
                           alignment: Alignment.bottomCenter,
                           child: Padding(
-                            padding: EdgeInsets.only(bottom: 16),
-                            child: Image(
-                              image: AssetImage(
-                                  'assets/images/cat_happy_clean.png'),
-                              height: 100,
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: AnimatedBuilder(
+                              animation: DirtyState.instance,
+                              builder: (context, child) {
+                                return PlayPet(
+                                  toy: _currentToy,
+                                  isPlaying: _isPlaying,
+                                  isDirty: DirtyState.instance.isDirty,
+                                  height: 110,
+                                );
+                              },
                             ),
                           ),
                         ),
                       ),
                     ),
-
-                    // Stars
-                    ...List.generate(
-                        _starCount,
-                        (i) => Positioned(
-                              left: 30 + _random.nextDouble() * 220,
-                              bottom: 60 + _random.nextDouble() * 120,
-                              child: Text(
-                                ['⭐', '🌟', '✨'][i % 3],
-                                style: const TextStyle(fontSize: 18),
-                              ),
-                            )),
 
                     // Feedback
-                    Positioned(
-                      top: 12,
-                      left: 0,
-                      right: 0,
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 300),
-                        opacity: _feedbackText.isEmpty ? 0 : 1,
+                    if (_feedbackText.isNotEmpty)
+                      Positioned(
+                        bottom: 118,
+                        left: 0,
+                        right: 0,
                         child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.88),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              _feedbackText,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF7A3B1E),
-                              ),
-                            ),
-                          ),
-                        ),
+                            child: PlayThought(
+                          emoji: _feedbackEmoji,
+                          text: _feedbackText,
+                        )),
                       ),
-                    ),
                   ],
                 ),
 

@@ -354,14 +354,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 22,
-            backgroundColor: AppTheme.salmon.withOpacity(0.15),
+            backgroundColor: AppTheme.salmon.withValues(alpha: 0.15),
             backgroundImage:
                 user?.photoURL != null ? NetworkImage(user!.photoURL!) : null,
             child: user?.photoURL == null
@@ -393,7 +393,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: AppTheme.teal.withOpacity(0.12),
+              color: AppTheme.teal.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Text('Signed in',
@@ -418,7 +418,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(14),
       ),
       child: ListTile(
@@ -426,7 +426,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.12),
+            color: iconColor.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon, size: 18, color: iconColor),
@@ -457,7 +457,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(14),
       ),
       child: ListTile(
@@ -465,7 +465,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.12),
+            color: iconColor.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon, size: 18, color: iconColor),

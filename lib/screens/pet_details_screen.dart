@@ -273,10 +273,10 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                         runSpacing: 8,
                         alignment: WrapAlignment.center,
                         children: _kAvatarColors.map((c) {
-                          final sel = c.value == _avatarColorValue;
+                          final sel = c.toARGB32() == _avatarColorValue;
                           return GestureDetector(
                             onTap: () =>
-                                setState(() => _avatarColorValue = c.value),
+                                setState(() => _avatarColorValue = c.toARGB32()),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
                               width: 30,
@@ -308,7 +308,7 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                              color: Color(_avatarColorValue).withOpacity(0.4),
+                              color: Color(_avatarColorValue).withValues(alpha: 0.4),
                               blurRadius: 12,
                               offset: const Offset(0, 5))
                         ],
@@ -359,7 +359,7 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
                                   color:
-                                      const Color(0xFFFF8C69).withOpacity(0.5)),
+                                      const Color(0xFFFF8C69).withValues(alpha: 0.5)),
                             ),
                             child:
                                 Row(mainAxisSize: MainAxisSize.min, children: [
@@ -413,7 +413,7 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
   Widget _section(String title, List<Widget> children) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.82),
+          color: Colors.white.withValues(alpha: 0.82),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -500,7 +500,7 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide:
-              BorderSide(color: const Color(0xFFFF8C69).withOpacity(0.2)),
+              BorderSide(color: const Color(0xFFFF8C69).withValues(alpha: 0.2)),
         ),
       );
 }

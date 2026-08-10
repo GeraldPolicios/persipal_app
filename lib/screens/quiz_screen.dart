@@ -141,7 +141,7 @@ class _QuizScreenState extends State<QuizScreen> {
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 8,
-              backgroundColor: const Color(0xFF7B68EE).withOpacity(0.15),
+              backgroundColor: const Color(0xFF7B68EE).withValues(alpha: 0.15),
               valueColor: const AlwaysStoppedAnimation(Color(0xFF7B68EE)),
             ),
           ),
@@ -154,7 +154,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF32CD32).withOpacity(0.15),
+                  color: const Color(0xFF32CD32).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -174,11 +174,11 @@ class _QuizScreenState extends State<QuizScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.88),
+              color: Colors.white.withValues(alpha: 0.88),
               borderRadius: BorderRadius.circular(18),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 8,
                     offset: const Offset(0, 2)),
               ],
@@ -201,12 +201,12 @@ class _QuizScreenState extends State<QuizScreen> {
 
             if (_answered) {
               if (i == correct) {
-                bg = const Color(0xFF32CD32).withOpacity(0.15);
+                bg = const Color(0xFF32CD32).withValues(alpha: 0.15);
                 border = const Color(0xFF32CD32);
                 trailing = const Icon(Icons.check_circle,
                     color: Color(0xFF32CD32), size: 20);
               } else if (i == _selected) {
-                bg = Colors.redAccent.withOpacity(0.12);
+                bg = Colors.redAccent.withValues(alpha: 0.12);
                 border = Colors.redAccent;
                 trailing =
                     const Icon(Icons.cancel, color: Colors.redAccent, size: 20);
@@ -221,11 +221,11 @@ class _QuizScreenState extends State<QuizScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: bg ?? Colors.white.withOpacity(0.8),
+                  color: bg ?? Colors.white.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                       color:
-                          border ?? const Color(0xFFFF8C69).withOpacity(0.2)),
+                          border ?? const Color(0xFFFF8C69).withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   children: [
@@ -251,7 +251,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 color: const Color(0xFFFFF3E0),
                 borderRadius: BorderRadius.circular(12),
                 border:
-                    Border.all(color: const Color(0xFFFF8C69).withOpacity(0.3)),
+                    Border.all(color: const Color(0xFFFF8C69).withValues(alpha: 0.3)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,7 +343,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 CircularProgressIndicator(
                   value: _score / _questions.length,
                   strokeWidth: 10,
-                  backgroundColor: const Color(0xFF7B68EE).withOpacity(0.15),
+                  backgroundColor: const Color(0xFF7B68EE).withValues(alpha: 0.15),
                   valueColor: const AlwaysStoppedAnimation(Color(0xFF7B68EE)),
                 ),
                 Text(

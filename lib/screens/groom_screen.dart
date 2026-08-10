@@ -6,11 +6,13 @@ import '../services/activity_service.dart';
 class GroomScreen extends StatefulWidget {
   final int cleanliness;
   final Function(String) onAction;
+  final bool isDirty;
 
   const GroomScreen({
     super.key,
     required this.cleanliness,
     required this.onAction,
+    required this.isDirty,
   });
 
   @override
@@ -22,8 +24,16 @@ class _GroomScreenState extends State<GroomScreen> {
   final _random = Random();
 
   late int cleanliness;
+  late bool isDirty;
+  int _furStage = 3;
   int _groomProgress = 0;
   bool _hovering = false;
+  bool _trimMode = false;
+  bool _isCutting = false;
+  Offset _scissorPosition = const Offset(0, 0);
+  int _currentFurStage = 3;
+  bool _trimFinished = false;
+
   String _feedbackText = '';
   int _sparkleCount = 0;
 
@@ -38,6 +48,15 @@ class _GroomScreenState extends State<GroomScreen> {
   void initState() {
     super.initState();
     cleanliness = widget.cleanliness;
+    isDirty = widget.isDirty;
+
+    if (cleanliness >= 70) {
+      _currentFurStage = _furStage;
+    } else if (cleanliness >= 40) {
+      _currentFurStage = _furStage;
+    } else {
+      _currentFurStage = _furStage;
+    }
   }
 
   String _getHair() {
@@ -53,7 +72,10 @@ class _GroomScreenState extends State<GroomScreen> {
       if (tool == 'Brush') _groomProgress += 1;
 
       if (_groomProgress >= 10) {
-        cleanliness = 90;
+        cleanliness = 100;
+
+        isDirty = false;
+
         _feedbackText = 'Squeaky clean ✨';
       } else if (_groomProgress >= 5) {
         cleanliness = 60;
@@ -146,8 +168,10 @@ class _GroomScreenState extends State<GroomScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-                        onPressed: () => Navigator.pop(
-                            context, {'cleanliness': cleanliness}),
+                        onPressed: () => Navigator.pop(context, {
+                          'cleanliness': cleanliness,
+                          'isDirty': isDirty,
+                        }),
                       ),
                       const Expanded(
                         child: Text(
@@ -199,7 +223,7 @@ class _GroomScreenState extends State<GroomScreen> {
                           value: (_groomProgress / 10).clamp(0, 1),
                           minHeight: 8,
                           backgroundColor:
-                              const Color(0xFF7B68EE).withOpacity(0.15),
+                              const Color(0xFF7B68EE).withValues(alpha: 0.15),
                           valueColor:
                               const AlwaysStoppedAnimation(Color(0xFF7B68EE)),
                         ),
@@ -213,57 +237,168 @@ class _GroomScreenState extends State<GroomScreen> {
                 Stack(
                   children: [
                     DragTarget<String>(
-                      onWillAccept: (_) {
-                        setState(() => _hovering = true);
-                        return true;
-                      },
-                      onLeave: (_) => setState(() => _hovering = false),
-                      onAccept: (data) {
-                        setState(() => _hovering = false);
-                        _groom(data);
-                      },
-                      builder: (_, __, ___) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        height: 200,
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(
-                            color: _hovering
-                                ? const Color(0xFF7B68EE)
-                                : Colors.transparent,
-                            width: _hovering ? 3 : 0,
-                          ),
-                          boxShadow: _hovering
-                              ? [
-                                  BoxShadow(
-                                    color: const Color(0xFF7B68EE)
-                                        .withOpacity(0.3),
-                                    blurRadius: 16,
-                                  ),
-                                ]
-                              : null,
-                          image: const DecorationImage(
-                            image: AssetImage('assets/images/cat_bg_room.png'),
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        child: Align(
-                          alignment: Alignment.bottomCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 300),
-                              child: Image.asset(
-                                'assets/images/cat_normal_$hair.png',
-                                key: ValueKey(hair),
-                                height: 95,
+                        onWillAcceptWithDetails: (_) {
+                          setState(() => _hovering = true);
+                          return true;
+                        },
+                        onLeave: (_) => setState(() => _hovering = false),
+                        onAcceptWithDetails: (details) {
+                          setState(() {
+                            _hovering = false;
+                          });
+
+                          if (details.data == 'Trim') {
+                            setState(() {
+                              _trimMode = true;
+                            });
+
+                            return;
+                          }
+
+                          _groom(details.data);
+                        },
+                        builder: (_, __, ___) => GestureDetector(
+                            onPanStart: (details) {
+                              if (!_trimMode) return;
+
+                              setState(() {
+                                _isCutting = true;
+                                _scissorPosition = details.localPosition;
+                              });
+                            },
+                            onPanUpdate: (details) {
+                              if (!_trimMode) return;
+
+                              setState(() {
+                                _scissorPosition = details.localPosition;
+                              });
+
+                              // swipe distance controls trimming
+                              if (_currentFurStage == 3 &&
+                                  details.localPosition.dx > 80) {
+                                setState(() {
+                                  _currentFurStage = 2;
+                                });
+                              }
+
+                              if (_currentFurStage == 2 &&
+                                  details.localPosition.dx > 160) {
+                                setState(() {
+                                  _currentFurStage = 1;
+                                });
+                              }
+
+                              if (_currentFurStage == 1 &&
+                                  details.localPosition.dx > 240) {
+                                setState(() {
+                                  _trimFinished = true;
+                                  _trimMode = false;
+                                });
+                              }
+                            },
+                            onPanEnd: (_) async {
+                              if (!_trimMode) return;
+
+                              setState(() {
+                                _isCutting = false;
+                              });
+
+                              if (_currentFurStage == 1) {
+                                await Future.delayed(
+                                    const Duration(milliseconds: 250));
+
+                                widget.onAction('groom');
+
+                                if (!mounted) return;
+
+                                Navigator.pop(context, {
+                                  'cleanliness': 100,
+                                  'isDirty': false,
+                                  'furStage': 0,
+                                  'showCleanBubble': true,
+                                });
+                              }
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              height: 200,
+                              margin:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(22),
+                                border: Border.all(
+                                  color: _hovering
+                                      ? const Color(0xFF7B68EE)
+                                      : Colors.transparent,
+                                  width: _hovering ? 3 : 0,
+                                ),
+                                boxShadow: _hovering
+                                    ? [
+                                        BoxShadow(
+                                          color: const Color(0xFF7B68EE)
+                                              .withValues(alpha: 0.3),
+                                          blurRadius: 16,
+                                        ),
+                                      ]
+                                    : null,
+                                image: const DecorationImage(
+                                  image: AssetImage(
+                                      'assets/images/cat_room/groom_cat_room.png'),
+                                  fit: BoxFit.cover,
+                                ),
                               ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                              child: Stack(
+                                children: [
+                                  Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 16),
+                                      child: AnimatedSwitcher(
+                                        duration:
+                                            const Duration(milliseconds: 300),
+                                        child: AnimatedSwitcher(
+                                          duration:
+                                              const Duration(milliseconds: 250),
+                                          child: _trimFinished
+                                              ? Image.asset(
+                                                  isDirty
+                                                      ? 'assets/images/states/dirty.png'
+                                                      : 'assets/images/idle/idle_0001.png',
+                                                  key: ValueKey(isDirty
+                                                      ? 'dirty'
+                                                      : 'idle'),
+                                                  height: 95,
+                                                )
+                                              : Image.asset(
+                                                  'assets/images/states/fur_cat$_currentFurStage.png',
+                                                  key: ValueKey(
+                                                      _currentFurStage),
+                                                  height: 95,
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (_trimMode && _isCutting)
+                                    Positioned(
+                                      left: _scissorPosition.dx - 20,
+                                      top: _scissorPosition.dy - 20,
+                                      child: IgnorePointer(
+                                        child: Transform.rotate(
+                                          angle: -0.4,
+                                          child: const Text(
+                                            "✂️",
+                                            style: TextStyle(
+                                              fontSize: 42,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ))),
 
                     // Sparkles
                     ...List.generate(
@@ -288,7 +423,7 @@ class _GroomScreenState extends State<GroomScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 14, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.85),
+                              color: Colors.white.withValues(alpha: 0.85),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(

@@ -188,11 +188,11 @@ class _ModuleTile extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.82),
+          color: Colors.white.withValues(alpha: 0.82),
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -205,7 +205,7 @@ class _ModuleTile extends StatelessWidget {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: Center(
@@ -217,7 +217,7 @@ class _ModuleTile extends StatelessWidget {
                     const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 2),
             Text(desc,
-                style: TextStyle(fontSize: 10, color: color.withOpacity(0.8))),
+                style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.8))),
           ],
         ),
       ),

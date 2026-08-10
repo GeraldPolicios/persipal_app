@@ -64,7 +64,7 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF20B2AA).withOpacity(0.15),
+                      color: const Color(0xFF20B2AA).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.show_chart,
@@ -101,7 +101,7 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: const Color(0xFF20B2AA).withOpacity(0.3)),
+                          color: const Color(0xFF20B2AA).withValues(alpha: 0.3)),
                     ),
                     child: Row(children: [
                       const Icon(Icons.calendar_today,
@@ -228,7 +228,7 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
   InputDecoration _deco(String label, IconData icon, Color color) =>
       InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(fontSize: 12, color: color.withOpacity(0.8)),
+        labelStyle: TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8)),
         prefixIcon: Icon(icon, size: 16, color: color),
         filled: true,
         fillColor: Colors.white,
@@ -239,15 +239,16 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
             borderSide: BorderSide.none),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: color.withOpacity(0.25)),
+          borderSide: BorderSide(color: color.withValues(alpha: 0.25)),
         ),
       );
 
   @override
   Widget build(BuildContext context) {
     final pet = _pet;
-    if (pet == null)
+    if (pet == null) {
       return const Scaffold(body: Center(child: Text('Not found.')));
+    }
 
     final entries = pet.growthEntries;
 
@@ -321,7 +322,7 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
       height: 120,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
+        color: Colors.white.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -345,20 +346,20 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
     );
   }
 
-  Widget _emptyState() => Center(
+  Widget _emptyState() => const Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Opacity(
               opacity: 0.35,
-              child: const Icon(Icons.show_chart,
+              child: Icon(Icons.show_chart,
                   size: 80, color: Color(0xFF20B2AA))),
-          const SizedBox(height: 16),
-          const Text('No growth records yet.',
+          SizedBox(height: 16),
+          Text('No growth records yet.',
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFFAA7755))),
-          const SizedBox(height: 8),
-          const Text('Tap + to record your cat\'s weight.',
+          SizedBox(height: 8),
+          Text('Tap + to record your cat\'s weight.',
               style: TextStyle(fontSize: 12, color: Colors.grey)),
         ]),
       );
@@ -420,11 +421,11 @@ class _EntryCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.88),
+        color: Colors.white.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 6,
               offset: const Offset(0, 2))
         ],
@@ -434,7 +435,7 @@ class _EntryCard extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: const Color(0xFF20B2AA).withOpacity(0.12),
+            color: const Color(0xFF20B2AA).withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(12),
           ),
           child:

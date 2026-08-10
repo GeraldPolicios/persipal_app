@@ -74,7 +74,7 @@ class AppTheme {
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: salmon.withOpacity(0.2)),
+            borderSide: BorderSide(color: salmon.withValues(alpha: 0.2)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
@@ -95,7 +95,7 @@ class AppTheme {
         boxShadow: shadows ??
             [
               BoxShadow(
-                color: Colors.black.withOpacity(0.07),
+                color: Colors.black.withValues(alpha: 0.07),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -111,7 +111,7 @@ class AppTheme {
         ),
         boxShadow: [
           BoxShadow(
-            color: salmon.withOpacity(0.25),
+            color: salmon.withValues(alpha: 0.25),
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),

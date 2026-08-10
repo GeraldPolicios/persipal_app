@@ -119,7 +119,7 @@ class FirebaseSyncService extends ChangeNotifier {
       final quizzes = _snap<QuizResult>(results[3], QuizResult.fromMap);
 
       AppSettings? settings;
-      final sDocs = (results[4] as QuerySnapshot<Map<String, dynamic>>).docs;
+      final sDocs = (results[4]).docs;
       if (sDocs.isNotEmpty) {
         settings = AppSettings.fromMap(sDocs.first.data());
       }

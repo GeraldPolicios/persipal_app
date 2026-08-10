@@ -138,7 +138,7 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                       gradient: LinearGradient(
                         colors: [
                           pet.avatarColor,
-                          pet.avatarColor.withOpacity(0.6),
+                          pet.avatarColor.withValues(alpha: 0.6),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -146,7 +146,7 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                       borderRadius: BorderRadius.circular(22),
                       boxShadow: [
                         BoxShadow(
-                          color: pet.avatarColor.withOpacity(0.4),
+                          color: pet.avatarColor.withValues(alpha: 0.4),
                           blurRadius: 14,
                           offset: const Offset(0, 5),
                         ),
@@ -162,7 +162,7 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                           height: 84,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.35),
+                            color: Colors.white.withValues(alpha: 0.35),
                             shape: BoxShape.circle,
                           ),
                           child:
@@ -440,11 +440,11 @@ class _ModuleCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.88),
+          color: Colors.white.withValues(alpha: 0.88),
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -462,7 +462,7 @@ class _ModuleCard extends StatelessWidget {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.15),
+                      color: color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Center(
@@ -478,7 +478,7 @@ class _ModuleCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(subtitle,
                           style: TextStyle(
-                              fontSize: 10, color: color.withOpacity(0.8))),
+                              fontSize: 10, color: color.withValues(alpha: 0.8))),
                     ],
                   ),
                 ],

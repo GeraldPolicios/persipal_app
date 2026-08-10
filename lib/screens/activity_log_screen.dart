@@ -239,7 +239,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFFF8C69).withOpacity(0.18),
+              color: const Color(0xFFFF8C69).withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -253,7 +253,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Divider(
-                color: const Color(0xFFFF8C69).withOpacity(0.3), thickness: 1),
+                color: const Color(0xFFFF8C69).withValues(alpha: 0.3), thickness: 1),
           ),
         ],
       ),
@@ -264,11 +264,11 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
     return Container(
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 6,
               offset: const Offset(0, 2)),
         ],
@@ -279,7 +279,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: entry.iconColor.withOpacity(0.15),
+              color: entry.iconColor.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
             child: Icon(entry.icon, size: 22, color: entry.iconColor),
@@ -319,25 +319,25 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
+    return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Opacity(
             opacity: 0.35,
             child:
-                const Icon(Icons.history, size: 80, color: Color(0xFFFF8C69)),
+                Icon(Icons.history, size: 80, color: Color(0xFFFF8C69)),
           ),
-          const SizedBox(height: 16),
-          const Text(
+          SizedBox(height: 16),
+          Text(
             'No activities yet!',
             style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFFAA7755)),
           ),
-          const SizedBox(height: 8),
-          const Text(
+          SizedBox(height: 8),
+          Text(
             'Your cat care activities will\nappear here as you use the app.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: Colors.grey),

@@ -90,7 +90,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.3),
+                color: Colors.grey.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -106,7 +106,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                       fontSize: 64,
                       color: achievement.unlocked
                           ? null
-                          : Colors.grey.withOpacity(0.4))),
+                          : Colors.grey.withValues(alpha: 0.4))),
             ),
             const SizedBox(height: 12),
 
@@ -143,7 +143,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFB347).withOpacity(0.15),
+                  color: const Color(0xFFFFB347).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -182,7 +182,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                 child: LinearProgressIndicator(
                   value: achievement.progressPercent,
                   minHeight: 10,
-                  backgroundColor: const Color(0xFFFF8C69).withOpacity(0.15),
+                  backgroundColor: const Color(0xFFFF8C69).withValues(alpha: 0.15),
                   valueColor: const AlwaysStoppedAnimation(Color(0xFFFF8C69)),
                 ),
               ),
@@ -235,7 +235,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFB347).withOpacity(0.18),
+                  color: const Color(0xFFFFB347).withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -278,7 +278,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                   child: LinearProgressIndicator(
                     value: total > 0 ? unlocked / total : 0,
                     minHeight: 10,
-                    backgroundColor: const Color(0xFFFFB347).withOpacity(0.18),
+                    backgroundColor: const Color(0xFFFFB347).withValues(alpha: 0.18),
                     valueColor: const AlwaysStoppedAnimation(Color(0xFFFFB347)),
                   ),
                 ),
@@ -343,24 +343,24 @@ class _AchievementCard extends StatelessWidget {
         duration: const Duration(milliseconds: 300),
         decoration: BoxDecoration(
           color: unlocked
-              ? Colors.white.withOpacity(0.92)
-              : Colors.white.withOpacity(0.55),
+              ? Colors.white.withValues(alpha: 0.92)
+              : Colors.white.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(18),
           border: unlocked
               ? Border.all(
-                  color: const Color(0xFFFFB347).withOpacity(0.5), width: 1.5)
+                  color: const Color(0xFFFFB347).withValues(alpha: 0.5), width: 1.5)
               : null,
           boxShadow: unlocked
               ? [
                   BoxShadow(
-                    color: const Color(0xFFFFB347).withOpacity(0.2),
+                    color: const Color(0xFFFFB347).withValues(alpha: 0.2),
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   )
                 ]
               : [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
+                    color: Colors.black.withValues(alpha: 0.04),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   )
@@ -373,7 +373,7 @@ class _AchievementCard extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(18),
                 child: Container(
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                 ),
               ),
             ),
@@ -392,7 +392,7 @@ class _AchievementCard extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 38,
                           color:
-                              unlocked ? null : Colors.grey.withOpacity(0.5)),
+                              unlocked ? null : Colors.grey.withValues(alpha: 0.5)),
                     ),
                     if (unlocked)
                       const Positioned(
@@ -425,7 +425,7 @@ class _AchievementCard extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: achievement.progressPercent,
                       minHeight: 5,
-                      backgroundColor: Colors.grey.withOpacity(0.2),
+                      backgroundColor: Colors.grey.withValues(alpha: 0.2),
                       valueColor:
                           const AlwaysStoppedAnimation(Color(0xFFFF8C69)),
                     ),
@@ -469,7 +469,7 @@ class _ConfettiPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final p in particles) {
-      final paint = Paint()..color = p.color.withOpacity(1 - progress);
+      final paint = Paint()..color = p.color.withValues(alpha: 1 - progress);
       final y = progress * p.speed * size.height;
       final x = p.x * size.width + sin(progress * 3 * pi + p.x * 10) * 30;
       canvas.drawCircle(Offset(x, y), p.size / 2, paint);

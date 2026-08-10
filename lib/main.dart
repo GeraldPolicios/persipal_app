@@ -15,6 +15,7 @@ import 'services/local_storage_service.dart';
 import 'services/session_manager.dart';
 import 'services/notification_service.dart';
 import 'screens/splash_screen.dart';
+import 'models/dirty_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,6 +61,7 @@ class PersipalApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: SessionManager.instance),
         ChangeNotifierProvider.value(value: ConnectivityService.instance),
         ChangeNotifierProvider.value(value: FirebaseSyncService.instance),
+        ChangeNotifierProvider.value(value: DirtyState.instance),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,

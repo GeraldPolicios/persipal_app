@@ -128,8 +128,9 @@ class _LoginScreenState extends State<LoginScreen>
     if (_nameCtrl.text.trim().isEmpty) return 'Please enter your name.';
     if (_emailCtrl.text.trim().isEmpty) return 'Please enter your email.';
     if (!_emailCtrl.text.contains('@')) return 'Please enter a valid email.';
-    if (_passCtrl.text.length < 6)
+    if (_passCtrl.text.length < 6) {
       return 'Password must be at least 6 characters.';
+    }
     if (_passCtrl.text != _confirmCtrl.text) return 'Passwords do not match.';
     return null;
   }
@@ -419,11 +420,11 @@ class _LoginScreenState extends State<LoginScreen>
               Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.88),
+                  color: Colors.white.withValues(alpha: 0.88),
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.07),
+                        color: Colors.black.withValues(alpha: 0.07),
                         blurRadius: 16,
                         offset: const Offset(0, 4))
                   ],
@@ -467,10 +468,10 @@ class _LoginScreenState extends State<LoginScreen>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 10),
                         decoration: BoxDecoration(
-                          color: Colors.redAccent.withOpacity(0.08),
+                          color: Colors.redAccent.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: Colors.redAccent.withOpacity(0.35)),
+                              color: Colors.redAccent.withValues(alpha: 0.35)),
                         ),
                         child: Row(children: [
                           const Icon(Icons.error_outline,
@@ -568,16 +569,18 @@ class _LoginScreenState extends State<LoginScreen>
                     // Divider
                     Row(children: [
                       Expanded(
-                          child: Divider(color: Colors.grey.withOpacity(0.3))),
+                          child: Divider(
+                              color: Colors.grey.withValues(alpha: 0.3))),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         child: Text('OR',
                             style: TextStyle(
                                 fontSize: 11,
-                                color: Colors.grey.withOpacity(0.6))),
+                                color: Colors.grey.withValues(alpha: 0.6))),
                       ),
                       Expanded(
-                          child: Divider(color: Colors.grey.withOpacity(0.3))),
+                          child: Divider(
+                              color: Colors.grey.withValues(alpha: 0.3))),
                     ]),
 
                     const SizedBox(height: 14),
@@ -588,8 +591,8 @@ class _LoginScreenState extends State<LoginScreen>
                       height: 50,
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          side:
-                              BorderSide(color: Colors.grey.withOpacity(0.35)),
+                          side: BorderSide(
+                              color: Colors.grey.withValues(alpha: 0.35)),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14)),
                         ),
@@ -643,11 +646,11 @@ class _LoginScreenState extends State<LoginScreen>
                 height: 50,
                 child: TextButton(
                   style: TextButton.styleFrom(
-                    backgroundColor: Colors.white.withOpacity(0.6),
+                    backgroundColor: Colors.white.withValues(alpha: 0.6),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                     side: BorderSide(
-                        color: const Color(0xFFAA7755).withOpacity(0.3)),
+                        color: const Color(0xFFAA7755).withValues(alpha: 0.3)),
                   ),
                   onPressed: _anyLoading ? null : _skipAsGuest,
                   child: _guestLoading
@@ -656,13 +659,13 @@ class _LoginScreenState extends State<LoginScreen>
                           height: 20,
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Color(0xFFAA7755)))
-                      : Row(
+                      : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.person_outline,
+                            Icon(Icons.person_outline,
                                 size: 18, color: Color(0xFFAA7755)),
-                            const SizedBox(width: 8),
-                            const Text(
+                            SizedBox(width: 8),
+                            Text(
                               'Skip for Now  —  Continue as Guest',
                               style: TextStyle(
                                   color: Color(0xFFAA7755),
@@ -690,10 +693,10 @@ class _LoginScreenState extends State<LoginScreen>
                   key: ValueKey(_tipIndex),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFF8C69).withOpacity(0.10),
+                    color: const Color(0xFFFF8C69).withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                        color: const Color(0xFFFF8C69).withOpacity(0.25)),
+                        color: const Color(0xFFFF8C69).withValues(alpha: 0.25)),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -739,7 +742,8 @@ class _LoginScreenState extends State<LoginScreen>
                           decoration: BoxDecoration(
                             color: i == _tipIndex
                                 ? const Color(0xFFFF8C69)
-                                : const Color(0xFFFF8C69).withOpacity(0.3),
+                                : const Color(0xFFFF8C69)
+                                    .withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(4),
                           ),
                         )),
@@ -838,8 +842,8 @@ class _LoginScreenState extends State<LoginScreen>
             borderSide: BorderSide.none),
         enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide:
-                BorderSide(color: const Color(0xFFFF8C69).withOpacity(0.2))),
+            borderSide: BorderSide(
+                color: const Color(0xFFFF8C69).withValues(alpha: 0.2))),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFFF8C69), width: 1.5)),
