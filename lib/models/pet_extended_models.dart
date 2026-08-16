@@ -113,6 +113,26 @@ class VaccinationRecord {
   /// dose's schedule on a completed record).
   bool get isPlanned => status == 'upcoming';
 
+  // ── Series-dose classification (full DateTime, not date-only) ────────────
+  // completedDate already IS the correct source of truth for a planned
+  // dose's scheduled date+time (it holds the real given date once
+  // completed, or the planned date+time until then) — these are just
+  // clearly-named computed getters on top of it, not new stored fields.
+
+  /// The scheduled date+time for a planned dose (same field as
+  /// [completedDate] — named for clarity at call sites).
+  DateTime get scheduledDateTime => completedDate;
+
+  /// True when a planned dose's scheduled DateTime is still in the future —
+  /// i.e. genuinely "Upcoming" (full date+time comparison, not date-only).
+  bool get isFuturePlanned =>
+      isPlanned && completedDate.isAfter(DateTime.now());
+
+  /// True when a planned dose's scheduled DateTime has been reached or
+  /// passed and it hasn't been given yet — i.e. "Overdue"/due-now. Drives
+  /// whether "Mark Given" should be available.
+  bool get isDueNow => isPlanned && !completedDate.isAfter(DateTime.now());
+
   // NOTE: nextSchedule and linkedReminderId use the _unset sentinel so that
   // copyWith(nextSchedule: null) actually CLEARS the date instead of being
   // swallowed by a `??` fallback. Passing nothing leaves the value as-is.

@@ -3,10 +3,9 @@
 // Vaccination Records — full CRUD, now wired into Care Reminders.
 //
 // WHAT'S NEW:
-//  • Setting a "Next Schedule" + enabling the reminder toggle auto-creates
-//    (and keeps in sync) a matching entry in Care Reminders.
-//  • Turning the reminder off, clearing the date, or deleting the record
-//    removes the linked reminder automatically.
+//  • A recurring dose series is the only way to schedule follow-up doses —
+//    every generated planned dose automatically gets its own linked Care
+//    Reminder, no manual toggle needed.
 //  • "Mark Given" button on any card with a pending dose runs the shared
 //    completion flow (see widgets/vaccination_complete_dialog.dart) — it
 //    marks the linked reminder done (kept in the Done tab) and adds a new
@@ -19,7 +18,6 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:provider/provider.dart';
 import 'package:persipal_app/providers/reminder_provider.dart';
-import 'package:persipal_app/models/reminder_item_model.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
 import '../../widgets/vaccination_complete_dialog.dart';
@@ -42,18 +40,22 @@ class VaccinationScreen extends StatefulWidget {
   State<VaccinationScreen> createState() => _VaccinationScreenState();
 }
 
-class _VaccinationScreenState extends State<VaccinationScreen> {
+class _VaccinationScreenState extends State<VaccinationScreen>
+    with SingleTickerProviderStateMixin {
   final _provider = PetProfileProvider.instance;
   final _uuid = const Uuid();
+  late final TabController _tab;
 
   @override
   void initState() {
     super.initState();
+    _tab = TabController(length: 4, vsync: this);
     _provider.addListener(_refresh);
   }
 
   @override
   void dispose() {
+    _tab.dispose();
     _provider.removeListener(_refresh);
     super.dispose();
   }
@@ -62,90 +64,25 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
 
   FullPetProfile? get _pet => _provider.getById(widget.petId);
 
-  VaccinationRecord? _findRecord(String id) {
-    for (final r in _pet?.vaccinations ?? const <VaccinationRecord>[]) {
-      if (r.id == id) return r;
-    }
-    return null;
-  }
-
-  // ── Reminder sync ────────────────────────────────────────────────────────
-
-  Future<void> _syncReminder({
-    required String recordId,
-    required String vaccineName,
-    required DateTime? nextSchedule,
-    required bool reminderEnabled,
-    required String? existingLinkedReminderId,
-  }) async {
-    final pet = _pet;
-    if (pet == null) return;
-    final reminders = context.read<ReminderProvider>();
-
-    // No date, or reminders off -> tear down any existing linked reminder.
-    if (nextSchedule == null || !reminderEnabled) {
-      if (existingLinkedReminderId != null) {
-        await reminders.deleteReminder(existingLinkedReminderId);
-        final rec = _findRecord(recordId);
-        if (rec != null) {
-          await _provider.updateVaccination(
-              widget.petId, rec.copyWith(linkedReminderId: null));
-        }
-      }
-      return;
-    }
-
-    final title = "💉 $vaccineName — ${pet.name}'s next dose";
-    final stillExists = existingLinkedReminderId != null &&
-        reminders.reminders.any((r) => r.id == existingLinkedReminderId);
-
-    if (stillExists) {
-      final old = reminders.reminders
-          .firstWhere((r) => r.id == existingLinkedReminderId);
-      await reminders.updateReminder(old.copyWith(
-        title: title,
-        scheduledAt: nextSchedule,
-        isDone: false,
-      ));
-    } else {
-      final reminderId = _uuid.v4();
-      await reminders.addReminder(ReminderItem(
-        id: reminderId,
-        title: title,
-        type: 'Vet Visit',
-        scheduledAt: nextSchedule,
-        petId: widget.petId,
-        linkedVaccinationId: recordId,
-      ));
-      final rec = _findRecord(recordId);
-      if (rec != null) {
-        await _provider.updateVaccination(
-            widget.petId, rec.copyWith(linkedReminderId: reminderId));
-      }
-    }
-  }
-
   // ── Add / Edit dialog ─────────────────────────────────────────────────────
 
   void _showDialog({VaccinationRecord? existing}) {
     final nameCtrl = TextEditingController(text: existing?.vaccineName ?? '');
     final notesCtrl = TextEditingController(text: existing?.vetNotes ?? '');
     DateTime completedDate = existing?.completedDate ?? DateTime.now();
-    DateTime? nextSchedule = existing?.nextSchedule;
-    bool reminderEnabled = existing?.reminderEnabled ?? false;
-    final existingLinkedReminderId = existing?.linkedReminderId;
 
     // Recurring series (only offered when adding a brand-new record — never
     // shown/used when editing, which is what prevents the same series from
-    // being generated twice).
+    // being generated twice). This is now the ONLY way to schedule a follow-
+    // up dose — reminders for every generated dose are always created
+    // automatically, with no manual toggle.
     bool useRecurringSchedule = false;
     String recurrenceType = 'everyXDays'; // 'everyXDays' | 'annual'
     final intervalCtrl = TextEditingController(text: '7');
     final totalDosesCtrl = TextEditingController(text: '3');
-    // Independent of `reminderEnabled`/`nextSchedule` above — those only
-    // apply to the single-dose flow. The recurring series has its own
-    // reminder toggle since it has no single "next schedule" date at all.
-    bool seriesReminderEnabled = true;
+    // Selected once, carried over to every dose in the series (including
+    // dose 1) — no per-dose time configuration needed.
+    TimeOfDay selectedTime = TimeOfDay.now();
 
     showDialog(
       context: context,
@@ -197,11 +134,7 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                           onTap: () {
                             setD(() {
                               nameCtrl.text = label;
-                              if (nextSchedule == null) {
-                                nextSchedule =
-                                    completedDate.add(Duration(days: days));
-                                reminderEnabled = true;
-                              }
+                              intervalCtrl.text = '$days';
                             });
                           },
                           child: Container(
@@ -247,44 +180,6 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-
-                  // Next schedule (single-dose flow only — a recurring
-                  // series determines all future dates itself)
-                  if (!useRecurringSchedule) ...[
-                    const _SLabel('Next Schedule (optional)'),
-                    const SizedBox(height: 6),
-                    _dateTile(
-                      label: nextSchedule != null
-                          ? DateFormat('MMM d, yyyy').format(nextSchedule!)
-                          : 'Tap to set next date',
-                      icon: Icons.calendar_month,
-                      color: const Color(0xFF7B68EE),
-                      dimmed: nextSchedule == null,
-                      onTap: () async {
-                        final d = await _pickDate(ctx,
-                            initial: nextSchedule ?? DateTime.now(),
-                            first: DateTime.now(),
-                            last: DateTime(2100));
-                        if (d != null) {
-                          setD(() {
-                            nextSchedule = d;
-                            reminderEnabled = true;
-                          });
-                        }
-                      },
-                      trailing: nextSchedule != null
-                          ? GestureDetector(
-                              onTap: () => setD(() {
-                                nextSchedule = null;
-                                reminderEnabled = false;
-                              }),
-                              child: const Icon(Icons.close,
-                                  size: 16, color: Colors.grey),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
 
                   // Recurring series (add-only — never shown on Edit)
                   if (existing == null) ...[
@@ -366,10 +261,51 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                                     const Color(0xFF20B2AA)),
                                 style: const TextStyle(fontSize: 13),
                               ),
+                            const SizedBox(height: 10),
+                            GestureDetector(
+                              onTap: () async {
+                                final t = await showTimePicker(
+                                  context: ctx,
+                                  initialTime: selectedTime,
+                                  builder: (c, child) => Theme(
+                                    data: Theme.of(c).copyWith(
+                                        colorScheme: const ColorScheme.light(
+                                            primary: Color(0xFF20B2AA))),
+                                    child: child!,
+                                  ),
+                                );
+                                if (t != null) {
+                                  setD(() => selectedTime = t);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: const Color(0xFF20B2AA)
+                                          .withOpacity(0.3)),
+                                ),
+                                child: Row(children: [
+                                  const Icon(Icons.access_time,
+                                      size: 16, color: Color(0xFF20B2AA)),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Time: ${selectedTime.format(ctx)}',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                                ]),
+                              ),
+                            ),
                             const SizedBox(height: 6),
                             const Text(
                               'This automatically creates the follow-up '
-                              'doses and their reminders now.',
+                              'doses and their reminders now — every dose '
+                              'uses this same time.',
                               style:
                                   TextStyle(fontSize: 11, color: Colors.grey),
                             ),
@@ -390,44 +326,6 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Reminder toggle
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: const Color(0xFF7B68EE).withOpacity(0.2)),
-                    ),
-                    child: Row(children: [
-                      const Icon(Icons.notifications_active,
-                          size: 18, color: Color(0xFF7B68EE)),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text('Sync to Care Reminders',
-                            style: TextStyle(fontSize: 13)),
-                      ),
-                      Switch(
-                        value: useRecurringSchedule
-                            ? seriesReminderEnabled
-                            : (reminderEnabled && nextSchedule != null),
-                        onChanged: useRecurringSchedule
-                            ? (v) => setD(() => seriesReminderEnabled = v)
-                            : (nextSchedule == null
-                                ? null
-                                : (v) => setD(() => reminderEnabled = v)),
-                        activeColor: const Color(0xFF7B68EE),
-                      ),
-                    ]),
-                  ),
-                  if (!useRecurringSchedule && nextSchedule == null) ...[
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Set a next schedule date to enable a reminder.',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
-                  ],
                   const SizedBox(height: 18),
 
                   // Actions
@@ -463,6 +361,9 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                           final vaccineName = nameCtrl.text.trim();
 
                           // ── Recurring series (add-only) ───────────────────
+                          // The only way to schedule follow-up doses. Every
+                          // generated planned dose automatically gets its own
+                          // linked Care Reminder — no manual toggle needed.
                           if (existing == null && useRecurringSchedule) {
                             final interval =
                                 int.tryParse(intervalCtrl.text.trim()) ?? 7;
@@ -471,40 +372,44 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                             // Bounded, sane range — never an open-ended/huge
                             // recurrence even if the user types something wild.
                             final totalDoses = rawTotal.clamp(1, 60);
+                            // Carry the selected time-of-day over to every
+                            // dose in the series (including dose 1).
+                            final firstGivenDateTime = DateTime(
+                              completedDate.year,
+                              completedDate.month,
+                              completedDate.day,
+                              selectedTime.hour,
+                              selectedTime.minute,
+                            );
 
                             Navigator.pop(ctx);
                             await _provider.addVaccinationSeries(
                               petId: widget.petId,
                               vaccineName: vaccineName,
-                              firstGivenDate: completedDate,
+                              firstGivenDate: firstGivenDateTime,
                               vetNotes: notesCtrl.text.trim(),
                               recurrenceType: recurrenceType,
                               intervalDays: recurrenceType == 'everyXDays'
                                   ? interval.clamp(1, 3650)
                                   : null,
                               totalDoses: totalDoses,
-                              reminderEnabled: seriesReminderEnabled,
+                              reminderEnabled: true,
                               reminderProvider:
                                   context.read<ReminderProvider>(),
                             );
                             return;
                           }
 
-                          final recordId = existing?.id ?? _uuid.v4();
-                          final effectiveReminderEnabled =
-                              reminderEnabled && nextSchedule != null;
+                          // ── Single record, no follow-up (add or edit) ─────
                           Navigator.pop(ctx);
-
                           if (existing == null) {
                             await _provider.addVaccination(
                               widget.petId,
                               VaccinationRecord(
-                                id: recordId,
+                                id: _uuid.v4(),
                                 vaccineName: vaccineName,
                                 completedDate: completedDate,
-                                nextSchedule: nextSchedule,
                                 vetNotes: notesCtrl.text.trim(),
-                                reminderEnabled: effectiveReminderEnabled,
                               ),
                             );
                           } else {
@@ -513,20 +418,10 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                               existing.copyWith(
                                 vaccineName: vaccineName,
                                 completedDate: completedDate,
-                                nextSchedule: nextSchedule,
                                 vetNotes: notesCtrl.text.trim(),
-                                reminderEnabled: effectiveReminderEnabled,
                               ),
                             );
                           }
-
-                          await _syncReminder(
-                            recordId: recordId,
-                            vaccineName: vaccineName,
-                            nextSchedule: nextSchedule,
-                            reminderEnabled: effectiveReminderEnabled,
-                            existingLinkedReminderId: existingLinkedReminderId,
-                          );
                         },
                       ),
                     ],
@@ -606,30 +501,31 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
       return const Scaffold(body: Center(child: Text('Profile not found.')));
     }
 
-    // Sort: overdue first, then by next schedule
-    // Sort: overdue first, then planned/upcoming (soonest first), then
-    // records with a next schedule, then everything else by most recent.
-    final records = List.of(pet.vaccinations)
-      ..sort((a, b) {
-        int rank(VaccinationRecord r) {
-          if (r.isOverdue) return 0;
-          if (r.isPlanned) return 1;
-          if (r.nextSchedule != null) return 2;
-          return 3;
-        }
+    final allRecords = pet.vaccinations;
 
-        final ra = rank(a), rb = rank(b);
-        if (ra != rb) return ra.compareTo(rb);
-        if (ra == 0 || ra == 2)
-          return a.nextSchedule!.compareTo(b.nextSchedule!);
-        if (ra == 1) return a.completedDate.compareTo(b.completedDate);
-        return b.completedDate.compareTo(a.completedDate);
-      });
+    // Done: anything actually given (status != 'upcoming'), most recent first.
+    final doneList = allRecords.where((r) => !r.isPlanned).toList()
+      ..sort((a, b) => b.completedDate.compareTo(a.completedDate));
 
-    final overdueCount = records.where((r) => r.isOverdue).length;
-    final upcomingCount = records
-        .where((r) => r.isPlanned || (!r.isOverdue && r.nextSchedule != null))
-        .length;
+    // Upcoming: planned doses whose scheduled DateTime hasn't arrived yet —
+    // full date+time comparison, soonest first. Independent of nextSchedule.
+    final upcomingList = allRecords.where((r) => r.isFuturePlanned).toList()
+      ..sort((a, b) => a.scheduledDateTime.compareTo(b.scheduledDateTime));
+
+    // Overdue: planned doses whose scheduled DateTime has been reached or
+    // passed and haven't been given yet — oldest/most-overdue first.
+    final overdueList = allRecords.where((r) => r.isDueNow).toList()
+      ..sort((a, b) => a.scheduledDateTime.compareTo(b.scheduledDateTime));
+
+    // Total: every record, most-urgent first (overdue, then upcoming soonest
+    // first, then done most-recent first).
+    final totalList = [
+      ...overdueList,
+      ...upcomingList,
+      ...doneList,
+    ];
+
+    final totalCount = allRecords.length;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -655,56 +551,54 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                     style:
                         TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ),
-              if (overdueCount > 0)
-                _headerBadge('$overdueCount overdue', Colors.redAccent),
+              if (overdueList.isNotEmpty)
+                _headerBadge('${overdueList.length} overdue', Colors.redAccent),
             ]),
           ),
 
           // Stats row
-          if (records.isNotEmpty)
+          if (totalCount > 0)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(children: [
-                _statChip(
-                    '${records.length}', 'Total', const Color(0xFF7B68EE)),
+                _statChip('$totalCount', 'Total', const Color(0xFF7B68EE)),
                 const SizedBox(width: 8),
-                _statChip(
-                    '$upcomingCount', 'Upcoming', const Color(0xFF20B2AA)),
+                _statChip('${upcomingList.length}', 'Upcoming',
+                    const Color(0xFF20B2AA)),
                 const SizedBox(width: 8),
-                _statChip('$overdueCount', 'Overdue', Colors.redAccent),
+                _statChip('${overdueList.length}', 'Overdue', Colors.redAccent),
               ]),
             ),
           const SizedBox(height: 4),
 
+          if (totalCount > 0)
+            TabBar(
+              controller: _tab,
+              isScrollable: true,
+              labelColor: const Color(0xFF7B68EE),
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: const Color(0xFF7B68EE),
+              labelStyle:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              tabs: [
+                Tab(text: 'Total ($totalCount)'),
+                Tab(text: 'Done (${doneList.length})'),
+                Tab(text: 'Upcoming (${upcomingList.length})'),
+                Tab(text: 'Overdue (${overdueList.length})'),
+              ],
+            ),
+
           Expanded(
-            child: records.isEmpty
+            child: totalCount == 0
                 ? _emptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                    itemCount: records.length,
-                    itemBuilder: (_, i) => _VaccineCard(
-                      record: records[i],
-                      onEdit: () => _showDialog(existing: records[i]),
-                      onDelete: () => _confirmDelete(records[i]),
-                      onMarkGiven: () => showVaccinationCompleteDialog(
-                        context,
-                        petId: widget.petId,
-                        record: records[i],
-                      ),
-                      onReminderToggle: () async {
-                        final rec = records[i];
-                        final newVal = !rec.reminderEnabled;
-                        await _provider.updateVaccination(widget.petId,
-                            rec.copyWith(reminderEnabled: newVal));
-                        await _syncReminder(
-                          recordId: rec.id,
-                          vaccineName: rec.vaccineName,
-                          nextSchedule: rec.nextSchedule,
-                          reminderEnabled: newVal,
-                          existingLinkedReminderId: rec.linkedReminderId,
-                        );
-                      },
-                    ),
+                : TabBarView(
+                    controller: _tab,
+                    children: [
+                      _recordList(totalList, 'No vaccination records yet.'),
+                      _recordList(doneList, 'No completed vaccinations yet.'),
+                      _recordList(upcomingList, 'No upcoming doses.'),
+                      _recordList(overdueList, 'No overdue doses. 🎉'),
+                    ],
                   ),
           ),
         ])),
@@ -749,6 +643,29 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                   fontWeight: FontWeight.w600)),
         ]),
       );
+
+  Widget _recordList(List<VaccinationRecord> list, String emptyMessage) {
+    if (list.isEmpty) {
+      return Center(
+        child: Text(emptyMessage,
+            style: const TextStyle(fontSize: 13, color: Colors.grey)),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+      itemCount: list.length,
+      itemBuilder: (_, i) => _VaccineCard(
+        record: list[i],
+        onEdit: () => _showDialog(existing: list[i]),
+        onDelete: () => _confirmDelete(list[i]),
+        onMarkGiven: () => showVaccinationCompleteDialog(
+          context,
+          petId: widget.petId,
+          record: list[i],
+        ),
+      ),
+    );
+  }
 
   Widget _emptyState() => Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -846,14 +763,12 @@ class _VaccineCard extends StatelessWidget {
   final VaccinationRecord record;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final VoidCallback onReminderToggle;
   final VoidCallback onMarkGiven;
 
   const _VaccineCard({
     required this.record,
     required this.onEdit,
     required this.onDelete,
-    required this.onReminderToggle,
     required this.onMarkGiven,
   });
 
@@ -864,6 +779,10 @@ class _VaccineCard extends StatelessWidget {
     final isPlanned = record.isPlanned;
     final hasDoseInfo =
         record.doseNumber != null && record.totalDosesInSeries != null;
+
+    // A planned dose can only be marked given at/after its exact scheduled
+    // DateTime (full date AND time — not just the calendar day).
+    final canMarkGivenNow = record.isDueNow || !isPlanned;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -910,9 +829,16 @@ class _VaccineCard extends StatelessWidget {
                               fontSize: 14, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 2),
                       Text(
-                        isPlanned
-                            ? 'Planned: ${DateFormat('MMM d, yyyy').format(record.completedDate)}'
-                            : 'Given: ${DateFormat('MMM d, yyyy').format(record.completedDate)}',
+                        () {
+                          final isSeriesDose = record.recurrenceType != 'none';
+                          final fmt = DateFormat(isSeriesDose
+                              ? 'MMM d, yyyy · h:mm a'
+                              : 'MMM d, yyyy');
+                          final dateStr = fmt.format(record.completedDate);
+                          return isPlanned
+                              ? 'Planned: $dateStr'
+                              : 'Given: $dateStr';
+                        }(),
                         style:
                             const TextStyle(fontSize: 11, color: Colors.grey),
                       ),
@@ -1017,46 +943,62 @@ class _VaccineCard extends StatelessWidget {
             const SizedBox(height: 6),
 
             // Bottom actions row
-            Row(children: [
-              if (!isPlanned) ...[
-                const Icon(Icons.notifications_outlined,
-                    size: 14, color: Color(0xFF7B68EE)),
-                const SizedBox(width: 4),
-                const Text('Reminder',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF7B68EE))),
-                Transform.scale(
-                  scale: 0.75,
-                  child: Switch(
-                    value: record.reminderEnabled && hasNext,
-                    onChanged: hasNext ? (_) => onReminderToggle() : null,
-                    activeColor: const Color(0xFF7B68EE),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.notifications_active,
+                      size: 14,
+                      color: record.linkedReminderId != null
+                          ? const Color(0xFF7B68EE)
+                          : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      record.linkedReminderId != null
+                          ? 'Scheduled Reminder'
+                          : 'No reminder',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+                if (isPlanned && !canMarkGivenNow)
+                  Text(
+                    'Available ${DateFormat('MMM d, h:mm a').format(record.completedDate)}',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  )
+                else if (hasNext || isPlanned)
+                  _pillBtn(
+                    'Mark Given',
+                    Icons.check,
+                    const Color(0xFF32CD32),
+                    onMarkGiven,
                   ),
+                _actionBtn(
+                  Icons.edit_outlined,
+                  const Color(0xFF4682B4),
+                  onEdit,
                 ),
-              ] else ...[
-                Icon(Icons.notifications_active,
-                    size: 14,
-                    color: record.linkedReminderId != null
-                        ? const Color(0xFF20B2AA)
-                        : Colors.grey),
-                const SizedBox(width: 4),
-                Text(
-                  record.linkedReminderId != null
-                      ? 'Reminder set'
-                      : 'No reminder',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                _actionBtn(
+                  Icons.delete_outline,
+                  Colors.redAccent,
+                  onDelete,
                 ),
               ],
-              const Spacer(),
-              if (hasNext || isPlanned) ...[
-                _pillBtn('Mark Given', Icons.check, const Color(0xFF32CD32),
-                    onMarkGiven),
-                const SizedBox(width: 6),
-              ],
-              _actionBtn(Icons.edit_outlined, const Color(0xFF4682B4), onEdit),
-              const SizedBox(width: 6),
-              _actionBtn(Icons.delete_outline, Colors.redAccent, onDelete),
-            ]),
+            ),
           ],
         ),
       ),

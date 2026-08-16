@@ -112,6 +112,18 @@ class _ReminderScreenState extends State<ReminderScreen>
   Future<void> _handleMarkDone(ReminderItem item) async {
     final vaccination = _vaccinationFor(item);
     if (vaccination != null && item.petId != null) {
+      if (!vaccination.isDueNow) {
+        // Same rule as the Vaccination screen: never allow marking a dose
+        // given before its exact scheduled date/time arrives.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${vaccination.vaccineName} isn\'t due until ${DateFormat('MMM d, h:mm a').format(vaccination.scheduledDateTime)}.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.grey.shade700,
+          duration: const Duration(seconds: 2),
+        ));
+        return;
+      }
       // Vaccine-linked: hand off to the shared completion flow, which marks
       // this reminder done AND keeps the vaccination record in sync.
       await showVaccinationCompleteDialog(
@@ -753,6 +765,10 @@ class _ReminderScreenState extends State<ReminderScreen>
     final isOverdue = !item.isDone && item.scheduledAt.isBefore(DateTime.now());
     final pet = _petFor(item.petId);
     final isVaccineLinked = item.linkedVaccinationId != null;
+    // A vaccine-linked reminder mirrors its dose's scheduled DateTime — it
+    // must not be markable given before that exact time arrives.
+    final isVaccineNotYetDue =
+        isVaccineLinked && item.scheduledAt.isAfter(DateTime.now());
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -892,16 +908,17 @@ class _ReminderScreenState extends State<ReminderScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (!item.isDone) ...[
-                  // Mark done
-                  _iconAction(
-                    isVaccineLinked
-                        ? Icons.vaccines
-                        : Icons.check_circle_outline,
-                    const Color(0xFF32CD32),
-                    'Done',
-                    () => _handleMarkDone(item),
-                  ),
-                  const SizedBox(height: 4),
+                  // Mark done — hidden for a vaccine dose that isn't due yet
+                  if (!isVaccineNotYetDue)
+                    _iconAction(
+                      isVaccineLinked
+                          ? Icons.vaccines
+                          : Icons.check_circle_outline,
+                      const Color(0xFF32CD32),
+                      'Done',
+                      () => _handleMarkDone(item),
+                    ),
+                  if (!isVaccineNotYetDue) const SizedBox(height: 4),
                   // Snooze
                   PopupMenuButton<Duration>(
                     tooltip: 'Snooze',

@@ -340,7 +340,7 @@ class _PetCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(22),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.07),
+                color: Colors.black.withOpacity(0.07),q
                 blurRadius: 12,
                 offset: const Offset(0, 4))
           ],
@@ -356,60 +356,67 @@ class _PetCard extends StatelessWidget {
                     const Icon(Icons.pets, size: 68, color: Color(0xFFFF8C69)),
               )),
 
-          Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            // Avatar
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: profile.avatarColor,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                      color: profile.avatarColor.withOpacity(0.5),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4))
-                ],
-              ),
-              child: const Center(
-                  child: Text('🐱', style: TextStyle(fontSize: 36))),
-            ),
-            const SizedBox(height: 12),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Avatar
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: profile.avatarColor,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                          color: profile.avatarColor.withOpacity(0.5),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4))
+                    ],
+                  ),
+                  child: const Center(
+                      child: Text('🐱', style: TextStyle(fontSize: 36))),
+                ),
+                const SizedBox(height: 12),
 
-            // Name
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text(
-                profile.name,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF4A2C1A)),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(height: 5),
+                // Name
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Text(
+                    profile.name,
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4A2C1A)),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(height: 5),
 
-            // Breed pill
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF8C69).withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                profile.breed,
-                style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFFFF8C69),
-                    fontWeight: FontWeight.w600),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+                // Breed pill
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF8C69).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    profile.breed,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFFFF8C69),
+                        fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-          ]),
+          ),
 
           Positioned(
               top: 10,
