@@ -340,7 +340,7 @@ class _PetCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(22),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.07),q
+                color: Colors.black.withOpacity(0.07),
                 blurRadius: 12,
                 offset: const Offset(0, 4))
           ],
