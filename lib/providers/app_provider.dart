@@ -254,8 +254,12 @@ class AppProvider extends ChangeNotifier {
     await _local.deleteAllReminders();
     await _local.clearLogs();
 
-    for (final p in cloud.pets) await _local.savePet(p);
-    for (final r in cloud.reminders) await _local.saveReminder(r);
+    for (final p in cloud.pets) {
+      await _local.savePet(p);
+    }
+    for (final r in cloud.reminders) {
+      await _local.saveReminder(r);
+    }
 
     final logs = await _local.fetchLogs();
     for (final l in cloud.logs) {

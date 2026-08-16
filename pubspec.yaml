@@ -52,4 +52,14 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/states/
+    - assets/images/splash_cat/
+    - assets/images/sad_cat/
+    - assets/images/play_cat/
+    - assets/images/idle_cat/
+    - assets/images/idle/
+    - assets/images/happy_cat/
+    - assets/images/eating_cat/
+    - assets/images/cat_room/
+    - assets/images/cat_pet/
 

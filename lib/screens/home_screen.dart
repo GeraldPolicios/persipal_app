@@ -13,6 +13,7 @@ import 'reminder_screen.dart';
 import 'pet_profile_screen.dart';
 import 'settings_screen.dart';
 import 'activity_log_screen.dart';
+import '../widgets/animated_idle_cat.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -100,7 +101,7 @@ class HomeScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
-                            color: AppTheme.salmon.withOpacity(0.35),
+                            color: AppTheme.salmon.withValues(alpha: 0.35),
                             blurRadius: 12,
                             offset: const Offset(0, 4),
                           ),
@@ -132,8 +133,9 @@ class HomeScreen extends StatelessWidget {
                               ],
                             ),
                           ),
-                          Image.asset('assets/images/cat_normal_clean.png',
-                              height: 80),
+                          const AnimatedIdleCat(
+                            height: 80,
+                          ),
                         ],
                       ),
                     ),
@@ -201,20 +203,20 @@ class HomeScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      _ModuleTile(
+                      const _ModuleTile(
                         icon: '🐱',
                         title: 'Virtual Cat Simulation',
                         subtitle: 'Feed, groom and play with your virtual cat',
-                        color: const Color(0xFFFFB347),
-                        page: const GameScreen(),
+                        color: Color(0xFFFFB347),
+                        page: GameScreen(),
                       ),
                       const SizedBox(height: 10),
-                      _ModuleTile(
+                      const _ModuleTile(
                         icon: '📚',
                         title: 'Educational Lessons',
                         subtitle: 'Grooming, nutrition, behavior & more',
                         color: AppTheme.lavender,
-                        page: const LearnScreen(),
+                        page: LearnScreen(),
                       ),
                       const SizedBox(height: 10),
                       _ModuleTile(
@@ -292,9 +294,9 @@ class _InfoBanner extends StatelessWidget {
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.10),
+          color: color.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.25)),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
         ),
         child: Row(
           children: [
@@ -330,11 +332,11 @@ class _StatCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.78),
+            color: Colors.white.withValues(alpha: 0.78),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 6,
                   offset: const Offset(0, 2)),
             ],
@@ -382,11 +384,11 @@ class _ModuleTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.82),
+          color: Colors.white.withValues(alpha: 0.82),
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 8,
                 offset: const Offset(0, 2)),
           ],
@@ -397,7 +399,7 @@ class _ModuleTile extends StatelessWidget {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                  color: color.withOpacity(0.15),
+                  color: color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(14)),
               child: Center(
                   child: Text(icon, style: const TextStyle(fontSize: 24))),
@@ -430,7 +432,7 @@ class _ModuleTile extends StatelessWidget {
               const SizedBox(width: 6),
             ],
             Icon(Icons.arrow_forward_ios,
-                size: 15, color: Colors.grey.withOpacity(0.6)),
+                size: 15, color: Colors.grey.withValues(alpha: 0.6)),
           ],
         ),
       ),

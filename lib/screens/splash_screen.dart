@@ -7,6 +7,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/session_manager.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
@@ -25,6 +26,13 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _scale;
   late Animation<double> _slide;
 
+  int _catFrame = 0;
+  final int totalFrames = 141;
+  Timer? _catTimer;
+
+  final List<Widget> _catImages = [];
+  bool _framesLoaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,11 +49,56 @@ class _SplashScreenState extends State<SplashScreen>
         .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
 
     _ctrl.forward();
-    Future.delayed(const Duration(milliseconds: 2400), _navigate);
+
+    _loadCatFrames();
+
+    Future.delayed(
+      const Duration(milliseconds: 2800),
+      _navigate,
+    );
+  }
+
+  Future<void> _loadCatFrames() async {
+    for (int i = 1; i <= totalFrames; i++) {
+      final asset = await rootBundle.load(
+        'assets/images/splash_cat/frame_${i.toString().padLeft(4, '0')}.png',
+      );
+
+      _catImages.add(
+        Image.memory(
+          asset.buffer.asUint8List(),
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.high,
+        ),
+      );
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _framesLoaded = true;
+    });
+
+    _startCatAnimation();
+  }
+
+  void _startCatAnimation() {
+    _catTimer = Timer.periodic(
+      const Duration(milliseconds: 60),
+      (timer) {
+        if (!mounted) return;
+
+        setState(() {
+          _catFrame = (_catFrame + 1) % totalFrames;
+        });
+      },
+    );
   }
 
   @override
   void dispose() {
+    _catTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
@@ -100,8 +153,29 @@ class _SplashScreenState extends State<SplashScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Image.asset('assets/images/cat_normal_clean.png',
-                            height: 210),
+                        Container(
+                          width: 240,
+                          height: 240,
+                          decoration: const BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 18,
+                                spreadRadius: 1,
+                                offset: Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: RepaintBoundary(
+                            child: SizedBox(
+                              width: 240,
+                              height: 240,
+                              child: _framesLoaded
+                                  ? _catImages[_catFrame]
+                                  : const CircularProgressIndicator(),
+                            ),
+                          ),
+                        ),
                         const SizedBox(height: 24),
                         const Text(
                           'PERSIPAL',
@@ -129,7 +203,8 @@ class _SplashScreenState extends State<SplashScreen>
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                                const Color(0xFFFF8C69).withOpacity(0.65)),
+                                const Color(0xFFFF8C69)
+                                    .withValues(alpha: 0.65)),
                           ),
                         ),
                         const SizedBox(height: 10),
