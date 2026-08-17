@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../providers/reminder_provider.dart';
+import '../services/activity_service.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../themes/app_theme.dart';
@@ -30,8 +31,7 @@ class HomeScreen extends StatelessWidget {
         .where((r) => !r.isDone)
         .length;
     final petCount = prov.pets.length;
-    final actCount = prov.logs.length;
-
+    final actCount = context.watch<ActivityService>().log.length;
     return Scaffold(
       backgroundColor: AppTheme.cream,
       body: Stack(

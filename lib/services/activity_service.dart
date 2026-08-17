@@ -19,6 +19,7 @@
 //   • remindersForPet() and scheduleNextOccurrence() helpers.
 
 import 'package:flutter/material.dart';
+import 'local_storage_service.dart';
 
 const Object _unset = Object();
 
@@ -38,6 +39,29 @@ class ActivityEntry {
     required this.title,
     required this.timestamp,
   });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'iconCodePoint': icon.codePoint,
+        'iconFontFamily': icon.fontFamily,
+        'iconFontPackage': icon.fontPackage,
+        'colorValue': iconColor.value,
+        'title': title,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  factory ActivityEntry.fromMap(Map<String, dynamic> m) => ActivityEntry(
+        id: m['id'] as String,
+        icon: IconData(
+          m['iconCodePoint'] as int,
+          fontFamily: m['iconFontFamily'] as String?,
+          fontPackage: m['iconFontPackage'] as String?,
+        ),
+        iconColor: Color(m['colorValue'] as int),
+        title: m['title'] as String? ?? '',
+        timestamp: DateTime.tryParse(m['timestamp'] as String? ?? '') ??
+            DateTime.now(),
+      );
 }
 
 // ─── Reminder Model ──────────────────────────────────────────────────────────
@@ -122,14 +146,31 @@ class ActivityService extends ChangeNotifier {
   ActivityService._();
   static final ActivityService instance = ActivityService._();
 
+  final _local = LocalStorageService.instance;
+
   // ── Data stores ──────────────────────────────────────────────────────────
   final List<ActivityEntry> _log = [];
   final List<ReminderItem> _reminders = [];
   final List<PetProfile> _profiles = [];
 
+  bool _loading = true;
+  bool get loading => _loading;
+
   List<ActivityEntry> get log => List.unmodifiable(_log);
   List<ReminderItem> get reminders => List.unmodifiable(_reminders);
   List<PetProfile> get profiles => List.unmodifiable(_profiles);
+
+  /// Loads persisted activity entries from Hive. Call once at app startup,
+  /// before the first screen that reads `.log` builds — same pattern as the
+  /// app's other providers (VirtualPetProvider, ReminderProvider, etc.).
+  Future<void> init() async {
+    final loaded = await _local.fetchActivityEntries();
+    _log
+      ..clear()
+      ..addAll(loaded);
+    _loading = false;
+    notifyListeners();
+  }
 
   // ── Activity Log ─────────────────────────────────────────────────────────
 
@@ -138,22 +179,22 @@ class ActivityService extends ChangeNotifier {
     required Color iconColor,
     required String title,
   }) {
-    _log.insert(
-      0,
-      ActivityEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        icon: icon,
-        iconColor: iconColor,
-        title: title,
-        timestamp: DateTime.now(),
-      ),
+    final entry = ActivityEntry(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      icon: icon,
+      iconColor: iconColor,
+      title: title,
+      timestamp: DateTime.now(),
     );
+    _log.insert(0, entry);
     notifyListeners();
+    _local.saveActivityEntry(entry);
   }
 
   void clearLog() {
     _log.clear();
     notifyListeners();
+    _local.clearActivityEntries();
   }
 
   // ── Reminders ─────────────────────────────────────────────────────────────

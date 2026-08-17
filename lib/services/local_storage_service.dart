@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/models.dart';
 import '../models/virtual_pet_state.dart';
 import '../models/reminder_item_model.dart';
+import 'activity_service.dart' show ActivityEntry;
 
 class LocalStorageService {
   LocalStorageService._();
@@ -19,6 +20,8 @@ class LocalStorageService {
   static const _bQuizzes = 'ls_quizzes';
   static const _bPending = 'ls_pending_sync'; // ops queued while offline
   static const _bVirtualPet = 'ls_virtual_pet'; // single-record: virtual pet
+  static const _bActivityEntries =
+      'ls_activity_entries'; // ActivityService's real activity feed
 
   static const _kVirtualPetKey = 'virtual_pet_state';
 
@@ -38,6 +41,7 @@ class LocalStorageService {
       Hive.openBox<String>(_bQuizzes),
       Hive.openBox<String>(_bPending),
       Hive.openBox<String>(_bVirtualPet),
+      Hive.openBox<String>(_bActivityEntries),
     ]);
     _ready = true;
   }
@@ -52,6 +56,7 @@ class LocalStorageService {
   Box<String> get _quizzes => Hive.box<String>(_bQuizzes);
   Box<String> get _pending => Hive.box<String>(_bPending);
   Box<String> get _virtualPet => Hive.box<String>(_bVirtualPet);
+  Box<String> get _activityEntries => Hive.box<String>(_bActivityEntries);
 
   Map<String, dynamic> _dec(String raw) =>
       jsonDecode(raw) as Map<String, dynamic>;
@@ -155,6 +160,30 @@ class LocalStorageService {
 
   Future<void> saveVirtualPet(VirtualPetState pet) async =>
       _virtualPet.put(_kVirtualPetKey, jsonEncode(pet.toMap()));
+
+  // ── Activity Entries (ActivityService's real activity feed) ────────────────
+  // This is the actual, user-facing activity log (feeding, grooming, playing,
+  // lessons, quizzes, reminders, profile changes, etc.) — distinct from the
+  // ls_logs/ActivityLogModel box above, which is a separate, mostly-internal
+  // log used only by a few AppProvider operations.
+
+  Future<List<ActivityEntry>> fetchActivityEntries() async {
+    final all = _activityEntries.values
+        .map((r) => ActivityEntry.fromMap(_dec(r)))
+        .toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return all.take(500).toList();
+  }
+
+  Future<void> saveActivityEntry(ActivityEntry entry) async {
+    await _activityEntries.put(entry.id, jsonEncode(entry.toMap()));
+    if (_activityEntries.length > 500) {
+      final keys = _activityEntries.keys.toList();
+      await _activityEntries.delete(keys.first);
+    }
+  }
+
+  Future<void> clearActivityEntries() async => _activityEntries.clear();
 
   // ── Pending sync ops ──────────────────────────────────────────────────────
   // We store simple string tokens like "pet:id", "reminder:id", "log:id"

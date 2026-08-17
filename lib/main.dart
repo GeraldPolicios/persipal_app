@@ -8,6 +8,7 @@ import 'providers/app_provider.dart';
 import 'providers/virtual_pet_provider.dart';
 import 'providers/reminder_provider.dart';
 import 'services/activity_log_service.dart';
+import 'services/activity_service.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/firebase_sync_service.dart';
@@ -40,6 +41,9 @@ Future<void> main() async {
   // 6. Activity log — loads from Hive
   await ActivityLogService.instance.init();
 
+  // 6b. Activity service — the real, user-facing activity feed
+  await ActivityService.instance.init();
+
   // 7. Notification service — requests permissions, sets up channels
   await NotificationService.instance.init();
 
@@ -57,6 +61,7 @@ class PersipalApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => VirtualPetProvider()..init()),
         ChangeNotifierProvider(create: (_) => ReminderProvider()..init()),
         ChangeNotifierProvider.value(value: ActivityLogService.instance),
+        ChangeNotifierProvider.value(value: ActivityService.instance),
         ChangeNotifierProvider.value(value: AuthService.instance),
         ChangeNotifierProvider.value(value: SessionManager.instance),
         ChangeNotifierProvider.value(value: ConnectivityService.instance),
