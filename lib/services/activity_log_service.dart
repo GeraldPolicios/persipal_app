@@ -140,6 +140,49 @@ class ActivityLogService extends ChangeNotifier {
         petName: name,
       );
 
+  Future<void> logVaccinationAdded(String vaccineName, String petName) => log(
+        type: ActionType.vaccination,
+        description: 'Added vaccination — $vaccineName',
+        petName: petName,
+      );
+
+  Future<void> logVaccinationUpdated(String vaccineName, String petName) => log(
+        type: ActionType.vaccination,
+        description: 'Edited vaccination — $vaccineName',
+        petName: petName,
+      );
+
+  Future<void> logVaccinationDeleted(String vaccineName, String petName) => log(
+        type: ActionType.vaccination,
+        description: 'Deleted vaccination — $vaccineName',
+        petName: petName,
+      );
+
+  Future<void> logVaccinationSeriesCreated(
+    String vaccineName,
+    String petName,
+    int totalDoses,
+  ) =>
+      log(
+        type: ActionType.vaccination,
+        description:
+            'Created vaccination series — $vaccineName ($totalDoses doses)',
+        petName: petName,
+      );
+
+  Future<void> logVaccinationCompleted(
+    String vaccineName,
+    String petName, {
+    bool wasPlanned = false,
+  }) =>
+      log(
+        type: ActionType.vaccination,
+        description: wasPlanned
+            ? 'Completed planned vaccination — $vaccineName'
+            : 'Completed vaccination — $vaccineName',
+        petName: petName,
+      );
+
   Future<void> logGuestCreated() => log(
         type: ActionType.login,
         description: 'Guest session created',

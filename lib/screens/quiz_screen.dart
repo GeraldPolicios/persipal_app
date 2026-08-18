@@ -1,6 +1,6 @@
 // screens/quiz_screen.dart
 import 'package:flutter/material.dart';
-import '../services/activity_service.dart';
+import '../services/activity_log_service.dart';
 
 class QuizScreen extends StatefulWidget {
   const QuizScreen({super.key});
@@ -71,11 +71,7 @@ class _QuizScreenState extends State<QuizScreen> {
       });
     } else {
       // Log quiz result
-      ActivityService.instance.logActivity(
-        icon: Icons.quiz,
-        iconColor: const Color(0xFF7B68EE),
-        title: 'Completed quiz — Score: $_score/${_questions.length}',
-      );
+      ActivityLogService.instance.logQuiz(_score, _questions.length);
       setState(() => _current = _questions.length); // trigger results view
     }
   }
@@ -224,8 +220,8 @@ class _QuizScreenState extends State<QuizScreen> {
                   color: bg ?? Colors.white.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                      color:
-                          border ?? const Color(0xFFFF8C69).withValues(alpha: 0.2)),
+                      color: border ??
+                          const Color(0xFFFF8C69).withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   children: [
@@ -250,8 +246,8 @@ class _QuizScreenState extends State<QuizScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFFFFF3E0),
                 borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: const Color(0xFFFF8C69).withValues(alpha: 0.3)),
+                border: Border.all(
+                    color: const Color(0xFFFF8C69).withValues(alpha: 0.3)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,7 +339,8 @@ class _QuizScreenState extends State<QuizScreen> {
                 CircularProgressIndicator(
                   value: _score / _questions.length,
                   strokeWidth: 10,
-                  backgroundColor: const Color(0xFF7B68EE).withValues(alpha: 0.15),
+                  backgroundColor:
+                      const Color(0xFF7B68EE).withValues(alpha: 0.15),
                   valueColor: const AlwaysStoppedAnimation(Color(0xFF7B68EE)),
                 ),
                 Text(

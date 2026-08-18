@@ -1,6 +1,7 @@
 // screens/activity_log_screen.dart
 import 'package:flutter/material.dart';
-import '../services/activity_service.dart';
+import '../models/models.dart';
+import '../services/activity_log_service.dart';
 
 class ActivityLogScreen extends StatefulWidget {
   const ActivityLogScreen({super.key});
@@ -10,7 +11,7 @@ class ActivityLogScreen extends StatefulWidget {
 }
 
 class _ActivityLogScreenState extends State<ActivityLogScreen> {
-  final _service = ActivityService.instance;
+  final _service = ActivityLogService.instance;
 
   @override
   void initState() {
@@ -26,7 +27,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
 
   void _refresh() => setState(() {});
 
-  List<ActivityEntry> get _activities => _service.log;
+  List<ActivityLogModel> get _activities => _service.logs;
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -116,8 +117,9 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: () {
-              _service.clearLog();
+            onPressed: () async {
+              await _service.clearAll();
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -253,14 +255,15 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Divider(
-                color: const Color(0xFFFF8C69).withValues(alpha: 0.3), thickness: 1),
+                color: const Color(0xFFFF8C69).withValues(alpha: 0.3),
+                thickness: 1),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTile(ActivityEntry entry) {
+  Widget _buildTile(ActivityLogModel entry) {
     return Container(
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
@@ -289,7 +292,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(entry.title,
+                Text(entry.description,
                     style: const TextStyle(
                         fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 3),
@@ -325,8 +328,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         children: [
           Opacity(
             opacity: 0.35,
-            child:
-                Icon(Icons.history, size: 80, color: Color(0xFFFF8C69)),
+            child: Icon(Icons.history, size: 80, color: Color(0xFFFF8C69)),
           ),
           SizedBox(height: 16),
           Text(

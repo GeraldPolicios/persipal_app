@@ -1,6 +1,6 @@
 // screens/learn_screen.dart
 import 'package:flutter/material.dart';
-import '../services/activity_service.dart';
+import '../services/activity_log_service.dart';
 import '../widgets/tap_effects.dart';
 import 'lesson_detail_screen.dart';
 import 'quiz_screen.dart';
@@ -176,11 +176,7 @@ class _ModuleTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return BounceButton(
       onTap: () {
-        ActivityService.instance.logActivity(
-          icon: Icons.menu_book,
-          iconColor: const Color(0xFF4682B4),
-          title: 'Opened lesson — $title',
-        );
+        ActivityLogService.instance.logLesson(title);
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => LessonDetailScreen(type: type)),
@@ -217,7 +213,8 @@ class _ModuleTile extends StatelessWidget {
                     const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 2),
             Text(desc,
-                style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.8))),
+                style: TextStyle(
+                    fontSize: 10, color: color.withValues(alpha: 0.8))),
           ],
         ),
       ),

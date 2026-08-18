@@ -17,6 +17,7 @@ enum ActionType {
   quiz,
   reminder,
   profile,
+  vaccination,
   login,
   sync,
   other,
@@ -203,6 +204,8 @@ class ActivityLogModel {
         return Icons.alarm;
       case ActionType.profile:
         return Icons.pets;
+      case ActionType.vaccination:
+        return Icons.vaccines;
       case ActionType.login:
         return Icons.login;
       case ActionType.sync:
@@ -228,6 +231,8 @@ class ActivityLogModel {
         return const Color(0xFFFFA500);
       case ActionType.profile:
         return const Color(0xFF32CD32);
+      case ActionType.vaccination:
+        return const Color(0xFFE9573F);
       case ActionType.login:
         return const Color(0xFF4682B4);
       case ActionType.sync:

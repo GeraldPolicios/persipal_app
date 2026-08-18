@@ -1,6 +1,6 @@
 // screens/lesson_detail_screen.dart
 import 'package:flutter/material.dart';
-import '../services/activity_service.dart';
+import '../services/activity_log_service.dart';
 
 class LessonDetailScreen extends StatefulWidget {
   final String type;
@@ -17,11 +17,7 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
   void _markComplete() {
     if (_completed) return;
     setState(() => _completed = true);
-    ActivityService.instance.logActivity(
-      icon: Icons.menu_book,
-      iconColor: const Color(0xFF4682B4),
-      title: 'Completed lesson — ${_title()}',
-    );
+    ActivityLogService.instance.logLessonComplete(_title());
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(

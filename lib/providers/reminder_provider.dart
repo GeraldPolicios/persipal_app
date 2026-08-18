@@ -20,13 +20,14 @@ import 'package:flutter/foundation.dart';
 import '../models/reminder_item_model.dart';
 import '../services/local_storage_service.dart';
 import '../services/notification_service.dart';
+import '../services/activity_log_service.dart';
 
 class ReminderProvider extends ChangeNotifier {
   ReminderProvider();
 
   final LocalStorageService _local = LocalStorageService.instance;
-  final NotificationService _notifications =
-      NotificationService.instance;
+  final NotificationService _notifications = NotificationService.instance;
+  final ActivityLogService _activityLog = ActivityLogService.instance;
 
   final List<ReminderItem> _reminders = [];
 
@@ -38,8 +39,7 @@ class ReminderProvider extends ChangeNotifier {
 
   bool get loading => _loading;
 
-  List<ReminderItem> get reminders =>
-      List.unmodifiable(_reminders);
+  List<ReminderItem> get reminders => List.unmodifiable(_reminders);
 
   List<ReminderItem> get pendingReminders =>
       _reminders.where((r) => !r.isDone).toList();
@@ -91,9 +91,7 @@ class ReminderProvider extends ChangeNotifier {
       return List.unmodifiable(_reminders);
     }
 
-    return _reminders
-        .where((r) => r.petId == petId)
-        .toList(growable: false);
+    return _reminders.where((r) => r.petId == petId).toList(growable: false);
   }
 
   ReminderItem? getById(String id) {
@@ -134,8 +132,7 @@ class ReminderProvider extends ChangeNotifier {
 
   Future<void> addReminder(ReminderItem reminder) async {
     // Prevent accidental duplicate IDs.
-    final existingIndex =
-        _reminders.indexWhere((r) => r.id == reminder.id);
+    final existingIndex = _reminders.indexWhere((r) => r.id == reminder.id);
 
     if (existingIndex >= 0) {
       await updateReminder(reminder);
@@ -148,6 +145,8 @@ class ReminderProvider extends ChangeNotifier {
     await _local.saveReminderItem(reminder);
 
     await _syncNotification(reminder);
+
+    await _activityLog.logReminderAdded(reminder.title, reminder.type);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -155,8 +154,7 @@ class ReminderProvider extends ChangeNotifier {
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> updateReminder(ReminderItem updated) async {
-    final index =
-        _reminders.indexWhere((r) => r.id == updated.id);
+    final index = _reminders.indexWhere((r) => r.id == updated.id);
 
     if (index < 0) {
       await addReminder(updated);
@@ -175,6 +173,8 @@ class ReminderProvider extends ChangeNotifier {
     //   • completed reminder
     //   • past reminder
     await _syncNotification(updated);
+
+    await _activityLog.logReminderEdited(updated.title);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -182,14 +182,15 @@ class ReminderProvider extends ChangeNotifier {
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> deleteReminder(String id) async {
-    final index =
-        _reminders.indexWhere((r) => r.id == id);
+    final index = _reminders.indexWhere((r) => r.id == id);
 
     if (index < 0) {
       // Still make sure a stale notification is removed.
       await _cancelNotification(id);
       return;
     }
+
+    final removedTitle = _reminders[index].title;
 
     _reminders.removeAt(index);
 
@@ -198,6 +199,8 @@ class ReminderProvider extends ChangeNotifier {
     await _local.deleteReminderItem(id);
 
     await _cancelNotification(id);
+
+    await _activityLog.logReminderDeleted(removedTitle);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -205,8 +208,7 @@ class ReminderProvider extends ChangeNotifier {
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> markReminderDone(String id) async {
-    final index =
-        _reminders.indexWhere((r) => r.id == id);
+    final index = _reminders.indexWhere((r) => r.id == id);
 
     if (index < 0) return;
 
@@ -231,6 +233,8 @@ class ReminderProvider extends ChangeNotifier {
     // Completed reminders remain in the list / Done tab,
     // but their notification must disappear.
     await _cancelNotification(id);
+
+    await _activityLog.logReminderCompleted(updated.title);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -299,8 +303,7 @@ class ReminderProvider extends ChangeNotifier {
   Future<void> _syncNotification(
     ReminderItem reminder,
   ) async {
-    final notificationId =
-        NotificationService.careNotifId(reminder.id);
+    final notificationId = NotificationService.careNotifId(reminder.id);
 
     // Done reminders must never have an active notification.
     if (reminder.isDone) {
@@ -366,21 +369,16 @@ class ReminderProvider extends ChangeNotifier {
         );
 
       case 'monthly':
-        final nextMonth =
-            from.month == 12 ? 1 : from.month + 1;
+        final nextMonth = from.month == 12 ? 1 : from.month + 1;
 
-        final nextYear =
-            from.month == 12 ? from.year + 1 : from.year;
+        final nextYear = from.month == 12 ? from.year + 1 : from.year;
 
         // Avoid invalid dates such as:
         // January 31 -> February 31.
-        final lastDayOfNextMonth =
-            DateTime(nextYear, nextMonth + 1, 0).day;
+        final lastDayOfNextMonth = DateTime(nextYear, nextMonth + 1, 0).day;
 
         final day =
-            from.day > lastDayOfNextMonth
-                ? lastDayOfNextMonth
-                : from.day;
+            from.day > lastDayOfNextMonth ? lastDayOfNextMonth : from.day;
 
         return DateTime(
           nextYear,
@@ -397,8 +395,6 @@ class ReminderProvider extends ChangeNotifier {
   }
 
   String _newId() {
-    return DateTime.now()
-        .microsecondsSinceEpoch
-        .toString();
+    return DateTime.now().microsecondsSinceEpoch.toString();
   }
 }

@@ -37,14 +37,12 @@ const int _maxProfiles = 10;
 class PetProfileProvider extends ChangeNotifier {
   PetProfileProvider._();
 
-  static final PetProfileProvider instance =
-      PetProfileProvider._();
+  static final PetProfileProvider instance = PetProfileProvider._();
 
   final Uuid _uuid = const Uuid();
 
   final AuthService _auth = AuthService.instance;
-  final ActivityLogService _log =
-      ActivityLogService.instance;
+  final ActivityLogService _log = ActivityLogService.instance;
 
   List<FullPetProfile> _profiles = [];
 
@@ -56,19 +54,15 @@ class PetProfileProvider extends ChangeNotifier {
   // Getters
   // ─────────────────────────────────────────────────────────────────────────
 
-  List<FullPetProfile> get profiles =>
-      List.unmodifiable(_profiles);
+  List<FullPetProfile> get profiles => List.unmodifiable(_profiles);
 
   bool get loading => _loading;
 
-  bool get canAdd =>
-      _profiles.length < _maxProfiles;
+  bool get canAdd => _profiles.length < _maxProfiles;
 
-  int get count =>
-      _profiles.length;
+  int get count => _profiles.length;
 
-  Box<String> get _box =>
-      Hive.box<String>(_boxName);
+  Box<String> get _box => Hive.box<String>(_boxName);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Initialization
@@ -115,8 +109,7 @@ class PetProfileProvider extends ChangeNotifier {
 
       for (final raw in _box.values) {
         try {
-          final decoded =
-              jsonDecode(raw) as Map<String, dynamic>;
+          final decoded = jsonDecode(raw) as Map<String, dynamic>;
 
           loaded.add(
             FullPetProfile.fromMap(decoded),
@@ -185,9 +178,7 @@ class PetProfileProvider extends ChangeNotifier {
         return;
       }
 
-      await collection
-          .doc(profile.id)
-          .set(
+      await collection.doc(profile.id).set(
             profile.toMap(),
             SetOptions(merge: true),
           );
@@ -231,23 +222,18 @@ class PetProfileProvider extends ChangeNotifier {
       }
 
       final localMap = <String, FullPetProfile>{
-        for (final profile in _profiles)
-          profile.id: profile,
+        for (final profile in _profiles) profile.id: profile,
       };
 
       for (final doc in snapshot.docs) {
         try {
-          final cloudProfile =
-              FullPetProfile.fromMap(doc.data());
+          final cloudProfile = FullPetProfile.fromMap(doc.data());
 
-          final localProfile =
-              localMap[cloudProfile.id];
+          final localProfile = localMap[cloudProfile.id];
 
           if (localProfile == null ||
-              cloudProfile.updatedAt
-                  .isAfter(localProfile.updatedAt)) {
-            localMap[cloudProfile.id] =
-                cloudProfile;
+              cloudProfile.updatedAt.isAfter(localProfile.updatedAt)) {
+            localMap[cloudProfile.id] = cloudProfile;
 
             await _saveToHive(cloudProfile);
           }
@@ -287,9 +273,7 @@ class PetProfileProvider extends ChangeNotifier {
     final profile = FullPetProfile.create(
       id: _uuid.v4(),
       name: name.trim(),
-      breed: breed.trim().isEmpty
-          ? 'Persian'
-          : breed.trim(),
+      breed: breed.trim().isEmpty ? 'Persian' : breed.trim(),
       avatarColorValue: avatarColorValue,
     ).copyWith(
       achievements: _unlockAchievement(
@@ -323,8 +307,7 @@ class PetProfileProvider extends ChangeNotifier {
   Future<void> updateDetails(
     FullPetProfile updated,
   ) async {
-    final index =
-        _profiles.indexWhere(
+    final index = _profiles.indexWhere(
       (p) => p.id == updated.id,
     );
 
@@ -358,8 +341,7 @@ class PetProfileProvider extends ChangeNotifier {
   Future<void> deleteProfile(
     String id,
   ) async {
-    final index =
-        _profiles.indexWhere(
+    final index = _profiles.indexWhere(
       (p) => p.id == id,
     );
 
@@ -422,9 +404,7 @@ class PetProfileProvider extends ChangeNotifier {
 
     final entries = profile.growthEntries
         .map(
-          (e) => e.id == entry.id
-              ? entry
-              : e,
+          (e) => e.id == entry.id ? entry : e,
         )
         .toList();
 
@@ -462,8 +442,9 @@ class PetProfileProvider extends ChangeNotifier {
 
   Future<void> addVaccination(
     String petId,
-    VaccinationRecord record,
-  ) async {
+    VaccinationRecord record, {
+    bool logActivity = true,
+  }) async {
     final profile = _getById(petId);
 
     if (profile == null) return;
@@ -486,21 +467,24 @@ class PetProfileProvider extends ChangeNotifier {
     );
 
     await updateDetails(updated);
+
+    if (logActivity) {
+      await _log.logVaccinationAdded(record.vaccineName, profile.name);
+    }
   }
 
   Future<void> updateVaccination(
     String petId,
-    VaccinationRecord record,
-  ) async {
+    VaccinationRecord record, {
+    bool logActivity = true,
+  }) async {
     final profile = _getById(petId);
 
     if (profile == null) return;
 
     final vaccinations = profile.vaccinations
         .map(
-          (v) => v.id == record.id
-              ? record
-              : v,
+          (v) => v.id == record.id ? record : v,
         )
         .toList();
 
@@ -509,15 +493,28 @@ class PetProfileProvider extends ChangeNotifier {
         vaccinations: vaccinations,
       ),
     );
+
+    if (logActivity) {
+      await _log.logVaccinationUpdated(record.vaccineName, profile.name);
+    }
   }
 
   Future<void> deleteVaccination(
     String petId,
-    String vaccinationId,
-  ) async {
+    String vaccinationId, {
+    bool logActivity = true,
+  }) async {
     final profile = _getById(petId);
 
     if (profile == null) return;
+
+    VaccinationRecord? removed;
+    for (final v in profile.vaccinations) {
+      if (v.id == vaccinationId) {
+        removed = v;
+        break;
+      }
+    }
 
     final vaccinations = profile.vaccinations
         .where(
@@ -530,6 +527,10 @@ class PetProfileProvider extends ChangeNotifier {
         vaccinations: vaccinations,
       ),
     );
+
+    if (logActivity && removed != null) {
+      await _log.logVaccinationDeleted(removed.vaccineName, profile.name);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -587,8 +588,7 @@ class PetProfileProvider extends ChangeNotifier {
 
     if (old.status == 'upcoming') {
       // Keep reminder in Done tab.
-      if (old.linkedReminderId != null &&
-          reminderProvider != null) {
+      if (old.linkedReminderId != null && reminderProvider != null) {
         await reminderProvider.markReminderDone(
           old.linkedReminderId!,
         );
@@ -609,6 +609,13 @@ class PetProfileProvider extends ChangeNotifier {
       await updateVaccination(
         petId,
         completed,
+        logActivity: false,
+      );
+
+      await _log.logVaccinationCompleted(
+        old.vaccineName,
+        pet.name,
+        wasPlanned: true,
       );
 
       return;
@@ -619,8 +626,7 @@ class PetProfileProvider extends ChangeNotifier {
     // ───────────────────────────────────────────────────────────────────────
 
     // Mark old reminder DONE.
-    if (old.linkedReminderId != null &&
-        reminderProvider != null) {
+    if (old.linkedReminderId != null && reminderProvider != null) {
       await reminderProvider.markReminderDone(
         old.linkedReminderId!,
       );
@@ -638,6 +644,7 @@ class PetProfileProvider extends ChangeNotifier {
     await updateVaccination(
       petId,
       historical,
+      logActivity: false,
     );
 
     // Create a completely NEW record for this completed dose.
@@ -646,16 +653,13 @@ class PetProfileProvider extends ChangeNotifier {
     String? newReminderId;
 
     // Create next-dose reminder if requested.
-    if (nextSchedule != null &&
-        reminderEnabled &&
-        reminderProvider != null) {
+    if (nextSchedule != null && reminderEnabled && reminderProvider != null) {
       newReminderId = _uuid.v4();
 
       await reminderProvider.addReminder(
         ReminderItem(
           id: newReminderId,
-          title:
-              "💉 ${old.vaccineName} — ${pet.name}'s next dose",
+          title: "💉 ${old.vaccineName} — ${pet.name}'s next dose",
           type: 'Vet Visit',
           scheduledAt: nextSchedule,
           petId: petId,
@@ -671,23 +675,25 @@ class PetProfileProvider extends ChangeNotifier {
       nextSchedule: nextSchedule,
       vetNotes: old.vetNotes,
       reminderEnabled:
-          nextSchedule != null &&
-          reminderEnabled &&
-          reminderProvider != null,
+          nextSchedule != null && reminderEnabled && reminderProvider != null,
       linkedReminderId: newReminderId,
       status: 'completed',
       recurrenceType: old.recurrenceType,
-      recurrenceIntervalDays:
-          old.recurrenceIntervalDays,
+      recurrenceIntervalDays: old.recurrenceIntervalDays,
       seriesId: old.seriesId,
       doseNumber: old.doseNumber,
-      totalDosesInSeries:
-          old.totalDosesInSeries,
+      totalDosesInSeries: old.totalDosesInSeries,
     );
 
     await addVaccination(
       petId,
       newRecord,
+      logActivity: false,
+    );
+
+    await _log.logVaccinationCompleted(
+      old.vaccineName,
+      pet.name,
     );
   }
 
@@ -743,18 +749,13 @@ class PetProfileProvider extends ChangeNotifier {
       return;
     }
 
-    final safeTotalDoses =
-        totalDoses.clamp(1, 60);
+    final safeTotalDoses = totalDoses.clamp(1, 60);
 
-    final safeInterval =
-        (intervalDays ?? 7).clamp(1, 3650);
+    final safeInterval = (intervalDays ?? 7).clamp(1, 3650);
 
     final seriesId = _uuid.v4();
 
-    final stepDays =
-        recurrenceType == 'annual'
-            ? 365
-            : safeInterval;
+    final stepDays = recurrenceType == 'annual' ? 365 : safeInterval;
 
     DateTime dateForDose(
       int doseIndex,
@@ -780,37 +781,29 @@ class PetProfileProvider extends ChangeNotifier {
         status: 'completed',
         recurrenceType: recurrenceType,
         recurrenceIntervalDays:
-            recurrenceType == 'everyXDays'
-                ? stepDays
-                : null,
+            recurrenceType == 'everyXDays' ? stepDays : null,
         seriesId: seriesId,
         doseNumber: 1,
-        totalDosesInSeries:
-            safeTotalDoses,
+        totalDosesInSeries: safeTotalDoses,
         nextSchedule: null,
         reminderEnabled: false,
         linkedReminderId: null,
       ),
+      logActivity: false,
     );
 
     // ───────────────────────────────────────────────────────────────────────
     // DOSES 2..N
     // ───────────────────────────────────────────────────────────────────────
 
-    for (
-      var index = 1;
-      index < safeTotalDoses;
-      index++
-    ) {
+    for (var index = 1; index < safeTotalDoses; index++) {
       final recordId = _uuid.v4();
 
-      final plannedDate =
-          dateForDose(index);
+      final plannedDate = dateForDose(index);
 
       String? reminderId;
 
-      if (reminderEnabled &&
-          reminderProvider != null) {
+      if (reminderEnabled && reminderProvider != null) {
         reminderId = _uuid.v4();
 
         await reminderProvider.addReminder(
@@ -841,32 +834,32 @@ class PetProfileProvider extends ChangeNotifier {
 
           vetNotes: vetNotes,
 
-          reminderEnabled:
-              reminderId != null,
+          reminderEnabled: reminderId != null,
 
-          linkedReminderId:
-              reminderId,
+          linkedReminderId: reminderId,
 
           status: 'upcoming',
 
-          recurrenceType:
-              recurrenceType,
+          recurrenceType: recurrenceType,
 
           recurrenceIntervalDays:
-              recurrenceType == 'everyXDays'
-                  ? stepDays
-                  : null,
+              recurrenceType == 'everyXDays' ? stepDays : null,
 
           seriesId: seriesId,
 
-          doseNumber:
-              index + 1,
+          doseNumber: index + 1,
 
-          totalDosesInSeries:
-              safeTotalDoses,
+          totalDosesInSeries: safeTotalDoses,
         ),
+        logActivity: false,
       );
     }
+
+    await _log.logVaccinationSeriesCreated(
+      vaccineName,
+      pet.name,
+      safeTotalDoses,
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -914,8 +907,7 @@ class PetProfileProvider extends ChangeNotifier {
     var groom = profile.groomCount;
     var play = profile.playCount;
 
-    var achievements =
-        List.of(profile.achievements);
+    var achievements = List.of(profile.achievements);
 
     switch (type) {
       case ActionType.feed:
@@ -973,13 +965,11 @@ class PetProfileProvider extends ChangeNotifier {
         return achievement;
       }
 
-      final updated =
-          achievement.copyWith(
+      final updated = achievement.copyWith(
         progressCurrent: progress,
       );
 
-      if (!achievement.unlocked &&
-          progress >= achievement.progressTarget) {
+      if (!achievement.unlocked && progress >= achievement.progressTarget) {
         return updated.copyWith(
           unlocked: true,
           unlockedAt: DateTime.now(),
@@ -999,8 +989,7 @@ class PetProfileProvider extends ChangeNotifier {
       return;
     }
 
-    for (final profile
-        in List<FullPetProfile>.from(_profiles)) {
+    for (final profile in List<FullPetProfile>.from(_profiles)) {
       unawaited(
         _uploadToCloud(profile),
       );

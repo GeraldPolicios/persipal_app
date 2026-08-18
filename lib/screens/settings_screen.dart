@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
+import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_sync_service.dart'
     show
@@ -138,6 +139,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
+    final activityCount = context.watch<ActivityLogService>().count;
     final isAuth = _auth.isAuthenticated;
     final user = _auth.currentUser;
     final isOnline = ConnectivityService.instance.isOnline;
@@ -267,7 +269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.history,
                       iconColor: AppTheme.teal,
                       label: 'Activity Log',
-                      subtitle: '${prov.logs.length} activities recorded',
+                      subtitle: '$activityCount activities recorded',
                       onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
