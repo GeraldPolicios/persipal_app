@@ -56,6 +56,10 @@ flutter:
     - assets/images/splash_cat/
     - assets/images/sad_cat/
     - assets/images/play_cat/
+    - assets/images/play_cat/yarn_cat/
+    - assets/images/play_cat/tennis_ball_cat/
+    - assets/images/play_cat/laser_cat/
+    - assets/images/play_cat/feather_cat/
     - assets/images/idle_cat/
     - assets/images/idle/
     - assets/images/happy_cat/
