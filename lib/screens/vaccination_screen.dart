@@ -267,6 +267,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
                                 final t = await showTimePicker(
                                   context: ctx,
                                   initialTime: selectedTime,
+                                  initialEntryMode: TimePickerEntryMode.input,
                                   builder: (c, child) => Theme(
                                     data: Theme.of(c).copyWith(
                                         colorScheme: const ColorScheme.light(

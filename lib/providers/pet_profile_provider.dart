@@ -29,6 +29,7 @@ import '../models/pet_extended_models.dart';
 import '../models/reminder_item_model.dart';
 import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
+import '../services/local_storage_service.dart';
 import 'reminder_provider.dart';
 
 const String _boxName = 'full_pet_profiles';
@@ -270,17 +271,22 @@ class PetProfileProvider extends ChangeNotifier {
       return null;
     }
 
-    final profile = FullPetProfile.create(
+    final base = FullPetProfile.create(
       id: _uuid.v4(),
       name: name.trim(),
       breed: breed.trim().isEmpty ? 'Persian' : breed.trim(),
       avatarColorValue: avatarColorValue,
-    ).copyWith(
-      achievements: _unlockAchievement(
-        List.of(kDefaultAchievements),
-        AchievementType.firstProfile,
-        1,
-      ),
+    );
+
+    final achievements = await _unlockAndLog(
+      List.of(kDefaultAchievements),
+      AchievementType.firstProfile,
+      1,
+      base.name,
+    );
+
+    final profile = base.copyWith(
+      achievements: achievements,
     );
 
     _profiles.add(profile);
@@ -387,9 +393,17 @@ class PetProfileProvider extends ChangeNotifier {
         ),
       );
 
+    final achievements = await _unlockAndLog(
+      profile.achievements,
+      AchievementType.growthMilestone,
+      entries.length,
+      profile.name,
+    );
+
     await updateDetails(
       profile.copyWith(
         growthEntries: entries,
+        achievements: achievements,
       ),
     );
   }
@@ -454,16 +468,8 @@ class PetProfileProvider extends ChangeNotifier {
       record,
     ];
 
-    var updated = profile.copyWith(
+    final updated = profile.copyWith(
       vaccinations: vaccinations,
-    );
-
-    updated = updated.copyWith(
-      achievements: _unlockAchievement(
-        updated.achievements,
-        AchievementType.vaccinationComplete,
-        vaccinations.length,
-      ),
     );
 
     await updateDetails(updated);
@@ -559,6 +565,53 @@ class PetProfileProvider extends ChangeNotifier {
   /// The reminder remains in the Done tab.
   ///
   /// The next dose already exists, so we do NOT create another one.
+
+  /// Checks/unlocks Vaccine Hero and Vaccination Complete for one specific
+  /// pet. Must be called AFTER the triggering vaccination update has
+  /// already been persisted, so it re-fetches the pet fresh.
+  ///
+  /// [seriesId]/[totalDosesInSeries] should be the values from the dose
+  /// that was JUST marked given — pass null for non-series doses, which
+  /// simply skips the series check.
+  Future<void> _checkVaccinationAchievements(
+    String petId, {
+    String? seriesId,
+    int? totalDosesInSeries,
+  }) async {
+    final profile = _getById(petId);
+
+    if (profile == null) return;
+
+    final completedCount =
+        profile.vaccinations.where((v) => v.status == 'completed').length;
+
+    var achievements = await _unlockAndLog(
+      profile.achievements,
+      AchievementType.vaccinationComplete,
+      completedCount,
+      profile.name,
+    );
+
+    if (seriesId != null && totalDosesInSeries != null) {
+      final completedInSeries = profile.vaccinations
+          .where(
+            (v) => v.seriesId == seriesId && v.status == 'completed',
+          )
+          .length;
+
+      achievements = await _unlockAndLog(
+        achievements,
+        AchievementType.vaccinationSeriesComplete,
+        completedInSeries >= totalDosesInSeries ? 1 : 0,
+        profile.name,
+      );
+    }
+
+    await updateDetails(
+      profile.copyWith(achievements: achievements),
+    );
+  }
+
   Future<void> completeVaccinationDose(
     String petId,
     String oldRecordId, {
@@ -616,6 +669,12 @@ class PetProfileProvider extends ChangeNotifier {
         old.vaccineName,
         pet.name,
         wasPlanned: true,
+      );
+
+      await _checkVaccinationAchievements(
+        petId,
+        seriesId: old.seriesId,
+        totalDosesInSeries: old.totalDosesInSeries,
       );
 
       return;
@@ -694,6 +753,12 @@ class PetProfileProvider extends ChangeNotifier {
     await _log.logVaccinationCompleted(
       old.vaccineName,
       pet.name,
+    );
+
+    await _checkVaccinationAchievements(
+      petId,
+      seriesId: old.seriesId,
+      totalDosesInSeries: old.totalDosesInSeries,
     );
   }
 
@@ -978,6 +1043,97 @@ class PetProfileProvider extends ChangeNotifier {
 
       return updated;
     }).toList();
+  }
+
+  /// Runs [_unlockAchievement] and, if it actually flips the achievement
+  /// from locked → unlocked (not just a progress update), logs exactly one
+  /// ActivityLogService entry for that specific pet.
+  Future<List<PetAchievement>> _unlockAndLog(
+    List<PetAchievement> achievements,
+    AchievementType type,
+    int progress,
+    String petName,
+  ) async {
+    final before = achievements.firstWhere((a) => a.type == type).unlocked;
+
+    final updated = _unlockAchievement(
+      achievements,
+      type,
+      progress,
+    );
+
+    final after = updated.firstWhere((a) => a.type == type).unlocked;
+
+    if (!before && after) {
+      final title = updated.firstWhere((a) => a.type == type).title;
+
+      await _log.logAchievementUnlocked(title, petName);
+    }
+
+    return updated;
+  }
+
+  /// Checks/unlocks Grooming Pro, Healthy Eater, and Care Champion for one
+  /// specific pet, based on that pet's own real-pet reminder completions.
+  /// Reads directly from the existing persisted [ReminderItem] records
+  /// (via [LocalStorageService]) rather than a separate counter, and
+  /// counts ONLY reminders belonging to this [petId].
+  ///
+  /// Called from the reminder-completion action in the UI layer (not from
+  /// ReminderProvider itself, to avoid a circular import between the two
+  /// provider files).
+  Future<void> checkCareAchievements(String petId) async {
+    final profile = _getById(petId);
+
+    if (profile == null) return;
+
+    final allReminders =
+        await LocalStorageService.instance.fetchReminderItems();
+
+    final doneForThisPet = allReminders.where(
+      (r) => r.petId == petId && r.isDone,
+    );
+
+    final groomingCount =
+        doneForThisPet.where((r) => r.type == 'Grooming').length;
+
+    final feedingCount =
+        doneForThisPet.where((r) => r.type == 'Feeding').length;
+
+    const careTypes = {
+      'Feeding',
+      'Grooming',
+      'Exercise',
+      'Vitamins',
+    };
+
+    final careCount =
+        doneForThisPet.where((r) => careTypes.contains(r.type)).length;
+
+    var achievements = await _unlockAndLog(
+      profile.achievements,
+      AchievementType.groomingCare,
+      groomingCount,
+      profile.name,
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.feedingCare,
+      feedingCount,
+      profile.name,
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.careChampion,
+      careCount,
+      profile.name,
+    );
+
+    await updateDetails(
+      profile.copyWith(achievements: achievements),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

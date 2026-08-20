@@ -209,6 +209,13 @@ class VaccinationRecord {
 }
 
 // ─── AchievementType ──────────────────────────────────────────────────────────
+//
+// NOTE (Phase 5): feedStreak, groomStreak, playStreak, quizMaster, and
+// weeklyPlayer are legacy types kept ONLY so old persisted Hive data doesn't
+// error on load. They are intentionally NOT part of kDefaultAchievements
+// below and are unreachable/inactive. They belonged to the Virtual Pet
+// system / general quiz progress, not the real-pet achievement journey.
+// Candidates for full removal in Phase 9 cleanup.
 
 enum AchievementType {
   feedStreak,
@@ -218,6 +225,11 @@ enum AchievementType {
   firstProfile,
   quizMaster,
   weeklyPlayer,
+  growthMilestone,
+  groomingCare,
+  feedingCare,
+  careChampion,
+  vaccinationSeriesComplete,
 }
 
 class PetAchievement {
@@ -287,50 +299,50 @@ const kDefaultAchievements = [
     type: AchievementType.firstProfile,
     title: 'New Family Member',
     description: 'Added your first cat profile.',
-    emoji: '🐱',
+    emoji: '🐾',
     progressTarget: 1,
-  ),
-  PetAchievement(
-    type: AchievementType.feedStreak,
-    title: 'Top Chef',
-    description: 'Feed your cat 20 times.',
-    emoji: '🍗',
-    progressTarget: 20,
-  ),
-  PetAchievement(
-    type: AchievementType.groomStreak,
-    title: 'Salon Star',
-    description: 'Groom your cat 10 times.',
-    emoji: '✂️',
-    progressTarget: 10,
-  ),
-  PetAchievement(
-    type: AchievementType.playStreak,
-    title: '7-Day Playmate',
-    description: 'Play with your cat for 7 days in a row.',
-    emoji: '🎾',
-    progressTarget: 7,
   ),
   PetAchievement(
     type: AchievementType.vaccinationComplete,
     title: 'Vaccine Hero',
-    description: 'Log your first vaccination record.',
+    description: "Completed your cat's first vaccination.",
     emoji: '💉',
     progressTarget: 1,
   ),
   PetAchievement(
-    type: AchievementType.quizMaster,
-    title: 'Quiz Master',
-    description: 'Score 100% on a quiz.',
-    emoji: '🏆',
-    progressTarget: 1,
+    type: AchievementType.growthMilestone,
+    title: 'Growing Up',
+    description: 'Logged 3 growth check-ins for your cat.',
+    emoji: '📈',
+    progressTarget: 3,
   ),
   PetAchievement(
-    type: AchievementType.weeklyPlayer,
-    title: 'Weekly Warrior',
-    description: 'Open the app 7 days in a row.',
-    emoji: '📅',
-    progressTarget: 7,
+    type: AchievementType.groomingCare,
+    title: 'Grooming Pro',
+    description: 'Completed 5 grooming reminders.',
+    emoji: '✂️',
+    progressTarget: 5,
+  ),
+  PetAchievement(
+    type: AchievementType.feedingCare,
+    title: 'Healthy Eater',
+    description: 'Completed 5 feeding reminders.',
+    emoji: '🍽️',
+    progressTarget: 5,
+  ),
+  PetAchievement(
+    type: AchievementType.careChampion,
+    title: 'Care Champion',
+    description: 'Completed 10 real-pet care reminders.',
+    emoji: '🏅',
+    progressTarget: 10,
+  ),
+  PetAchievement(
+    type: AchievementType.vaccinationSeriesComplete,
+    title: 'Vaccination Complete',
+    description: "Completed your cat's entire vaccination series.",
+    emoji: '💉',
+    progressTarget: 1,
   ),
 ];
 

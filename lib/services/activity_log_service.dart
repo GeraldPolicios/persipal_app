@@ -102,24 +102,45 @@ class ActivityLogService extends ChangeNotifier {
         description: 'Completed quiz — Score: $score/$total',
       );
 
-  Future<void> logReminderAdded(String title, String type) => log(
+  Future<void> logReminderAdded(
+    String title,
+    String type, {
+    String petId = '',
+  }) =>
+      log(
         type: ActionType.reminder,
         description: 'Added reminder — $title ($type)',
+        petId: petId,
       );
 
-  Future<void> logReminderCompleted(String title) => log(
+  Future<void> logReminderCompleted(
+    String title, {
+    String petId = '',
+  }) =>
+      log(
         type: ActionType.reminder,
         description: 'Completed reminder — $title',
+        petId: petId,
       );
 
-  Future<void> logReminderEdited(String title) => log(
+  Future<void> logReminderEdited(
+    String title, {
+    String petId = '',
+  }) =>
+      log(
         type: ActionType.reminder,
         description: 'Edited reminder — $title',
+        petId: petId,
       );
 
-  Future<void> logReminderDeleted(String title) => log(
+  Future<void> logReminderDeleted(
+    String title, {
+    String petId = '',
+  }) =>
+      log(
         type: ActionType.reminder,
         description: 'Deleted reminder — $title',
+        petId: petId,
       );
 
   Future<void> logProfileAdded(String name) => log(
@@ -247,4 +268,14 @@ class ActivityLogService extends ChangeNotifier {
     _logs = await _local.fetchLogs();
     notifyListeners();
   }
+
+  Future<void> logAchievementUnlocked(
+    String achievementTitle,
+    String petName,
+  ) =>
+      log(
+        type: ActionType.other,
+        description: 'Unlocked achievement — $achievementTitle',
+        petName: petName,
+      );
 }

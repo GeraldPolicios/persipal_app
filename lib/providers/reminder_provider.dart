@@ -146,7 +146,11 @@ class ReminderProvider extends ChangeNotifier {
 
     await _syncNotification(reminder);
 
-    await _activityLog.logReminderAdded(reminder.title, reminder.type);
+    await _activityLog.logReminderAdded(
+      reminder.title,
+      reminder.type,
+      petId: reminder.petId ?? '',
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -174,7 +178,10 @@ class ReminderProvider extends ChangeNotifier {
     //   • past reminder
     await _syncNotification(updated);
 
-    await _activityLog.logReminderEdited(updated.title);
+    await _activityLog.logReminderEdited(
+      updated.title,
+      petId: updated.petId ?? '',
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -191,6 +198,7 @@ class ReminderProvider extends ChangeNotifier {
     }
 
     final removedTitle = _reminders[index].title;
+    final removedPetId = _reminders[index].petId ?? '';
 
     _reminders.removeAt(index);
 
@@ -200,7 +208,10 @@ class ReminderProvider extends ChangeNotifier {
 
     await _cancelNotification(id);
 
-    await _activityLog.logReminderDeleted(removedTitle);
+    await _activityLog.logReminderDeleted(
+      removedTitle,
+      petId: removedPetId,
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -234,7 +245,10 @@ class ReminderProvider extends ChangeNotifier {
     // but their notification must disappear.
     await _cancelNotification(id);
 
-    await _activityLog.logReminderCompleted(updated.title);
+    await _activityLog.logReminderCompleted(
+      updated.title,
+      petId: updated.petId ?? '',
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

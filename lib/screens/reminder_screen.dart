@@ -137,6 +137,12 @@ class _ReminderScreenState extends State<ReminderScreen>
     final reminders = context.read<ReminderProvider>();
     await reminders.markReminderDone(item.id);
 
+    if (item.petId != null) {
+      await PetProfileProvider.instance.checkCareAchievements(
+        item.petId!,
+      );
+    }
+
     if (item.recurrence != 'none') {
       await reminders.scheduleNextOccurrence(item);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -342,10 +348,12 @@ class _ReminderScreenState extends State<ReminderScreen>
                               initialTime: pickedDt != null
                                   ? TimeOfDay.fromDateTime(pickedDt!)
                                   : TimeOfDay.now(),
+                              initialEntryMode: TimePickerEntryMode.input,
                               builder: (c, child) => Theme(
                                 data: Theme.of(c).copyWith(
                                   colorScheme: const ColorScheme.light(
-                                      primary: Color(0xFFFF8C69)),
+                                    primary: Color(0xFFFF8C69),
+                                  ),
                                 ),
                                 child: child!,
                               ),

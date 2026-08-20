@@ -22,6 +22,7 @@ import 'growth_tracker_screen.dart';
 import 'vaccination_screen.dart';
 import 'achievements_screen.dart';
 import 'reminder_screen.dart';
+import 'pet_health_dashboard_screen.dart';
 import '../../widgets/tap_effects.dart';
 
 class MyPetProfileScreen extends StatefulWidget {
@@ -175,7 +176,7 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: Color.fromARGB(255, 56, 56, 56),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -183,7 +184,8 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                           pet.breed,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                              color: Colors.white70, fontSize: 13),
+                              color: Color.fromARGB(255, 69, 68, 68),
+                              fontSize: 13),
                         ),
                       ],
                     ),
@@ -253,6 +255,20 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                             MaterialPageRoute(
                               builder: (_) =>
                                   PetDetailsScreen(petId: widget.petId),
+                            ),
+                          ),
+                        ),
+                        _ModuleCard(
+                          emoji: '🩺',
+                          title: 'Health & Care',
+                          subtitle: 'Full overview',
+                          color: const Color(0xFF32CD32),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PetHealthDashboardScreen(
+                                petId: widget.petId,
+                              ),
                             ),
                           ),
                         ),
@@ -478,7 +494,8 @@ class _ModuleCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(subtitle,
                           style: TextStyle(
-                              fontSize: 10, color: color.withValues(alpha: 0.8))),
+                              fontSize: 10,
+                              color: color.withValues(alpha: 0.8))),
                     ],
                   ),
                 ],

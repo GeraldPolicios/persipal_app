@@ -414,7 +414,10 @@ class AppProvider extends ChangeNotifier {
     _reminders.add(reminder);
     await _local.saveReminder(reminder);
     unawaited(_sync.saveReminder(reminder));
-    await _activityLog.logReminderAdded(reminder.title, reminder.type);
+    await _activityLog.logReminderAdded(
+      reminder.title,
+      reminder.type,
+    );
     _logs = await _local.fetchLogs(); // FIX: keep logs in sync
     notifyListeners();
   }
@@ -439,7 +442,9 @@ class AppProvider extends ChangeNotifier {
     await _local.saveReminder(updated);
     unawaited(_sync.saveReminder(updated));
     if (updated.isCompleted) {
-      await _activityLog.logReminderCompleted(updated.title);
+      await _activityLog.logReminderCompleted(
+        updated.title,
+      );
       _logs = await _local.fetchLogs(); // FIX: keep logs in sync
     }
     notifyListeners();
