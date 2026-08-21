@@ -8,6 +8,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../utils/pet_age.dart';
+
 // Sentinel used so copyWith() can tell "not passed" apart from
 // "explicitly passed null" (needed to CLEAR nextSchedule / linkedReminderId).
 const Object _unset = Object();
@@ -393,6 +395,12 @@ class FullPetProfile {
 
   Color get avatarColor => Color(avatarColorValue);
 
+  /// The pet's birthday parsed as a [DateTime], or null if [birthday] is
+  /// blank or unparseable (e.g. an older pet created before this field was
+  /// reliably collected). Computed on demand — [birthday] itself keeps
+  /// storing the same 'MMMM d, yyyy' string it always has.
+  DateTime? get birthDate => parsePetBirthday(birthday);
+
   FullPetProfile copyWith({
     String? name,
     String? breed,
@@ -505,12 +513,16 @@ class FullPetProfile {
     required String name,
     String breed = 'Persian',
     int avatarColorValue = 0xFFFFB3BA,
+    String birthday = '',
+    String gender = 'Female',
   }) =>
       FullPetProfile(
         id: id,
         name: name,
         breed: breed,
         avatarColorValue: avatarColorValue,
+        birthday: birthday,
+        gender: gender,
         achievements: List.of(kDefaultAchievements),
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),

@@ -266,6 +266,8 @@ class PetProfileProvider extends ChangeNotifier {
     required String name,
     required String breed,
     required int avatarColorValue,
+    String birthday = '',
+    String gender = 'Female',
   }) async {
     if (!canAdd) {
       return null;
@@ -276,6 +278,8 @@ class PetProfileProvider extends ChangeNotifier {
       name: name.trim(),
       breed: breed.trim().isEmpty ? 'Persian' : breed.trim(),
       avatarColorValue: avatarColorValue,
+      birthday: birthday,
+      gender: gender,
     );
 
     final achievements = await _unlockAndLog(

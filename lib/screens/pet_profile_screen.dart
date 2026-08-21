@@ -4,6 +4,7 @@
 // Shows ONLY: avatar emoji, name, breed.  Max 10 profiles.
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
 import 'my_pet_profile_screen.dart';
@@ -54,6 +55,10 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     }
     final nameCtrl = TextEditingController();
     final breedCtrl = TextEditingController(text: 'Persian');
+    final birthdayCtrl = TextEditingController();
+    final weightCtrl = TextEditingController();
+    DateTime? birthday;
+    String gender = 'Female';
     int colorVal = _kColors[_provider.count % _kColors.length].value;
 
     showDialog(
@@ -132,6 +137,79 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   _field(nameCtrl, 'Cat Name *', Icons.edit),
                   const SizedBox(height: 12),
                   _field(breedCtrl, 'Breed', Icons.pets),
+                  const SizedBox(height: 12),
+                  Row(
+                      children: ['Female', 'Male'].map((g) {
+                    final sel = gender == g;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: GestureDetector(
+                        onTap: () => setD(() => gender = g),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: sel ? const Color(0xFFFF8C69) : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: const Color(0xFFFF8C69)
+                                    .withValues(alpha: 0.5)),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(g == 'Female' ? Icons.female : Icons.male,
+                                size: 16,
+                                color: sel
+                                    ? Colors.white
+                                    : const Color(0xFFFF8C69)),
+                            const SizedBox(width: 4),
+                            Text(g,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: sel
+                                        ? Colors.white
+                                        : const Color(0xFFAA7755))),
+                          ]),
+                        ),
+                      ),
+                    );
+                  }).toList()),
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now(),
+                        builder: (c, child) => Theme(
+                          data: Theme.of(c).copyWith(
+                              colorScheme: const ColorScheme.light(
+                                  primary: Color(0xFFFF8C69))),
+                          child: child!,
+                        ),
+                      );
+                      if (picked != null) {
+                        setD(() {
+                          birthday = picked;
+                          birthdayCtrl.text =
+                              DateFormat('MMMM d, yyyy').format(picked);
+                        });
+                      }
+                    },
+                    child: AbsorbPointer(
+                      child: _field(birthdayCtrl, 'Birthday *', Icons.cake),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _field(
+                    weightCtrl,
+                    'Current Weight (kg) *',
+                    Icons.monitor_weight,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                  ),
                   const SizedBox(height: 22),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -160,12 +238,39 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                                     content: Text('Cat name is required.')));
                             return;
                           }
+                          if (birthday == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content:
+                                        Text('Please select a birthday.')));
+                            return;
+                          }
+                          final w = double.tryParse(weightCtrl.text.trim());
+                          if (w == null || w <= 0) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Enter a valid weight.')));
+                            return;
+                          }
                           Navigator.pop(ctx);
-                          await _provider.createProfile(
+                          final profile = await _provider.createProfile(
                             name: nameCtrl.text.trim(),
                             breed: breedCtrl.text.trim(),
                             avatarColorValue: colorVal,
+                            birthday:
+                                DateFormat('MMMM d, yyyy').format(birthday!),
+                            gender: gender,
                           );
+                          if (profile != null) {
+                            await _provider.addGrowthEntry(
+                              profile.id,
+                              GrowthEntry(
+                                id: _provider.generateId(),
+                                weightKg: w,
+                                recordedAt: DateTime.now(),
+                              ),
+                            );
+                          }
                         },
                       ),
                     ],
@@ -188,9 +293,11 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     ));
   }
 
-  Widget _field(TextEditingController c, String label, IconData icon) =>
+  Widget _field(TextEditingController c, String label, IconData icon,
+          {TextInputType? keyboardType}) =>
       TextField(
         controller: c,
+        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: const TextStyle(fontSize: 13, color: Color(0xFFAA7755)),
