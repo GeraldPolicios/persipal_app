@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
+import '../../utils/cat_weight_status.dart';
 
 class GrowthTrackerScreen extends StatefulWidget {
   final String petId;
@@ -101,7 +102,8 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: const Color(0xFF20B2AA).withValues(alpha: 0.3)),
+                          color:
+                              const Color(0xFF20B2AA).withValues(alpha: 0.3)),
                     ),
                     child: Row(children: [
                       const Icon(Icons.calendar_today,
@@ -228,7 +230,8 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
   InputDecoration _deco(String label, IconData icon, Color color) =>
       InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8)),
+        labelStyle:
+            TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8)),
         prefixIcon: Icon(icon, size: 16, color: color),
         filled: true,
         fillColor: Colors.white,
@@ -271,9 +274,10 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                 onPressed: () => Navigator.pop(context),
               ),
               const Text('📈 ', style: TextStyle(fontSize: 18)),
-              const Expanded(
-                  child: Text('Growth Tracker',
-                      style: TextStyle(
+              Expanded(
+                  child: Text("${pet.name}'s Growth Tracker",
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
                           fontSize: 20, fontWeight: FontWeight.bold))),
             ]),
           ),
@@ -285,6 +289,10 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
                     children: [
+                      // Estimated weight status (latest entry)
+                      _buildWeightStatusCard(pet, entries),
+                      const SizedBox(height: 16),
+
                       // Mini chart
                       if (entries.length >= 2) _buildChart(entries),
                       const SizedBox(height: 16),
@@ -313,13 +321,139 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
     );
   }
 
+  Widget _buildWeightStatusCard(
+    FullPetProfile pet,
+    List<GrowthEntry> entries,
+  ) {
+    // Determine the latest entry by recordedAt explicitly — entries is
+    // usually sorted ascending, but editing an entry's date doesn't
+    // re-sort the list, so we don't rely on entries.last.
+    var latest = entries.first;
+    for (final e in entries) {
+      if (e.recordedAt.isAfter(latest.recordedAt)) {
+        latest = e;
+      }
+    }
+
+    final result = classifyCatWeight(
+      weightKg: latest.weightKg,
+      birthDate: pet.birthDate,
+      gender: pet.gender,
+      asOf: latest.recordedAt,
+    );
+
+    final color = _statusColor(result.status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _Label('ESTIMATED WEIGHT STATUS'),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                '${latest.weightKg} kg',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    result.label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'As of ${DateFormat('MMMM d, yyyy').format(latest.recordedAt)}',
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            result.detail,
+            style: const TextStyle(fontSize: 12, color: Color(0xFFAA7755)),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            kCatWeightStatusDisclaimer,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.grey,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _statusColor(CatWeightStatus status) {
+    switch (status) {
+      case CatWeightStatus.underweight:
+        return Colors.orange;
+      case CatWeightStatus.normal:
+        return const Color(0xFF20B2AA);
+      case CatWeightStatus.overweight:
+        return Colors.deepOrange;
+      case CatWeightStatus.obese:
+        return Colors.redAccent;
+      case CatWeightStatus.notClassified:
+      case CatWeightStatus.unknownAgeNeeded:
+      case CatWeightStatus.unrecognizedGender:
+        return Colors.grey;
+    }
+  }
+
   Widget _buildChart(List<GrowthEntry> entries) {
     final maxW = entries.map((e) => e.weightKg).reduce((a, b) => a > b ? a : b);
     final minW = entries.map((e) => e.weightKg).reduce((a, b) => a < b ? a : b);
     final range = (maxW - minW).clamp(0.1, double.infinity);
 
+    // Find earliest/latest by recordedAt explicitly — don't assume
+    // entries is sorted (editing an entry's date doesn't re-sort it).
+    var earliest = entries.first;
+    var latest = entries.first;
+    for (final e in entries) {
+      if (e.recordedAt.isBefore(earliest.recordedAt)) earliest = e;
+      if (e.recordedAt.isAfter(latest.recordedAt)) latest = e;
+    }
+
     return Container(
-      height: 120,
+      height: 150,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.85),
@@ -336,10 +470,37 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                   color: Color(0xFF20B2AA))),
           const SizedBox(height: 8),
           Expanded(
-            child: CustomPaint(
-              painter: _LinePainter(entries: entries, minW: minW, range: range),
-              child: Container(),
+            child: Stack(
+              children: [
+                CustomPaint(
+                  painter:
+                      _LinePainter(entries: entries, minW: minW, range: range),
+                  child: Container(),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: Text('${maxW.toStringAsFixed(1)} kg',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                ),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  child: Text('${minW.toStringAsFixed(1)} kg',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(DateFormat('MMM d, yyyy').format(earliest.recordedAt),
+                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              Text(DateFormat('MMM d, yyyy').format(latest.recordedAt),
+                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
+            ],
           ),
         ],
       ),
@@ -350,8 +511,8 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Opacity(
               opacity: 0.35,
-              child: Icon(Icons.show_chart,
-                  size: 80, color: Color(0xFF20B2AA))),
+              child:
+                  Icon(Icons.show_chart, size: 80, color: Color(0xFF20B2AA))),
           SizedBox(height: 16),
           Text('No growth records yet.',
               style: TextStyle(

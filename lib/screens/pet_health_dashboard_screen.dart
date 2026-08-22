@@ -575,7 +575,7 @@ class _RecentActivityCard extends StatelessWidget {
             ),
     );
   }
-}  
+}
 
 // ─── Quick summary ────────────────────────────────────────────────────────
 

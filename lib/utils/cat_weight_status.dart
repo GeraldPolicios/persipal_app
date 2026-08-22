@@ -38,6 +38,11 @@ enum CatWeightStatus {
   /// the file-level doc comment for why.
   notClassified,
 
+  /// [gender] (after trimming whitespace) was neither 'Male' nor
+  /// 'Female'. Never silently treated as female — a genuinely unexpected
+  /// value gets its own distinct, visible result.
+  unrecognizedGender,
+
   underweight,
   normal,
   overweight,
@@ -63,8 +68,8 @@ class CatWeightStatusResult {
 /// single constant so every call site uses identical wording.
 const String kCatWeightStatusDisclaimer =
     'Estimated weight status based on general Persian breed weight '
-    'references — not a diagnosis. A vet\'s hands-on body condition '
-    'assessment is the reliable way to confirm this.';
+    'references — not a diagnosis. A veterinary Body Condition Score '
+    '(BCS) exam is the reliable clinical way to confirm this.';
 
 // ─── Approved reference ranges ──────────────────────────────────────────
 //
@@ -79,8 +84,8 @@ const String kCatWeightStatusDisclaimer =
 // Applied identically to both brackets:
 //   weight < low                      -> Underweight
 //   low <= weight <= high             -> Normal
-//   high < weight <= high * 1.20      -> Overweight
-//   weight > high * 1.20              -> Obese
+//   high < weight <= high * 1.30      -> Overweight
+//   weight > high * 1.30              -> Obese
 
 class _WeightRange {
   final double low;
@@ -101,9 +106,12 @@ const _adultFemale = _WeightRange(3.0, 4.8, 'adult female Persian (24mo+)');
 ///   function does not read any storage itself, the caller supplies it.
 /// - [birthDate] should come from `FullPetProfile.birthDate` (already
 ///   nullable there); pass null if unknown/unparseable.
-/// - [gender] is treated as 'Male' (case-sensitive, matching the app's
-///   existing toggle values) or anything else is treated as female —
-///   consistent with the model's own default.
+/// - [gender] is trimmed of whitespace and must equal exactly 'Male' or
+///   'Female' (case-sensitive, matching the app's existing toggle values)
+///   to select a reference range. Any other value — including blank,
+///   differently-cased, or unrecognized strings — returns
+///   [CatWeightStatus.unrecognizedGender] instead. An unrecognized value
+///   is never silently treated as Female.
 /// - [asOf] is the reference date age is computed against — normally
 ///   `DateTime.now()`, but callers may pass any date.
 ///
@@ -135,7 +143,19 @@ CatWeightStatusResult classifyCatWeight({
   }
 
   final isJunior = ageMonths < 24;
-  final isMale = gender == 'Male';
+
+  final trimmedGender = gender.trim();
+  final isMale = trimmedGender == 'Male';
+  final isFemale = trimmedGender == 'Female';
+
+  if (!isMale && !isFemale) {
+    return const CatWeightStatusResult(
+      status: CatWeightStatus.unrecognizedGender,
+      label: 'Unrecognized gender',
+      detail: 'A valid Male or Female gender value is needed to estimate '
+          'weight status.',
+    );
+  }
 
   final range = isJunior
       ? (isMale ? _juniorMale : _juniorFemale)
@@ -168,20 +188,20 @@ CatWeightStatusResult _classifyAgainstRange(
     );
   }
 
-  final obeseThreshold = range.high * 1.20;
+  final obeseThreshold = range.high * 1.30;
 
   if (weightKg <= obeseThreshold) {
     return CatWeightStatusResult(
       status: CatWeightStatus.overweight,
       label: 'Overweight (estimate)',
-      detail: 'Above the $rangeText (10–20% over).',
+      detail: 'Above the $rangeText (up to 30% over).',
     );
   }
 
   return CatWeightStatusResult(
     status: CatWeightStatus.obese,
     label: 'Obese (estimate)',
-    detail: 'More than 20% above the $rangeText.',
+    detail: 'More than 30% above the $rangeText.',
   );
 }
 
