@@ -21,6 +21,7 @@ import '../../models/reminder_item_model.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../providers/reminder_provider.dart';
 import '../../services/activity_log_service.dart';
+import '../../utils/cat_weight_status.dart';
 
 class PetHealthDashboardScreen extends StatefulWidget {
   final String petId;
@@ -167,28 +168,37 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                         next: nextVaccine,
                       ),
                       const SizedBox(height: 18),
-                      const _SectionLabel('REMINDERS'),
-                      const SizedBox(height: 8),
-                      _RemindersCard(
-                        upcoming: upcomingReminders,
-                        overdue: overdueReminders,
+                      _CollapsibleSection(
+                        title: 'REMINDERS',
+                        headerSummary: Text(
+                          '${upcomingReminders.length} upcoming · ${overdueReminders.length} overdue',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: overdueReminders.isNotEmpty
+                                ? Colors.redAccent
+                                : const Color(0xFFAA7755),
+                          ),
+                        ),
+                        child: _RemindersCard(
+                          upcoming: upcomingReminders,
+                          overdue: overdueReminders,
+                        ),
                       ),
                       const SizedBox(height: 18),
-                      const _SectionLabel('GROWTH'),
-                      const SizedBox(height: 8),
-                      _GrowthCard(entry: latestGrowth),
+                      _CollapsibleSection(
+                        title: 'GROWTH',
+                        child: _GrowthCard(
+                          entry: latestGrowth,
+                          birthDate: pet.birthDate,
+                          gender: pet.gender,
+                        ),
+                      ),
                       const SizedBox(height: 18),
-                      const _SectionLabel('RECENT ACTIVITY'),
-                      const SizedBox(height: 8),
-                      _RecentActivityCard(activities: recentActivity),
-                      const SizedBox(height: 18),
-                      const _SectionLabel('QUICK SUMMARY'),
-                      const SizedBox(height: 8),
-                      _QuickSummaryGrid(
-                        upcomingVaccines: upcomingVaccines.length,
-                        overdueVaccines: overdueVaccines.length,
-                        upcomingReminders: upcomingReminders.length,
-                        overdueReminders: overdueReminders.length,
+                      _CollapsibleSection(
+                        title: 'RECENT ACTIVITY',
+                        maxHeight: 250,
+                        child: _RecentActivityCard(activities: recentActivity),
                       ),
                     ],
                   ),
@@ -245,6 +255,74 @@ class _SectionLabel extends StatelessWidget {
         letterSpacing: 1.4,
         color: Color(0xFFAA7755),
       ),
+    );
+  }
+}
+
+// ─── Collapsible section wrapper ────────────────────────────────────────
+//
+// Wraps an existing section card (unchanged) with a tappable header and
+// chevron. Collapsed by default. Owns its own expand/collapse state so
+// no changes are needed to the parent screen's state class. Optional
+// [maxHeight] bounds the expanded content in a scrollable box — used
+// only by Recent Activity.
+
+class _CollapsibleSection extends StatefulWidget {
+  final String title;
+  final Widget child;
+  final double? maxHeight;
+  final Widget? headerSummary;
+
+  const _CollapsibleSection({
+    required this.title,
+    required this.child,
+    this.maxHeight,
+    this.headerSummary,
+  });
+
+  @override
+  State<_CollapsibleSection> createState() => _CollapsibleSectionState();
+}
+
+class _CollapsibleSectionState extends State<_CollapsibleSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Expanded(child: _SectionLabel(widget.title)),
+                if (widget.headerSummary != null) ...[
+                  widget.headerSummary!,
+                  const SizedBox(width: 8),
+                ],
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 20,
+                  color: const Color(0xFFAA7755),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_expanded) ...[
+          const SizedBox(height: 8),
+          widget.maxHeight != null
+              ? SizedBox(
+                  height: widget.maxHeight,
+                  child: SingleChildScrollView(child: widget.child),
+                )
+              : widget.child,
+        ],
+      ],
     );
   }
 }
@@ -432,11 +510,26 @@ class _RemindersCard extends StatelessWidget {
 
 class _GrowthCard extends StatelessWidget {
   final GrowthEntry? entry;
+  final DateTime? birthDate;
+  final String gender;
 
-  const _GrowthCard({required this.entry});
+  const _GrowthCard({
+    required this.entry,
+    required this.birthDate,
+    required this.gender,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final statusResult = entry == null
+        ? null
+        : classifyCatWeight(
+            weightKg: entry!.weightKg,
+            birthDate: birthDate,
+            gender: gender,
+            asOf: entry!.recordedAt,
+          );
+
     return _Card(
       child: entry == null
           ? const _EmptyRow(text: 'No growth entries logged yet.')
@@ -481,6 +574,34 @@ class _GrowthCard extends StatelessWidget {
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
                             color: Color(0xFF7A3B1E),
+                          ),
+                        ),
+                      ],
+                      if (statusResult != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          statusResult.label,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF20B2AA),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          statusResult.detail,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFAA7755),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          kCatWeightStatusDisclaimer,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey,
+                            fontStyle: FontStyle.italic,
                           ),
                         ),
                       ],
@@ -573,107 +694,6 @@ class _RecentActivityCard extends StatelessWidget {
                 ),
               ],
             ),
-    );
-  }
-}
-
-// ─── Quick summary ────────────────────────────────────────────────────────
-
-class _QuickSummaryGrid extends StatelessWidget {
-  final int upcomingVaccines;
-  final int overdueVaccines;
-  final int upcomingReminders;
-  final int overdueReminders;
-
-  const _QuickSummaryGrid({
-    required this.upcomingVaccines,
-    required this.overdueVaccines,
-    required this.upcomingReminders,
-    required this.overdueReminders,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: 2.4,
-      children: [
-        _SummaryTile(
-          emoji: '💉',
-          label: 'Upcoming vaccinations',
-          value: upcomingVaccines,
-          color: const Color(0xFF4682B4),
-        ),
-        _SummaryTile(
-          emoji: '⚠️',
-          label: 'Overdue vaccinations',
-          value: overdueVaccines,
-          color:
-              overdueVaccines > 0 ? Colors.redAccent : const Color(0xFFAAAAAA),
-        ),
-        _SummaryTile(
-          emoji: '🔔',
-          label: 'Upcoming reminders',
-          value: upcomingReminders,
-          color: const Color(0xFF7B68EE),
-        ),
-        _SummaryTile(
-          emoji: '⏰',
-          label: 'Overdue reminders',
-          value: overdueReminders,
-          color:
-              overdueReminders > 0 ? Colors.redAccent : const Color(0xFFAAAAAA),
-        ),
-      ],
-    );
-  }
-}
-
-class _SummaryTile extends StatelessWidget {
-  final String emoji;
-  final String label;
-  final int value;
-  final Color color;
-
-  const _SummaryTile({
-    required this.emoji,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Text(emoji, style: const TextStyle(fontSize: 18)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-            ),
-          ),
-          Text(
-            '$value',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
