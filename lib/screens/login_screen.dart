@@ -17,7 +17,10 @@ import '../services/auth_service.dart';
 import '../services/session_manager.dart';
 import '../services/activity_log_service.dart';
 import '../providers/app_provider.dart';
+import '../providers/pet_profile_provider.dart';
+import '../providers/reminder_provider.dart';
 import 'home_screen.dart';
+import 'verify_email_screen.dart';
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -214,13 +217,59 @@ class _LoginScreenState extends State<LoginScreen>
   // ── Post-login: check for guest data to merge ─────────────────────────────
 
   Future<void> _handlePostLogin() async {
-    final hasGuest = await SessionManager.instance.hasLocalGuestData();
+    // Google sign-ins are already emailVerified per Firebase, so this only
+    // ever routes an unverified email/password user — they don't reach the
+    // guest-merge check or HomeScreen until they've verified. Passing
+    // _handlePostLogin as onVerified means, once verified, this same
+    // method runs again and falls through to the merge-dialog/_goHome
+    // logic below exactly as it always has.
+    if (AuthService.instance.needsEmailVerification) {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailScreen(onVerified: _handlePostLogin),
+        ),
+      );
+      return;
+    }
+
+    // hasLocalGuestData() alone only tells us a guest session existed at
+    // some point on this device — true for nearly every install now,
+    // since one is auto-created on first launch, regardless of whether
+    // that guest ever actually created anything. Combine it with a real
+    // check for actual local data so an empty-handed guest signing in
+    // doesn't get shown a pointless merge prompt.
+    final hadGuestSession = await SessionManager.instance.hasLocalGuestData();
+    final hasData = await _hasMergeableLocalData();
     if (!mounted) return;
-    if (hasGuest) {
+    if (hadGuestSession && hasData) {
       _showMergeDialog();
     } else {
       _goHome();
     }
+  }
+
+  /// Whether there's any actual local data worth offering to merge —
+  /// read-only, never deletes or modifies anything, so it's always safe
+  /// to call even if the dialog ends up not being shown.
+  Future<bool> _hasMergeableLocalData() async {
+    // init() is idempotent — guarantees PetProfileProvider's Hive box is
+    // actually loaded before checking it, even if this device has real
+    // profiles from a previous session that this run never happened to
+    // load yet (e.g. going straight to Sign In without visiting a
+    // pet-profile screen first).
+    await PetProfileProvider.instance.init();
+    if (!mounted) return false;
+
+    final app = context.read<AppProvider>();
+    final reminders = context.read<ReminderProvider>();
+
+    return app.pets.isNotEmpty ||
+        app.reminders.isNotEmpty ||
+        app.quizzes.isNotEmpty ||
+        PetProfileProvider.instance.profiles.isNotEmpty ||
+        reminders.reminders.isNotEmpty;
   }
 
   void _showMergeDialog() {
@@ -258,7 +307,13 @@ class _LoginScreenState extends State<LoginScreen>
               Navigator.pop(ctx);
               if (!mounted) return;
               final provider = context.read<AppProvider>();
+              final reminderProvider = context.read<ReminderProvider>();
               await provider.replaceLocalWithCloud();
+              // init() is idempotent — guarantees the Hive box is open
+              // even if the user never visited a pet-profile screen yet.
+              await PetProfileProvider.instance.init();
+              await PetProfileProvider.instance.replaceLocalWithCloud();
+              await reminderProvider.replaceLocalWithCloud();
               await SessionManager.instance.clearGuestId();
               _goHome();
             },
@@ -276,7 +331,11 @@ class _LoginScreenState extends State<LoginScreen>
               Navigator.pop(ctx);
               if (!mounted) return;
               final provider = context.read<AppProvider>();
+              final reminderProvider = context.read<ReminderProvider>();
               await provider.mergeGuestDataWithCloud();
+              await PetProfileProvider.instance.init();
+              await PetProfileProvider.instance.pushGuestDataToCloud();
+              await reminderProvider.pushGuestDataToCloud();
               await SessionManager.instance.clearGuestId();
               _goHome();
             },

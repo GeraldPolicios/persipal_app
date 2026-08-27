@@ -1,16 +1,21 @@
 // screens/splash_screen.dart
 //
-// Shows the Persipal brand for ~2.4s, then:
-//   • If a session (guest or auth) exists in Hive → HomeScreen
-//   • Otherwise → LoginScreen
-// Firebase is NEVER awaited here.
+// Shows the Persipal brand for ~2.4s, then goes to HomeScreen.
+//
+// SessionManager.init() (awaited in main() before runApp) always leaves a
+// session in place by the time this navigates — a brand-new install gets
+// an auto-created guest session rather than being routed to LoginScreen.
+// The LoginScreen fallback below only matters if that invariant is ever
+// broken. Firebase is NEVER awaited here.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/auth_service.dart';
 import '../services/session_manager.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
+import 'verify_email_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -109,13 +114,26 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final hasSession = SessionManager.instance.hasSession;
+    // Catches an authenticated-but-unverified user reopening the app —
+    // Firebase persists sign-in state locally regardless of verification,
+    // so without this check they could bypass VerifyEmailScreen just by
+    // restarting. Google sign-ins are never affected (already verified).
+    final needsVerification = AuthService.instance.needsEmailVerification;
+
+    Widget destination;
+    if (!hasSession) {
+      destination = const LoginScreen();
+    } else if (needsVerification) {
+      destination = const VerifyEmailScreen();
+    } else {
+      destination = const HomeScreen();
+    }
 
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 450),
-        pageBuilder: (_, __, ___) =>
-            hasSession ? const HomeScreen() : const LoginScreen(),
+        pageBuilder: (_, __, ___) => destination,
         transitionsBuilder: (_, anim, __, child) =>
             FadeTransition(opacity: anim, child: child),
       ),

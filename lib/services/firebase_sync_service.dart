@@ -45,8 +45,21 @@ class FirebaseSyncService extends ChangeNotifier {
 
   // ── Collection refs ───────────────────────────────────────────────────────
 
-  CollectionReference<Map<String, dynamic>> _col(String name) =>
-      _db.collection('users').doc(_auth.userId).collection(name);
+  // Guards against the unauthenticated 'guest' fallback in AuthService.userId
+  // ever being used as a real Firestore path segment — that value is not
+  // device-specific, so writing under it would mix data across every guest
+  // device. Every call site is expected to check _canSync (which requires
+  // isAuthenticated) before reaching here; this is defense-in-depth in case
+  // a future call site forgets to.
+  CollectionReference<Map<String, dynamic>> _col(String name) {
+    if (!_auth.isAuthenticated) {
+      throw StateError(
+        'FirebaseSyncService._col() called while unauthenticated — '
+        'callers must check _canSync first.',
+      );
+    }
+    return _db.collection('users').doc(_auth.userId).collection(name);
+  }
 
   // ── Guards ────────────────────────────────────────────────────────────────
 
@@ -153,10 +166,15 @@ class FirebaseSyncService extends ChangeNotifier {
   }
 
   Future<void> deletePet(String id) async {
-    if (!_canSync) return;
+    if (!_canSync) {
+      await _local.queuePendingOp('delete_pet:$id');
+      return;
+    }
     try {
       await _col('pets').doc(id).delete();
-    } catch (_) {}
+    } catch (_) {
+      await _local.queuePendingOp('delete_pet:$id');
+    }
   }
 
   Future<void> saveReminder(ReminderModel r) async {
@@ -172,10 +190,15 @@ class FirebaseSyncService extends ChangeNotifier {
   }
 
   Future<void> deleteReminder(String id) async {
-    if (!_canSync) return;
+    if (!_canSync) {
+      await _local.queuePendingOp('delete_reminder:$id');
+      return;
+    }
     try {
       await _col('reminders').doc(id).delete();
-    } catch (_) {}
+    } catch (_) {
+      await _local.queuePendingOp('delete_reminder:$id');
+    }
   }
 
   Future<void> addLog(ActivityLogModel log) async {
@@ -191,19 +214,29 @@ class FirebaseSyncService extends ChangeNotifier {
   }
 
   Future<void> saveSettings(AppSettings s) async {
-    if (!_canSync) return;
+    if (!_canSync) {
+      await _local.queuePendingOp('settings:app_settings');
+      return;
+    }
     try {
       await _col('settings')
           .doc('app_settings')
           .set(s.toMap(), SetOptions(merge: true));
-    } catch (_) {}
+    } catch (_) {
+      await _local.queuePendingOp('settings:app_settings');
+    }
   }
 
   Future<void> saveQuizResult(QuizResult r) async {
-    if (!_canSync) return;
+    if (!_canSync) {
+      await _local.queuePendingOp('quiz:${r.id}');
+      return;
+    }
     try {
       await _col('quizzes').doc(r.id).set(r.toMap());
-    } catch (_) {}
+    } catch (_) {
+      await _local.queuePendingOp('quiz:${r.id}');
+    }
   }
 
   // ── Flush pending ops ──────────────────────────────────────────────────────
@@ -220,6 +253,11 @@ class FirebaseSyncService extends ChangeNotifier {
         final type = parts[0];
         final id = parts[1];
 
+        // Other owners (e.g. PetProfileProvider, ReminderProvider) queue
+        // their own token prefixes into this SAME shared Hive box. Only
+        // remove a token here when a case below actually claims and
+        // processes it — an unrecognized prefix belongs to another owner's
+        // own flush routine and must be left alone, not silently dropped.
         switch (type) {
           case 'pet':
             final pet = provider.pets
@@ -240,6 +278,24 @@ class FirebaseSyncService extends ChangeNotifier {
                 .firstWhere((l) => l?.id == id, orElse: () => null);
             if (log != null) await addLog(log);
             break;
+          case 'delete_pet':
+            await deletePet(id);
+            break;
+          case 'delete_reminder':
+            await deleteReminder(id);
+            break;
+          case 'settings':
+            await saveSettings(provider.settings);
+            break;
+          case 'quiz':
+            final q = provider.quizzes
+                .cast<QuizResult?>()
+                .firstWhere((q) => q?.id == id, orElse: () => null);
+            if (q != null) await saveQuizResult(q);
+            break;
+          default:
+            // Not one of ours — belongs to another owner's flush routine.
+            continue;
         }
         await _local.removePendingOp(token);
       } catch (_) {

@@ -130,6 +130,34 @@ class SyncStatusBadge extends StatelessWidget {
     // FIX: explicitly typed as AppProvider — no more Object? ambiguity
     return Consumer<AppProvider>(
       builder: (_, AppProvider prov, __) {
+        // Guest/no account: never show an authenticated-only status (e.g.
+        // a stale "Synced" left over from a previous account) — internet
+        // connectivity alone doesn't mean this device's data is cloud-
+        // synced, since guests never sync to Firestore at all.
+        if (!prov.isAuthenticated) {
+          const color = AppTheme.softBrown;
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.storage, size: 12, color: color),
+                SizedBox(width: 4),
+                Text('Local only',
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: color,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+          );
+        }
+
         final state = prov.syncState;
         if (state == SyncState.idle) return const SizedBox.shrink();
 

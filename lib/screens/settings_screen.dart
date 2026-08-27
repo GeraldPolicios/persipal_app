@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
+import '../providers/reminder_provider.dart';
 import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_sync_service.dart'
@@ -102,8 +103,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (ok != true || !mounted) return;
     try {
+      final reminderProvider = context.read<ReminderProvider>();
+      final appProvider = context.read<AppProvider>();
       await FirebaseSyncService.instance.deleteAllCloudData();
       await _auth.deleteAccount();
+      // Cloud data and the Firebase Auth account are already gone at this
+      // point — clear local data too, so the device is left in a clean
+      // guest state rather than showing the deleted account's data.
+      await appProvider.clearAllLocalDataAfterAccountDeletion(reminderProvider);
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
@@ -125,7 +132,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── Sign out ───────────────────────────────────────────────────────────────
 
   Future<void> _signOut() async {
-    await _auth.signOut();
+    final reminderProvider = context.read<ReminderProvider>();
+    final appProvider = context.read<AppProvider>();
+    // Best-effort flushes pending syncs while still authenticated, then
+    // signs out and clears local working data across all three stores —
+    // see AppProvider.signOutAndClearLocalData for the full sequencing.
+    await appProvider.signOutAndClearLocalData(reminderProvider);
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,

@@ -29,6 +29,7 @@ import '../models/pet_extended_models.dart';
 import '../models/reminder_item_model.dart';
 import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
+import '../services/connectivity_service.dart';
 import '../services/local_storage_service.dart';
 import 'reminder_provider.dart';
 
@@ -44,6 +45,8 @@ class PetProfileProvider extends ChangeNotifier {
 
   final AuthService _auth = AuthService.instance;
   final ActivityLogService _log = ActivityLogService.instance;
+  final ConnectivityService _connectivity = ConnectivityService.instance;
+  final LocalStorageService _local = LocalStorageService.instance;
 
   List<FullPetProfile> _profiles = [];
 
@@ -80,20 +83,30 @@ class PetProfileProvider extends ChangeNotifier {
 
     if (_auth.isAuthenticated) {
       unawaited(_downloadFromCloud());
+      unawaited(_flushPendingOps());
     }
 
     _auth.addListener(_onAuthChanged);
+    _connectivity.addListener(_onConnectivityChanged);
   }
 
   @override
   void dispose() {
     _auth.removeListener(_onAuthChanged);
+    _connectivity.removeListener(_onConnectivityChanged);
     super.dispose();
   }
 
   void _onAuthChanged() {
     if (_auth.isAuthenticated) {
       unawaited(_downloadFromCloud());
+      unawaited(_flushPendingOps());
+    }
+  }
+
+  void _onConnectivityChanged() {
+    if (_connectivity.isOnline && _auth.isAuthenticated) {
+      unawaited(_flushPendingOps());
     }
   }
 
@@ -172,13 +185,19 @@ class PetProfileProvider extends ChangeNotifier {
   Future<void> _uploadToCloud(
     FullPetProfile profile,
   ) async {
+    final collection = _collection;
+
+    if (collection == null) {
+      // Not authenticated — nothing to sync yet; Hive already has it.
+      return;
+    }
+
+    if (!_connectivity.isOnline) {
+      await _local.queuePendingOp('pet_profile:${profile.id}');
+      return;
+    }
+
     try {
-      final collection = _collection;
-
-      if (collection == null) {
-        return;
-      }
-
       await collection.doc(profile.id).set(
             profile.toMap(),
             SetOptions(merge: true),
@@ -187,24 +206,81 @@ class PetProfileProvider extends ChangeNotifier {
       debugPrint(
         'PetProfileProvider: cloud upload failed: $e',
       );
+      await _local.queuePendingOp('pet_profile:${profile.id}');
     }
   }
 
   Future<void> _deleteFromCloud(
     String id,
   ) async {
+    final collection = _collection;
+
+    if (collection == null) {
+      return;
+    }
+
+    if (!_connectivity.isOnline) {
+      await _local.queuePendingOp('delete_pet_profile:$id');
+      return;
+    }
+
     try {
-      final collection = _collection;
-
-      if (collection == null) {
-        return;
-      }
-
       await collection.doc(id).delete();
     } catch (e) {
       debugPrint(
         'PetProfileProvider: cloud delete failed: $e',
       );
+      await _local.queuePendingOp('delete_pet_profile:$id');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Pending-ops retry (shares LocalStorageService's pending-sync queue with
+  // FirebaseSyncService — only 'pet_profile'/'delete_pet_profile' tokens are
+  // this provider's own; any other prefix belongs to a different owner and
+  // is left untouched, never removed here).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _flushPendingOps() async {
+    if (!_auth.isAuthenticated || !_connectivity.isOnline) return;
+
+    final collection = _collection;
+    if (collection == null) return;
+
+    final tokens = await _local.fetchPendingOps();
+    if (tokens.isEmpty) return;
+
+    for (final token in tokens) {
+      final parts = token.split(':');
+      if (parts.length < 2) continue;
+      final type = parts[0];
+      final id = parts[1];
+
+      if (type != 'pet_profile' && type != 'delete_pet_profile') continue;
+
+      try {
+        if (type == 'pet_profile') {
+          final profile = _getById(id);
+          if (profile == null) {
+            // Profile no longer exists locally — drop the stale token.
+            await _local.removePendingOp(token);
+            continue;
+          }
+          await collection
+              .doc(id)
+              .set(profile.toMap(), SetOptions(merge: true));
+        } else {
+          await collection.doc(id).delete();
+        }
+        // Only remove on confirmed success — a failure here leaves the
+        // token in place for the next connectivity/auth trigger, without
+        // re-queuing a duplicate (that's what caused a token to vanish
+        // without actually completing, if it were re-added and then
+        // unconditionally removed in the same pass).
+        await _local.removePendingOp(token);
+      } catch (_) {
+        // Leave token in queue for next attempt.
+      }
     }
   }
 
@@ -1156,6 +1232,60 @@ class PetProfileProvider extends ChangeNotifier {
     }
 
     await _downloadFromCloud();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Guest → account merge
+  //
+  // Mirrors AppProvider.mergeGuestDataWithCloud() / replaceLocalWithCloud(),
+  // for the FullPetProfile data those two never touch. Called from the same
+  // post-login "Sync Offline Progress?" prompt in login_screen.dart, so pet
+  // profiles/vaccinations/growth records created as a guest aren't left
+  // behind locally when the user creates or signs into an account.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// "Merge Progress": push every local (guest) profile to this account's
+  /// cloud data, then pull down whatever else already exists there.
+  Future<void> pushGuestDataToCloud() => syncNow();
+
+  /// "Use Cloud Data": discard local (guest) profiles without uploading
+  /// them, then replace local state with whatever is in the cloud.
+  Future<void> replaceLocalWithCloud() async {
+    if (!_auth.isAuthenticated) {
+      return;
+    }
+
+    for (final profile in List<FullPetProfile>.from(_profiles)) {
+      await _deleteFromHive(profile.id);
+    }
+    _profiles = [];
+    notifyListeners();
+
+    await _downloadFromCloud();
+  }
+
+  /// Best-effort: attempts to push any queued 'pet_profile'/
+  /// 'delete_pet_profile' ops now. Public wrapper around the existing
+  /// private flush so callers outside this provider (e.g. AppProvider's
+  /// sign-out orchestration) can request one without duplicating its
+  /// logic. Safe to call regardless of auth/connectivity — it's already
+  /// a no-op in those cases.
+  Future<void> flushPendingOpsIfPossible() => _flushPendingOps();
+
+  /// Clears this device's local FullPetProfile data (Hive box +
+  /// in-memory list). Used when an authenticated session ends (sign-out
+  /// or account deletion) so the next guest/account on this device never
+  /// sees the departed account's pet profiles. Does NOT touch Firestore —
+  /// the account's cloud data is untouched by this.
+  Future<void> clearAllLocalData() async {
+    // init() is idempotent — guarantees the Hive box is actually open
+    // even if this provider was never used this session (e.g. a user who
+    // signed in but never visited a pet-profile screen before signing
+    // out again). A no-op if already initialized.
+    await init();
+    await _box.clear();
+    _profiles = [];
+    notifyListeners();
   }
 
   // ─────────────────────────────────────────────────────────────────────────

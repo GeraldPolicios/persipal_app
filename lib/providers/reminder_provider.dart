@@ -15,9 +15,14 @@
 //
 // The screens should NOT call NotificationService directly.
 
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/reminder_item_model.dart';
+import '../services/auth_service.dart';
+import '../services/connectivity_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/notification_service.dart';
 import '../services/activity_log_service.dart';
@@ -28,6 +33,8 @@ class ReminderProvider extends ChangeNotifier {
   final LocalStorageService _local = LocalStorageService.instance;
   final NotificationService _notifications = NotificationService.instance;
   final ActivityLogService _activityLog = ActivityLogService.instance;
+  final AuthService _auth = AuthService.instance;
+  final ConnectivityService _connectivity = ConnectivityService.instance;
 
   final List<ReminderItem> _reminders = [];
 
@@ -80,6 +87,224 @@ class ReminderProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+
+    if (_auth.isAuthenticated) {
+      unawaited(_downloadFromCloud());
+      unawaited(_flushPendingOps());
+    }
+    _auth.addListener(_onAuthChanged);
+    _connectivity.addListener(_onConnectivityChanged);
+  }
+
+  @override
+  void dispose() {
+    _auth.removeListener(_onAuthChanged);
+    _connectivity.removeListener(_onConnectivityChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (_auth.isAuthenticated) {
+      unawaited(_downloadFromCloud());
+      unawaited(_flushPendingOps());
+    }
+  }
+
+  void _onConnectivityChanged() {
+    if (_connectivity.isOnline && _auth.isAuthenticated) {
+      unawaited(_flushPendingOps());
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Firestore — mirrors PetProfileProvider's own hand-rolled sync (same
+  // shape as FirebaseSyncService), scoped to ReminderItem, the model the
+  // reminder/vaccination/health-dashboard screens actually use. Shares
+  // LocalStorageService's pending-sync queue with the other owners — only
+  // 'reminder_item'/'delete_reminder_item' tokens belong to this provider;
+  // any other prefix is left untouched.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  CollectionReference<Map<String, dynamic>>? get _collection {
+    if (!_auth.isAuthenticated) return null;
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(_auth.userId)
+        .collection('reminder_items');
+  }
+
+  Future<void> _uploadToCloud(ReminderItem item) async {
+    final collection = _collection;
+    if (collection == null) {
+      // Not authenticated — nothing to sync yet; Hive already has it.
+      return;
+    }
+
+    if (!_connectivity.isOnline) {
+      await _local.queuePendingOp('reminder_item:${item.id}');
+      return;
+    }
+
+    try {
+      await collection
+          .doc(item.id)
+          .set(item.toMap(), SetOptions(merge: true));
+    } catch (_) {
+      await _local.queuePendingOp('reminder_item:${item.id}');
+    }
+  }
+
+  Future<void> _deleteFromCloud(String id) async {
+    final collection = _collection;
+    if (collection == null) return;
+
+    if (!_connectivity.isOnline) {
+      await _local.queuePendingOp('delete_reminder_item:$id');
+      return;
+    }
+
+    try {
+      await collection.doc(id).delete();
+    } catch (_) {
+      await _local.queuePendingOp('delete_reminder_item:$id');
+    }
+  }
+
+  /// Union by id, matching AppProvider's existing reminder-merge strategy
+  /// (no field-level conflict resolution): a cloud reminder is added
+  /// locally only if this device doesn't already have that id. An edit to
+  /// an already-present id is not pulled — same limitation AppProvider
+  /// already has for its own reminders.
+  Future<void> _downloadFromCloud() async {
+    final collection = _collection;
+    if (collection == null) return;
+
+    try {
+      final snap = await collection.get();
+      if (snap.docs.isEmpty) return;
+
+      final existingIds = _reminders.map((r) => r.id).toSet();
+      var changed = false;
+
+      for (final doc in snap.docs) {
+        try {
+          final item = ReminderItem.fromMap(doc.data());
+          if (!existingIds.contains(item.id)) {
+            _reminders.add(item);
+            await _local.saveReminderItem(item);
+            await _syncNotification(item);
+            changed = true;
+          }
+        } catch (_) {
+          // Skip a malformed cloud doc rather than fail the whole sync.
+        }
+      }
+
+      if (changed) notifyListeners();
+    } catch (_) {
+      // Silent fail — app works offline.
+    }
+  }
+
+  Future<void> _flushPendingOps() async {
+    if (!_auth.isAuthenticated || !_connectivity.isOnline) return;
+
+    final collection = _collection;
+    if (collection == null) return;
+
+    final tokens = await _local.fetchPendingOps();
+    if (tokens.isEmpty) return;
+
+    for (final token in tokens) {
+      final parts = token.split(':');
+      if (parts.length < 2) continue;
+      final type = parts[0];
+      final id = parts[1];
+
+      if (type != 'reminder_item' && type != 'delete_reminder_item') continue;
+
+      try {
+        if (type == 'reminder_item') {
+          final item = getById(id);
+          if (item == null) {
+            // Reminder no longer exists locally — drop the stale token.
+            await _local.removePendingOp(token);
+            continue;
+          }
+          await collection
+              .doc(id)
+              .set(item.toMap(), SetOptions(merge: true));
+        } else {
+          await collection.doc(id).delete();
+        }
+        // Only remove on confirmed success — see PetProfileProvider's
+        // _flushPendingOps for why this must not remove on failure.
+        await _local.removePendingOp(token);
+      } catch (_) {
+        // Leave token in queue for next attempt.
+      }
+    }
+  }
+
+  /// Best-effort: attempts to push any queued 'reminder_item'/
+  /// 'delete_reminder_item' ops now. Public wrapper around the existing
+  /// private flush so callers outside this provider (e.g. AppProvider's
+  /// sign-out orchestration) can request one without duplicating its
+  /// logic. Safe to call regardless of auth/connectivity — it's already
+  /// a no-op in those cases.
+  Future<void> flushPendingOpsIfPossible() => _flushPendingOps();
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Guest → account merge
+  //
+  // Mirrors PetProfileProvider's pushGuestDataToCloud()/replaceLocalWithCloud(),
+  // for the ReminderItem data those never touched before. Called from the
+  // same post-login "Sync Offline Progress?" prompt in login_screen.dart, so
+  // care reminders created as a guest aren't left behind locally when the
+  // user creates or signs into an account.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// "Merge Progress": push every local (guest) reminder to this
+  /// account's cloud data, then pull down whatever else already exists
+  /// there. Uploading by the reminder's existing id and downloading with
+  /// the union-by-id merge in [_downloadFromCloud] together mean this
+  /// never creates a duplicate — an uploaded reminder's id is already
+  /// present locally, so the subsequent download skips re-adding it.
+  Future<void> pushGuestDataToCloud() async {
+    for (final r in List<ReminderItem>.from(_reminders)) {
+      unawaited(_uploadToCloud(r));
+    }
+    await _downloadFromCloud();
+  }
+
+  /// "Use Cloud Data": discard local (guest) reminders without uploading
+  /// them, then replace local state with whatever is in the cloud.
+  Future<void> replaceLocalWithCloud() async {
+    if (!_auth.isAuthenticated) return;
+
+    for (final r in List<ReminderItem>.from(_reminders)) {
+      await _local.deleteReminderItem(r.id);
+      await _cancelNotification(r.id);
+    }
+    _reminders.clear();
+    notifyListeners();
+
+    await _downloadFromCloud();
+  }
+
+  /// Clears this device's local ReminderItem data (Hive box + in-memory
+  /// list), cancelling any scheduled notifications first. Used when an
+  /// authenticated session ends (sign-out or account deletion) so the
+  /// next guest/account on this device never sees the departed account's
+  /// reminders. Does NOT touch Firestore — the account's cloud data is
+  /// untouched by this.
+  Future<void> clearAllLocalData() async {
+    for (final r in List<ReminderItem>.from(_reminders)) {
+      await _cancelNotification(r.id);
+    }
+    await _local.clearReminderItems();
+    _reminders.clear();
+    notifyListeners();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -143,6 +368,7 @@ class ReminderProvider extends ChangeNotifier {
     notifyListeners();
 
     await _local.saveReminderItem(reminder);
+    unawaited(_uploadToCloud(reminder));
 
     await _syncNotification(reminder);
 
@@ -170,6 +396,7 @@ class ReminderProvider extends ChangeNotifier {
     notifyListeners();
 
     await _local.saveReminderItem(updated);
+    unawaited(_uploadToCloud(updated));
 
     // _syncNotification handles:
     //   • new date
@@ -205,6 +432,7 @@ class ReminderProvider extends ChangeNotifier {
     notifyListeners();
 
     await _local.deleteReminderItem(id);
+    unawaited(_deleteFromCloud(id));
 
     await _cancelNotification(id);
 
@@ -240,6 +468,7 @@ class ReminderProvider extends ChangeNotifier {
     notifyListeners();
 
     await _local.saveReminderItem(updated);
+    unawaited(_uploadToCloud(updated));
 
     // Completed reminders remain in the list / Done tab,
     // but their notification must disappear.

@@ -12,7 +12,20 @@
           "package_name": "com.example.persipal_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "436256385822-erbb5ep70g67dvb7rv1k55q61sa1ev1m.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.persipal_app",
+            "certificate_hash": "e0422cfd50af8cbe8b712d7718349df8dae902ba"
+          }
+        },
+        {
+          "client_id": "436256385822-pkfoclk6c7q022ib8u664k0ah07bf9n2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBr4p_M-2KX8CevKnEubECO0iyPZEDLB7s"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "436256385822-pkfoclk6c7q022ib8u664k0ah07bf9n2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "436256385822-ugsd7gn6c93mdsl5n6sq53u9ivg7k5gr.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.persipalApp"
+              }
+            }
+          ]
         }
       }
     }

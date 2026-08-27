@@ -15,6 +15,8 @@ import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/session_manager.dart';
 import '../services/activity_log_service.dart';
+import 'pet_profile_provider.dart';
+import 'reminder_provider.dart';
 
 class AppProvider extends ChangeNotifier {
   final _local = LocalStorageService.instance;
@@ -125,6 +127,12 @@ class AppProvider extends ChangeNotifier {
   void _onAuthChanged() {
     if (_auth.isAuthenticated) {
       unawaited(_backgroundSync());
+    } else {
+      // Signed out — clear the stale sync status (e.g. a leftover
+      // "Synced"/"Sync failed" from the previous account) rather than
+      // leaving it showing after there's no longer an authenticated
+      // account to have synced.
+      _sync.markIdle();
     }
     notifyListeners();
   }
@@ -272,6 +280,60 @@ class AppProvider extends ChangeNotifier {
     _logs = await _local.fetchLogs(); // FIX: refresh logs
     await _activityLog.reload();
     notifyListeners();
+  }
+
+  // ── Account sign-out / deletion cleanup ───────────────────────────────────
+  //
+  // The reverse of the guest-upgrade methods above: when an authenticated
+  // session ENDS, the local working data across all three local stores
+  // (this provider's own, PetProfileProvider's full_pet_profiles, and the
+  // given ReminderProvider's reminder_items) must be cleared so the next
+  // guest/account on this device never sees the departed account's data.
+  // Firestore/cloud data is never touched by either method below.
+
+  /// Signs out of Firebase/Google, first making a best-effort attempt to
+  /// push any pending sync operations while still authenticated+online —
+  /// bounded by a short timeout so sign-out is never blocked indefinitely
+  /// (e.g. the device happens to be offline right now) — then clears all
+  /// local working data.
+  ///
+  /// [reminderProvider] is passed in because, unlike PetProfileProvider,
+  /// ReminderProvider isn't a singleton reachable by this provider on its
+  /// own — the caller (a widget) already has it via Provider.
+  Future<void> signOutAndClearLocalData(
+    ReminderProvider reminderProvider,
+  ) async {
+    if (_auth.isAuthenticated && _connectivity.isOnline) {
+      try {
+        await Future.wait([
+          _sync.flushPendingOps(this),
+          PetProfileProvider.instance.flushPendingOpsIfPossible(),
+          reminderProvider.flushPendingOpsIfPossible(),
+        ]).timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Offline, timed out, or a transient Firestore error — this is
+        // best-effort only, never a precondition for signing out.
+      }
+    }
+
+    await _auth.signOut();
+    await _clearAllProviderLocalData(reminderProvider);
+  }
+
+  /// Used after the account and its cloud data have already been
+  /// deleted (Settings' "Delete Account") — there's nothing left to
+  /// flush, so this skips straight to clearing local data.
+  Future<void> clearAllLocalDataAfterAccountDeletion(
+    ReminderProvider reminderProvider,
+  ) =>
+      _clearAllProviderLocalData(reminderProvider);
+
+  Future<void> _clearAllProviderLocalData(
+    ReminderProvider reminderProvider,
+  ) async {
+    await clearAllLocalData();
+    await PetProfileProvider.instance.clearAllLocalData();
+    await reminderProvider.clearAllLocalData();
   }
 
   // ── Pet CRUD ──────────────────────────────────────────────────────────────

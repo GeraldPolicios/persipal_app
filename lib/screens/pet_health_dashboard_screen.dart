@@ -22,6 +22,7 @@ import '../../providers/pet_profile_provider.dart';
 import '../../providers/reminder_provider.dart';
 import '../../services/activity_log_service.dart';
 import '../../utils/cat_weight_status.dart';
+import '../../widgets/growth_chart.dart';
 
 class PetHealthDashboardScreen extends StatefulWidget {
   final String petId;
@@ -98,6 +99,32 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
         .toList()
       ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
+    // ── Completed Veterinary Care — completed vaccinations (existing data)
+    // plus standalone completed Vet Visit reminders. Reminders linked to a
+    // vaccination dose (linkedVaccinationId != null) are excluded so the
+    // same event isn't shown twice.
+    //
+    // Only FULLY completed vaccination series are shown here — a dose is
+    // included only if it's the final dose of its series (doseNumber ==
+    // totalDosesInSeries) or isn't part of a series at all (both fields
+    // null, i.e. a single-dose vaccination). This filter applies ONLY to
+    // this dashboard section — completedVaccines itself (used above by
+    // _VaccinationCard's "Completed" stat) is untouched. ───────────────────
+    final fullyCompletedVaccines = completedVaccines.where((v) {
+      if (v.doseNumber == null || v.totalDosesInSeries == null) return true;
+      return v.doseNumber == v.totalDosesInSeries;
+    }).toList();
+
+    final completedVetVisitReminders = petReminders
+        .where((r) =>
+            r.type == 'Vet Visit' && r.isDone && r.linkedVaccinationId == null)
+        .toList();
+
+    final completedVetCare = <_VetCareEntry>[
+      ...fullyCompletedVaccines.map(_VetCareEntry.vaccination),
+      ...completedVetVisitReminders.map(_VetCareEntry.vetVisit),
+    ]..sort((a, b) => b.date.compareTo(a.date));
+
     // ── Growth — existing model only, no new growth logic. ─────────────────
     GrowthEntry? latestGrowth;
     for (final entry in pet.growthEntries) {
@@ -106,6 +133,27 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
         latestGrowth = entry;
       }
     }
+
+    // Compact "recorded period" summary for the collapsed preview only —
+    // derived from the same pet.growthEntries already read above, no new
+    // data source. Doesn't touch classifyCatWeight or the chart itself.
+    String? growthPeriodSummary;
+    if (pet.growthEntries.length >= 2) {
+      var earliest = pet.growthEntries.first;
+      var latest = pet.growthEntries.first;
+      for (final e in pet.growthEntries) {
+        if (e.recordedAt.isBefore(earliest.recordedAt)) earliest = e;
+        if (e.recordedAt.isAfter(latest.recordedAt)) latest = e;
+      }
+      growthPeriodSummary = '${pet.growthEntries.length} entries · '
+          '${DateFormat('MMM yyyy').format(earliest.recordedAt)} – '
+          '${DateFormat('MMM yyyy').format(latest.recordedAt)}';
+    }
+
+    // Same entries, just newest-first — for the expanded, read-only
+    // records list. No new data source.
+    final growthEntriesNewestFirst = [...pet.growthEntries]
+      ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
 
     // ── Recent activity — filtered by the now-correct petId. ───────────────
     final recentActivity = context
@@ -169,35 +217,128 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                       ),
                       const SizedBox(height: 18),
                       _CollapsibleSection(
-                        title: 'REMINDERS',
+                        title: 'COMPLETED VETERINARY CARE',
                         headerSummary: Text(
-                          '${upcomingReminders.length} upcoming · ${overdueReminders.length} overdue',
-                          style: TextStyle(
+                          '${completedVetCare.length} completed',
+                          style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: overdueReminders.isNotEmpty
-                                ? Colors.redAccent
-                                : const Color(0xFFAA7755),
+                            color: Color(0xFFAA7755),
                           ),
                         ),
-                        child: _RemindersCard(
-                          upcoming: upcomingReminders,
-                          overdue: overdueReminders,
-                        ),
+                        collapsedPreview: completedVetCare.isEmpty
+                            ? null
+                            : _Card(
+                                child: completedVetCare.first.isVaccination
+                                    ? _VetCareRow(
+                                        icon: Icons.vaccines,
+                                        iconColor: const Color(0xFF7B68EE),
+                                        title: completedVetCare
+                                            .first.vaccination!.vaccineName,
+                                        dateLabel:
+                                            'Completed: ${DateFormat('MMM d, yyyy').format(completedVetCare.first.vaccination!.completedDate)}',
+                                      )
+                                    : _VetCareRow(
+                                        icon: Icons.local_hospital,
+                                        iconColor: const Color(0xFF20B2AA),
+                                        title: completedVetCare
+                                            .first.reminder!.title,
+                                        dateLabel:
+                                            'Scheduled: ${DateFormat('MMM d, yyyy').format(completedVetCare.first.reminder!.scheduledAt)}',
+                                      ),
+                              ),
+                        child: _CompletedVetCareCard(entries: completedVetCare),
+                      ),
+                      const SizedBox(height: 18),
+                      const _SectionLabel('REMINDERS'),
+                      const SizedBox(height: 8),
+                      _ReminderBoxesSection(
+                        upcoming: upcomingReminders,
+                        overdue: overdueReminders,
                       ),
                       const SizedBox(height: 18),
                       _CollapsibleSection(
                         title: 'GROWTH',
-                        child: _GrowthCard(
-                          entry: latestGrowth,
-                          birthDate: pet.birthDate,
-                          gender: pet.gender,
+                        collapsedPreview: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _GrowthCard(
+                              entry: latestGrowth,
+                              birthDate: pet.birthDate,
+                              gender: pet.gender,
+                            ),
+                            if (pet.growthEntries.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              GrowthChart(
+                                entries: pet.growthEntries,
+                                statusForEntry: (e) => classifyCatWeight(
+                                  weightKg: e.weightKg,
+                                  birthDate: pet.birthDate,
+                                  gender: pet.gender,
+                                  asOf: e.recordedAt,
+                                ).status,
+                              ),
+                            ],
+                            if (growthPeriodSummary != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                '📈 $growthPeriodSummary',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFFAA7755),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _GrowthCard(
+                              entry: latestGrowth,
+                              birthDate: pet.birthDate,
+                              gender: pet.gender,
+                            ),
+                            if (pet.growthEntries.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              GrowthChart(
+                                entries: pet.growthEntries,
+                                statusForEntry: (e) => classifyCatWeight(
+                                  weightKg: e.weightKg,
+                                  birthDate: pet.birthDate,
+                                  gender: pet.gender,
+                                  asOf: e.recordedAt,
+                                ).status,
+                              ),
+                            ],
+                            if (growthPeriodSummary != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                '📈 $growthPeriodSummary',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFFAA7755),
+                                ),
+                              ),
+                            ],
+                            if (growthEntriesNewestFirst.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              const _SectionLabel('ALL RECORDS'),
+                              const SizedBox(height: 8),
+                              _GrowthRecordsCard(
+                                  entries: growthEntriesNewestFirst),
+                            ],
+                          ],
                         ),
                       ),
                       const SizedBox(height: 18),
                       _CollapsibleSection(
                         title: 'RECENT ACTIVITY',
                         maxHeight: 250,
+                        collapsedPreview: recentActivity.isEmpty
+                            ? null
+                            : _Card(
+                                child: _ActivityRow(a: recentActivity.first)),
                         child: _RecentActivityCard(activities: recentActivity),
                       ),
                     ],
@@ -261,23 +402,31 @@ class _SectionLabel extends StatelessWidget {
 
 // ─── Collapsible section wrapper ────────────────────────────────────────
 //
-// Wraps an existing section card (unchanged) with a tappable header and
-// chevron. Collapsed by default. Owns its own expand/collapse state so
-// no changes are needed to the parent screen's state class. Optional
-// [maxHeight] bounds the expanded content in a scrollable box — used
-// only by Recent Activity.
+// Wraps an existing section card (unchanged) with a tappable header.
+// Collapsed by default. Owns its own expand/collapse state so no changes
+// are needed to the parent screen's state class. Optional [maxHeight]
+// bounds the expanded content in a scrollable box — used only by Recent
+// Activity. Optional [collapsedPreview] renders a compact summary in
+// place of [child] while the section is collapsed — sections that don't
+// pass it behave exactly as before.
+//
+// No chevron: expansion is communicated by the collapsedPreview box
+// itself being tappable (the primary trigger), with the header row kept
+// tappable too as a secondary way to toggle/collapse.
 
 class _CollapsibleSection extends StatefulWidget {
   final String title;
   final Widget child;
   final double? maxHeight;
   final Widget? headerSummary;
+  final Widget? collapsedPreview;
 
   const _CollapsibleSection({
     required this.title,
     required this.child,
     this.maxHeight,
     this.headerSummary,
+    this.collapsedPreview,
   });
 
   @override
@@ -287,40 +436,46 @@ class _CollapsibleSection extends StatefulWidget {
 class _CollapsibleSectionState extends State<_CollapsibleSection> {
   bool _expanded = false;
 
+  void _toggle() => setState(() => _expanded = !_expanded);
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
+          onTap: _toggle,
           borderRadius: BorderRadius.circular(8),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               children: [
                 Expanded(child: _SectionLabel(widget.title)),
-                if (widget.headerSummary != null) ...[
-                  widget.headerSummary!,
-                  const SizedBox(width: 8),
-                ],
-                Icon(
-                  _expanded ? Icons.expand_less : Icons.expand_more,
-                  size: 20,
-                  color: const Color(0xFFAA7755),
-                ),
+                if (widget.headerSummary != null) widget.headerSummary!,
               ],
             ),
           ),
         ),
+        if (!_expanded && widget.collapsedPreview != null) ...[
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: _toggle,
+            borderRadius: BorderRadius.circular(18),
+            child: widget.collapsedPreview!,
+          ),
+        ],
         if (_expanded) ...[
           const SizedBox(height: 8),
-          widget.maxHeight != null
-              ? SizedBox(
-                  height: widget.maxHeight,
-                  child: SingleChildScrollView(child: widget.child),
-                )
-              : widget.child,
+          InkWell(
+            onTap: _toggle,
+            borderRadius: BorderRadius.circular(18),
+            child: widget.maxHeight != null
+                ? SizedBox(
+                    height: widget.maxHeight,
+                    child: SingleChildScrollView(child: widget.child),
+                  )
+                : widget.child,
+          ),
         ],
       ],
     );
@@ -449,42 +604,308 @@ class _VaccinationCard extends StatelessWidget {
   }
 }
 
-// ─── Reminders ────────────────────────────────────────────────────────────
+// ─── Completed Veterinary Care ────────────────────────────────────────────
+//
+// Combines completed vaccinations (existing VaccinationRecord data) with
+// standalone completed 'Vet Visit' reminders (existing ReminderProvider
+// data). Vet Visit reminders auto-linked to a vaccination dose are
+// excluded to avoid showing the same event twice.
 
-class _RemindersCard extends StatelessWidget {
-  final List<ReminderItem> upcoming;
-  final List<ReminderItem> overdue;
+class _VetCareEntry {
+  final DateTime date;
+  final VaccinationRecord? vaccination;
+  final ReminderItem? reminder;
 
-  const _RemindersCard({required this.upcoming, required this.overdue});
+  _VetCareEntry.vaccination(VaccinationRecord v)
+      : vaccination = v,
+        reminder = null,
+        date = v.completedDate;
+
+  _VetCareEntry.vetVisit(ReminderItem r)
+      : vaccination = null,
+        reminder = r,
+        date = r.scheduledAt;
+
+  bool get isVaccination => vaccination != null;
+}
+
+class _CompletedVetCareCard extends StatelessWidget {
+  final List<_VetCareEntry> entries;
+
+  const _CompletedVetCareCard({required this.entries});
 
   @override
   Widget build(BuildContext context) {
-    final combined = [...overdue, ...upcoming].take(4).toList();
+    return _Card(
+      child: entries.isEmpty
+          ? const _EmptyRow(text: 'No completed veterinary care yet.')
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final e in entries) ...[
+                  if (e.isVaccination)
+                    _VetCareRow(
+                      icon: Icons.vaccines,
+                      iconColor: const Color(0xFF7B68EE),
+                      title: e.vaccination!.vaccineName,
+                      dateLabel:
+                          'Completed: ${DateFormat('MMM d, yyyy').format(e.vaccination!.completedDate)}',
+                      notes: e.vaccination!.vetNotes.isNotEmpty
+                          ? e.vaccination!.vetNotes
+                          : null,
+                      doseInfo: (e.vaccination!.doseNumber != null &&
+                              e.vaccination!.totalDosesInSeries != null)
+                          ? 'Dose ${e.vaccination!.doseNumber} of ${e.vaccination!.totalDosesInSeries}'
+                          : null,
+                    )
+                  else
+                    _VetCareRow(
+                      icon: Icons.local_hospital,
+                      iconColor: const Color(0xFF20B2AA),
+                      title: e.reminder!.title,
+                      dateLabel:
+                          'Scheduled: ${DateFormat('MMM d, yyyy').format(e.reminder!.scheduledAt)}',
+                    ),
+                  if (e != entries.last) const SizedBox(height: 10),
+                ],
+              ],
+            ),
+    );
+  }
+}
 
+class _VetCareRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String dateLabel;
+  final String? notes;
+  final String? doseInfo;
+
+  const _VetCareRow({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.dateLabel,
+    this.notes,
+    this.doseInfo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 17, color: iconColor),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                dateLabel,
+                style: const TextStyle(fontSize: 11, color: Color(0xFFAA7755)),
+              ),
+              if (doseInfo != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  doseInfo!,
+                  style:
+                      const TextStyle(fontSize: 11, color: Color(0xFFAA7755)),
+                ),
+              ],
+              if (notes != null && notes!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  notes!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: Color(0xFF7A3B1E),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Reminders ────────────────────────────────────────────────────────────
+//
+// Two independently-tappable boxes (Upcoming / Overdue), each owning its
+// own expand state. Tapping a box shows that category's FULL list
+// (reusing the already-computed upcomingReminders/overdueReminders lists
+// passed in from build() — no new filtering/sorting). Both boxes may be
+// expanded at the same time.
+
+class _ReminderBoxesSection extends StatefulWidget {
+  final List<ReminderItem> upcoming;
+  final List<ReminderItem> overdue;
+
+  const _ReminderBoxesSection({required this.upcoming, required this.overdue});
+
+  @override
+  State<_ReminderBoxesSection> createState() => _ReminderBoxesSectionState();
+}
+
+class _ReminderBoxesSectionState extends State<_ReminderBoxesSection> {
+  bool _upcomingExpanded = false;
+  bool _overdueExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _ReminderBox(
+                label: 'UPCOMING',
+                count: widget.upcoming.length,
+                color: const Color(0xFF4682B4),
+                expanded: _upcomingExpanded,
+                onTap: () =>
+                    setState(() => _upcomingExpanded = !_upcomingExpanded),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ReminderBox(
+                label: 'OVERDUE',
+                count: widget.overdue.length,
+                color: widget.overdue.isNotEmpty
+                    ? Colors.redAccent
+                    : const Color(0xFFAAAAAA),
+                expanded: _overdueExpanded,
+                onTap: () =>
+                    setState(() => _overdueExpanded = !_overdueExpanded),
+              ),
+            ),
+          ],
+        ),
+        if (_upcomingExpanded) ...[
+          const SizedBox(height: 10),
+          _ReminderListPanel(
+            title: 'Upcoming Reminders',
+            emptyText: 'No upcoming reminders.',
+            items: widget.upcoming,
+          ),
+        ],
+        if (_overdueExpanded) ...[
+          const SizedBox(height: 10),
+          _ReminderListPanel(
+            title: 'Overdue Reminders',
+            emptyText: 'No overdue reminders.',
+            items: widget.overdue,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReminderBox extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  const _ReminderBox({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: expanded ? 0.22 : 0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: expanded ? Border.all(color: color, width: 1.5) : null,
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReminderListPanel extends StatelessWidget {
+  final String title;
+  final String emptyText;
+  final List<ReminderItem> items;
+
+  const _ReminderListPanel({
+    required this.title,
+    required this.emptyText,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              _StatChip(
-                label: 'Upcoming',
-                value: upcoming.length,
-                color: const Color(0xFF4682B4),
-              ),
-              const SizedBox(width: 8),
-              _StatChip(
-                label: 'Overdue',
-                value: overdue.length,
-                color: overdue.isNotEmpty
-                    ? Colors.redAccent
-                    : const Color(0xFFAAAAAA),
-              ),
-            ],
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFAA7755),
+            ),
           ),
-          if (combined.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            for (final r in combined) ...[
+          const SizedBox(height: 10),
+          if (items.isEmpty)
+            _EmptyRow(text: emptyText)
+          else
+            for (final r in items) ...[
               _NextItemRow(
                 icon: Icons.alarm,
                 iconColor:
@@ -494,12 +915,8 @@ class _RemindersCard extends StatelessWidget {
                     ? 'Overdue since ${DateFormat('MMM d, yyyy').format(r.scheduledAt)}'
                     : 'Due ${DateFormat('MMM d, yyyy').format(r.scheduledAt)}',
               ),
-              if (r != combined.last) const SizedBox(height: 8),
+              if (r != items.last) const SizedBox(height: 8),
             ],
-          ] else ...[
-            const SizedBox(height: 12),
-            const _EmptyRow(text: 'No upcoming or overdue reminders.'),
-          ],
         ],
       ),
     );
@@ -614,6 +1031,92 @@ class _GrowthCard extends StatelessWidget {
   }
 }
 
+// Read-only list of individual growth records, newest-first — shown only
+// in the expanded Growth section. No edit/delete actions (this dashboard
+// is read-only); full CRUD history already lives in Growth Tracker.
+class _GrowthRecordsCard extends StatelessWidget {
+  final List<GrowthEntry> entries;
+
+  const _GrowthRecordsCard({required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final e in entries) ...[
+            _GrowthRecordRow(entry: e),
+            if (e != entries.last) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(height: 1),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GrowthRecordRow extends StatelessWidget {
+  final GrowthEntry entry;
+
+  const _GrowthRecordRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: const Color(0xFF20B2AA).withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: Text('⚖️', style: TextStyle(fontSize: 14)),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${entry.weightKg} kg',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                DateFormat('MMM d, yyyy').format(entry.recordedAt),
+                style: const TextStyle(fontSize: 11, color: Color(0xFFAA7755)),
+              ),
+              if (entry.notes.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  entry.notes,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: Color(0xFF7A3B1E),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ─── Recent activity ──────────────────────────────────────────────────────
 
 class _RecentActivityCard extends StatelessWidget {
@@ -643,57 +1146,63 @@ class _RecentActivityCard extends StatelessWidget {
                       padding: EdgeInsets.symmetric(vertical: 8),
                       child: Divider(height: 1),
                     ),
-                    itemBuilder: (_, index) {
-                      final a = activities[index];
-
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 34,
-                            height: 34,
-                            decoration: BoxDecoration(
-                              color: a.iconColor.withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              a.icon,
-                              size: 17,
-                              color: a.iconColor,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  a.description,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat(
-                                    'MMM d, h:mm a',
-                                  ).format(a.timestamp),
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFFAA7755),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                    itemBuilder: (_, index) =>
+                        _ActivityRow(a: activities[index]),
                   ),
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _ActivityRow extends StatelessWidget {
+  final ActivityLogModel a;
+
+  const _ActivityRow({required this.a});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: a.iconColor.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            a.icon,
+            size: 17,
+            color: a.iconColor,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                a.description,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                DateFormat('MMM d, h:mm a').format(a.timestamp),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFFAA7755),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

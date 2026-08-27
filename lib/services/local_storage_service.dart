@@ -121,6 +121,8 @@ class LocalStorageService {
 
   Future<void> deleteReminderItem(String id) async => _reminderItems.delete(id);
 
+  Future<void> clearReminderItems() async => _reminderItems.clear();
+
   // ── Settings ──────────────────────────────────────────────────────────────
 
   Future<AppSettings> fetchSettings() async {
@@ -246,9 +248,12 @@ class LocalStorageService {
       _pets.clear(),
       _logs.clear(),
       _reminders.clear(),
+      _reminderItems.clear(),
       _settings.clear(),
       _quizzes.clear(),
       _pending.clear(),
+      _virtualPet.clear(),
+      _activityEntries.clear(),
     ]);
   }
 }

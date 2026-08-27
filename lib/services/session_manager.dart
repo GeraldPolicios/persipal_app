@@ -6,7 +6,10 @@
 //   • Create guest sessions with stable UUID
 //   • Bridge Firebase Auth state changes into SessionModel
 //   • Persist session data locally in Hive
-//   • Decide whether to show the login screen
+//   • Ensure a session always exists after init() — a brand-new install
+//     auto-creates a guest session rather than requiring login/signup
+//     first. Account creation/sign-in stays fully optional, reachable
+//     later from Settings.
 
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -41,7 +44,9 @@ class SessionManager extends ChangeNotifier {
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Call once at app startup (after Hive.initFlutter).
-  /// Returns true if a session was restored (skip login screen).
+  /// Always returns true once complete — a session (restored or a freshly
+  /// auto-created guest one) always exists after this resolves, so the
+  /// caller never needs to show a login screen just to open the app.
   Future<bool> init() async {
     await Hive.openBox<String>(_boxName);
 
@@ -68,14 +73,18 @@ class SessionManager extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (_) {
-        // Corrupt session — fall through to login
+        // Corrupt session — fall through to guest auto-creation below.
         await _box.delete(_keySession);
       }
     }
 
+    // No existing session anywhere (brand-new install, or a corrupt one
+    // just cleared above). Auto-create a guest session so the app opens
+    // directly rather than forcing a login/signup screen first — account
+    // creation stays fully optional, reachable later from Settings.
     _initialized = true;
-    notifyListeners();
-    return false;
+    await createGuestSession();
+    return true;
   }
 
   // ── Guest session ─────────────────────────────────────────────────────────

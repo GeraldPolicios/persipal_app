@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
 import '../../utils/cat_weight_status.dart';
+import '../../widgets/growth_chart.dart';
 
 class GrowthTrackerScreen extends StatefulWidget {
   final String petId;
@@ -293,8 +294,18 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                       _buildWeightStatusCard(pet, entries),
                       const SizedBox(height: 16),
 
-                      // Mini chart
-                      if (entries.length >= 2) _buildChart(entries),
+                      // Mini chart — bars colored by each month's weight
+                      // status, using the same classifier as the status
+                      // card above so the two stay consistent.
+                      GrowthChart(
+                        entries: entries,
+                        statusForEntry: (e) => classifyCatWeight(
+                          weightKg: e.weightKg,
+                          birthDate: pet.birthDate,
+                          gender: pet.gender,
+                          asOf: e.recordedAt,
+                        ).status,
+                      ),
                       const SizedBox(height: 16),
 
                       // Entries
@@ -438,75 +449,6 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
     }
   }
 
-  Widget _buildChart(List<GrowthEntry> entries) {
-    final maxW = entries.map((e) => e.weightKg).reduce((a, b) => a > b ? a : b);
-    final minW = entries.map((e) => e.weightKg).reduce((a, b) => a < b ? a : b);
-    final range = (maxW - minW).clamp(0.1, double.infinity);
-
-    // Find earliest/latest by recordedAt explicitly — don't assume
-    // entries is sorted (editing an entry's date doesn't re-sort it).
-    var earliest = entries.first;
-    var latest = entries.first;
-    for (final e in entries) {
-      if (e.recordedAt.isBefore(earliest.recordedAt)) earliest = e;
-      if (e.recordedAt.isAfter(latest.recordedAt)) latest = e;
-    }
-
-    return Container(
-      height: 150,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('WEIGHT TREND',
-              style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  color: Color(0xFF20B2AA))),
-          const SizedBox(height: 8),
-          Expanded(
-            child: Stack(
-              children: [
-                CustomPaint(
-                  painter:
-                      _LinePainter(entries: entries, minW: minW, range: range),
-                  child: Container(),
-                ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  child: Text('${maxW.toStringAsFixed(1)} kg',
-                      style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  child: Text('${minW.toStringAsFixed(1)} kg',
-                      style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(DateFormat('MMM d, yyyy').format(earliest.recordedAt),
-                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
-              Text(DateFormat('MMM d, yyyy').format(latest.recordedAt),
-                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _emptyState() => const Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Opacity(
@@ -524,48 +466,6 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
               style: TextStyle(fontSize: 12, color: Colors.grey)),
         ]),
       );
-}
-
-class _LinePainter extends CustomPainter {
-  final List<GrowthEntry> entries;
-  final double minW;
-  final double range;
-
-  _LinePainter(
-      {required this.entries, required this.minW, required this.range});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (entries.length < 2) return;
-    final paint = Paint()
-      ..color = const Color(0xFF20B2AA)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final dotPaint = Paint()
-      ..color = const Color(0xFF20B2AA)
-      ..style = PaintingStyle.fill;
-
-    final pts = entries.asMap().entries.map((e) {
-      final x = e.key / (entries.length - 1) * size.width;
-      final y = size.height -
-          ((e.value.weightKg - minW) / range) * size.height * 0.8 -
-          size.height * 0.1;
-      return Offset(x, y);
-    }).toList();
-
-    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
-    for (int i = 1; i < pts.length; i++) {
-      path.lineTo(pts[i].dx, pts[i].dy);
-    }
-    canvas.drawPath(path, paint);
-    for (final p in pts) {
-      canvas.drawCircle(p, 4, dotPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => true;
 }
 
 class _EntryCard extends StatelessWidget {

@@ -25,6 +25,12 @@ class AuthService extends ChangeNotifier {
   String? get userEmail => currentUser?.email;
   String? get displayName => currentUser?.displayName;
 
+  /// True only for a signed-in Firebase user whose email isn't verified
+  /// yet. False for guests (no currentUser) and for Google sign-ins,
+  /// since Firebase already marks a Google-authenticated email verified.
+  bool get needsEmailVerification =>
+      currentUser != null && !currentUser!.emailVerified;
+
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -70,6 +76,13 @@ class AuthService extends ChangeNotifier {
         await cred.user?.updateDisplayName(displayName);
         await cred.user?.reload();
       }
+      // The account itself was created successfully regardless of whether
+      // this send succeeds — a transient failure here (e.g. rate limiting)
+      // shouldn't be reported as account-creation failure. The user can
+      // resend from VerifyEmailScreen.
+      try {
+        await cred.user?.sendEmailVerification();
+      } catch (_) {}
       await SessionManager.instance.onFirebaseLogin(cred.user!);
       notifyListeners();
       return AuthResult.success(cred.user!);
@@ -78,6 +91,33 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       return AuthResult.failure('An unexpected error occurred.');
     }
+  }
+
+  // ── Email verification ────────────────────────────────────────────────────
+
+  /// Resends the verification email to the currently signed-in user.
+  Future<AuthResult> resendVerificationEmail() async {
+    final user = currentUser;
+    if (user == null) {
+      return AuthResult.failure('You need to be signed in to do that.');
+    }
+    try {
+      await user.sendEmailVerification();
+      return AuthResult.successMsg(
+          'Verification email sent to ${user.email}.');
+    } on FirebaseAuthException catch (e) {
+      return AuthResult.failure(friendlyError(e));
+    } catch (e) {
+      return AuthResult.failure('Failed to send verification email.');
+    }
+  }
+
+  /// Refetches the current user from Firebase (e.g. after the user has
+  /// clicked the verification link) so `currentUser.emailVerified` and
+  /// [needsEmailVerification] reflect the latest server-side state.
+  Future<void> reloadUser() async {
+    await currentUser?.reload();
+    notifyListeners();
   }
 
   // ── Google sign-in ────────────────────────────────────────────────────────
