@@ -41,6 +41,21 @@ class NotificationService {
 
   bool _initialized = false;
 
+  // Cold-start action/tap: if the app was fully closed and the user tapped
+  // a notification (or its "Mark Done" action), the plugin only surfaces
+  // that response via getNotificationAppLaunchDetails() — NOT through
+  // onDidReceiveNotificationResponse during initialize(). We stash it here
+  // and require callers to explicitly [consumeStartupAction] once their own
+  // callbacks (e.g. onMarkDoneAction) are wired, so a cold-start action can
+  // never be silently dropped just because it arrived before setup finished.
+  NotificationResponse? _pendingLaunchResponse;
+
+  /// Called when the user taps "Mark Done" directly on a care-reminder
+  /// notification (payload "care:{reminderId}"). Injected externally (see
+  /// main.dart) instead of importing ReminderProvider directly here, since
+  /// ReminderProvider already imports this service.
+  static void Function(String reminderId)? onMarkDoneAction;
+
   // ── Channel constants ─────────────────────────────────────────────────────
 
   static const _vaccineChannelId = 'persipal_vaccines';
@@ -52,6 +67,18 @@ class NotificationService {
   static const _careChannelName = 'Care Reminders';
   static const _careChannelDesc =
       'Feeding, grooming, vitamin, and vet visit reminders';
+
+  static const _markDoneActionId = 'mark_done';
+  static const _careCategoryId = 'persipal_care_category';
+
+  // ── Persistent-reminder tuning ───────────────────────────────────────────
+  // Centralized so the "repeat until done" cadence can be tuned in one
+  // place. A care reminder that isn't marked done re-notifies every
+  // [reminderRepeatInterval] for [reminderMaxRepeats] repeats after the
+  // initial due-time notification, then stops on its own (never an
+  // unbounded chain, to avoid notification spam).
+  static const Duration reminderRepeatInterval = Duration(minutes: 30);
+  static const int reminderMaxRepeats = 3;
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -72,14 +99,26 @@ class NotificationService {
     } catch (_) {}
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings(
+    final iosInit = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      notificationCategories: [
+        DarwinNotificationCategory(
+          _careCategoryId,
+          actions: [
+            DarwinNotificationAction.plain(
+              _markDoneActionId,
+              '✓ Mark Done',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+          ],
+        ),
+      ],
     );
 
     await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
+      InitializationSettings(android: androidInit, iOS: iosInit),
       onDidReceiveNotificationResponse: _onNotificationTap,
     );
 
@@ -87,6 +126,24 @@ class NotificationService {
     await _requestPermissions();
 
     _initialized = true;
+
+    // Stash (don't process yet) any action/tap that just cold-started the
+    // app — see consumeStartupAction().
+    final launchDetails = await _plugin.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true) {
+      _pendingLaunchResponse = launchDetails!.notificationResponse;
+    }
+  }
+
+  /// Processes a notification action/tap that cold-started the app, if any.
+  /// Must be called once [onMarkDoneAction] has been wired (see main.dart —
+  /// it's called right after that wiring, before runApp()) so a "Mark Done"
+  /// tap that launched PersiPal from fully closed is never silently lost.
+  /// Safe to call even when there's nothing pending.
+  void consumeStartupAction() {
+    final response = _pendingLaunchResponse;
+    _pendingLaunchResponse = null;
+    if (response != null) _onNotificationTap(response);
   }
 
   Future<void> _requestPermissions() async {
@@ -103,10 +160,19 @@ class NotificationService {
   }
 
   void _onNotificationTap(NotificationResponse response) {
-    // Route to the relevant screen via payload when app is opened from a tap.
     // payload format: "vaccine:{petId}:{vaccineId}" or "care:{reminderId}"
-    debugPrint('Notification tapped: ${response.payload}');
-    // Navigation handling can be wired here via a global navigator key.
+    final payload = response.payload;
+    if (payload == null) return;
+
+    if (response.actionId == _markDoneActionId && payload.startsWith('care:')) {
+      final reminderId = payload.substring('care:'.length);
+      onMarkDoneAction?.call(reminderId);
+      return;
+    }
+
+    // Plain tap (no action) — routing to the relevant screen can be wired
+    // here via a global navigator key; out of scope for this phase.
+    debugPrint('Notification tapped: $payload');
   }
 
   // ── Vaccination notifications ─────────────────────────────────────────────
@@ -180,32 +246,57 @@ class NotificationService {
 
   // ── Care reminder notifications ───────────────────────────────────────────
 
-  /// Schedule a single care reminder (feeding, grooming, vitamins, etc.)
+  /// Schedules a care reminder (feeding, grooming, vitamins, etc.) so it
+  /// keeps notifying until marked done: an initial notification at
+  /// [scheduledDate], then [reminderMaxRepeats] more every
+  /// [reminderRepeatInterval] after that, each as its own platform-scheduled
+  /// alarm (never a runtime timer/loop) so they still fire while the app is
+  /// backgrounded, killed, or the device has rebooted. Calling this again
+  /// with the same [notificationId] (e.g. on every app-start reconciliation)
+  /// safely replaces the existing chain rather than duplicating it, since
+  /// each repeat uses a stable, deterministic id.
+  ///
+  /// [allowMarkDoneAction] adds a "✓ Mark Done" action button — omit it for
+  /// vaccine-linked reminders, which must be completed through the
+  /// vaccination dialog instead so the vaccination record stays in sync.
   Future<void> scheduleCareReminder({
     required int notificationId,
     required String title,
     required String body,
     required DateTime scheduledDate,
     required String payload,
+    bool allowMarkDoneAction = true,
   }) async {
     if (!_initialized) await init();
-    if (scheduledDate.isBefore(DateTime.now())) return;
+    // Preserve the existing policy: a reminder whose due time has already
+    // passed is never (re)scheduled — it just stays "Overdue" in the UI.
+    if (!scheduledDate.isAfter(DateTime.now())) return;
 
-    await _plugin.zonedSchedule(
-      notificationId,
-      title,
-      body,
-      _toTZ(scheduledDate),
-      _careDetails(),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      payload: payload,
-    );
+    final details = _careDetails(allowMarkDoneAction: allowMarkDoneAction);
+
+    for (var i = 0; i <= reminderMaxRepeats; i++) {
+      await _plugin.zonedSchedule(
+        notificationId + i,
+        title,
+        i == 0 ? body : 'Still waiting — $body',
+        _toTZ(scheduledDate.add(reminderRepeatInterval * i)),
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
+      );
+    }
   }
 
+  /// Cancels every notification in a care reminder's repeat chain
+  /// (the initial one plus all [reminderMaxRepeats] repeats). Cancelling an
+  /// id that was never scheduled is a safe no-op, so this is always safe to
+  /// call regardless of how many repeats actually ended up scheduled.
   Future<void> cancelCareReminder(int notificationId) async {
-    await _plugin.cancel(notificationId);
+    for (var i = 0; i <= reminderMaxRepeats; i++) {
+      await _plugin.cancel(notificationId + i);
+    }
   }
 
   // ── Immediate notification (for testing / instant alerts) ─────────────────
@@ -260,7 +351,8 @@ class NotificationService {
         ),
       );
 
-  NotificationDetails _careDetails() => const NotificationDetails(
+  NotificationDetails _careDetails({bool allowMarkDoneAction = true}) =>
+      NotificationDetails(
         android: AndroidNotificationDetails(
           _careChannelId,
           _careChannelName,
@@ -268,14 +360,25 @@ class NotificationService {
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
-          color: Color(0xFFFF8C69),
+          color: const Color(0xFFFF8C69),
           enableVibration: true,
           playSound: true,
+          actions: allowMarkDoneAction
+              ? const [
+                  AndroidNotificationAction(
+                    _markDoneActionId,
+                    '✓ Mark Done',
+                    showsUserInterface: true,
+                    cancelNotification: true,
+                  ),
+                ]
+              : null,
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
           presentSound: true,
+          categoryIdentifier: allowMarkDoneAction ? _careCategoryId : null,
         ),
       );
 

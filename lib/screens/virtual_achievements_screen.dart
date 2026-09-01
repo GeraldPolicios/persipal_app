@@ -1,46 +1,43 @@
-// lib/screens/achievements_screen.dart
+// lib/screens/virtual_achievements_screen.dart
 //
-// Real-pet Achievements screen — shows ONE real pet's achievement
-// progress (scope: real_pet, keyed by petId). Never shows Virtual Cat
-// achievements — see virtual_achievements_screen.dart for that scope.
+// Virtual Cat Achievements screen — shows the simulation-wide achievement
+// progress (scope: virtual, never associated with any real pet's petId).
+// Mirrors achievements_screen.dart's layout but reads from
+// VirtualAchievementService instead of a FullPetProfile.
 
 import 'package:flutter/material.dart';
-import '../providers/pet_profile_provider.dart';
-import '../models/pet_extended_models.dart';
+import '../services/virtual_achievement_service.dart';
+import '../models/virtual_achievement_model.dart';
 import '../widgets/achievement_card.dart';
 
-class AchievementsScreen extends StatefulWidget {
-  final String petId;
-  const AchievementsScreen({super.key, required this.petId});
+class VirtualAchievementsScreen extends StatefulWidget {
+  const VirtualAchievementsScreen({super.key});
 
   @override
-  State<AchievementsScreen> createState() => _AchievementsScreenState();
+  State<VirtualAchievementsScreen> createState() =>
+      _VirtualAchievementsScreenState();
 }
 
-class _AchievementsScreenState extends State<AchievementsScreen>
+class _VirtualAchievementsScreenState extends State<VirtualAchievementsScreen>
     with TickerProviderStateMixin, AchievementConfettiMixin {
-  final _provider = PetProfileProvider.instance;
-  late String _petId;
+  final _service = VirtualAchievementService.instance;
 
   @override
   void initState() {
     super.initState();
-    _petId = widget.petId;
-    _provider.addListener(_refresh);
+    _service.addListener(_refresh);
   }
 
   @override
   void dispose() {
     disposeConfetti();
-    _provider.removeListener(_refresh);
+    _service.removeListener(_refresh);
     super.dispose();
   }
 
   void _refresh() => setState(() {});
 
-  FullPetProfile? get _pet => _provider.getById(_petId);
-
-  AchievementCardData _toCardData(PetAchievement a) => AchievementCardData(
+  AchievementCardData _toCardData(VirtualAchievement a) => AchievementCardData(
         title: a.title,
         description: a.description,
         emoji: a.emoji,
@@ -50,35 +47,16 @@ class _AchievementsScreenState extends State<AchievementsScreen>
         progressTarget: a.progressTarget,
       );
 
-  void _showDetail(PetAchievement achievement) {
+  void _showDetail(VirtualAchievement achievement) {
     if (achievement.unlocked && !showingConfetti) celebrate();
     showAchievementDetail(context, _toCardData(achievement));
   }
 
-  // ── Pet selector (only shown when there's more than one real pet) ────────
-
-  List<FullPetProfile> get _allPets => _provider.profiles;
-
-  void _switchPet(int delta) {
-    final pets = _allPets;
-    final index = pets.indexWhere((p) => p.id == _petId);
-    if (index < 0) return;
-    final next = (index + delta) % pets.length;
-    final wrapped = next < 0 ? pets.length - 1 : next;
-    setState(() => _petId = pets[wrapped].id);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final pet = _pet;
-    if (pet == null) {
-      return const Scaffold(body: Center(child: Text('Profile not found.')));
-    }
-
-    final achievements = pet.achievements;
-    final unlocked = achievements.where((a) => a.unlocked).length;
-    final total = achievements.length;
-    final pets = _allPets;
+    final achievements = _service.achievements;
+    final unlocked = _service.unlockedCount;
+    final total = _service.totalCount;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -91,7 +69,6 @@ class _AchievementsScreenState extends State<AchievementsScreen>
 
         SafeArea(
             child: Column(children: [
-          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 16, 0),
             child: Row(children: [
@@ -99,11 +76,11 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                 icon: const Icon(Icons.arrow_back_ios_new, size: 20),
                 onPressed: () => Navigator.pop(context),
               ),
-              const Text('🏆 ', style: TextStyle(fontSize: 18)),
+              const Text('🐱 ', style: TextStyle(fontSize: 18)),
               const Expanded(
-                child: Text('Achievements',
+                child: Text('Virtual Cat Achievements',
                     style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
               Container(
                 padding:
@@ -123,33 +100,6 @@ class _AchievementsScreenState extends State<AchievementsScreen>
             ]),
           ),
 
-          // Real-pet selector — only meaningful when there's more than one
-          if (pets.length > 1)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.chevron_left),
-                    onPressed: () => _switchPet(-1),
-                  ),
-                  Text(
-                    pet.name,
-                    style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF4A2C1A)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.chevron_right),
-                    onPressed: () => _switchPet(1),
-                  ),
-                ],
-              ),
-            ),
-
-          // Overall progress bar
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
             child: Column(
@@ -187,7 +137,6 @@ class _AchievementsScreenState extends State<AchievementsScreen>
           ),
           const SizedBox(height: 14),
 
-          // Grid
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),

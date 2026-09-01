@@ -22,8 +22,14 @@ class LocalStorageService {
   static const _bVirtualPet = 'ls_virtual_pet'; // single-record: virtual pet
   static const _bActivityEntries =
       'ls_activity_entries'; // ActivityService's real activity feed
+  static const _bVirtualAchievements =
+      'ls_virtual_achievements'; // single-record: virtual-cat achievements
+  static const _bPetPhotos =
+      'ls_pet_photos'; // single-record: petId -> local photo file path
 
   static const _kVirtualPetKey = 'virtual_pet_state';
+  static const _kVirtualAchievementsKey = 'virtual_achievement_state';
+  static const _kPetPhotosKey = 'pet_photo_paths';
 
   bool _ready = false;
   bool get isReady => _ready;
@@ -42,6 +48,8 @@ class LocalStorageService {
       Hive.openBox<String>(_bPending),
       Hive.openBox<String>(_bVirtualPet),
       Hive.openBox<String>(_bActivityEntries),
+      Hive.openBox<String>(_bVirtualAchievements),
+      Hive.openBox<String>(_bPetPhotos),
     ]);
     _ready = true;
   }
@@ -57,6 +65,9 @@ class LocalStorageService {
   Box<String> get _pending => Hive.box<String>(_bPending);
   Box<String> get _virtualPet => Hive.box<String>(_bVirtualPet);
   Box<String> get _activityEntries => Hive.box<String>(_bActivityEntries);
+  Box<String> get _virtualAchievements =>
+      Hive.box<String>(_bVirtualAchievements);
+  Box<String> get _petPhotos => Hive.box<String>(_bPetPhotos);
 
   Map<String, dynamic> _dec(String raw) =>
       jsonDecode(raw) as Map<String, dynamic>;
@@ -163,6 +174,35 @@ class LocalStorageService {
   Future<void> saveVirtualPet(VirtualPetState pet) async =>
       _virtualPet.put(_kVirtualPetKey, jsonEncode(pet.toMap()));
 
+  // ── Virtual Achievements (single record — mirrors the virtual pet) ─────────
+  // Device-local only, exactly like the virtual pet itself: not cloud-synced
+  // and not cleared on sign-out/account deletion (see AchievementService's
+  // header comment for the reasoning).
+
+  Future<Map<String, dynamic>?> fetchVirtualAchievementState() async {
+    final raw = _virtualAchievements.get(_kVirtualAchievementsKey);
+    if (raw == null) return null;
+    return _dec(raw);
+  }
+
+  Future<void> saveVirtualAchievementState(Map<String, dynamic> state) async =>
+      _virtualAchievements.put(_kVirtualAchievementsKey, jsonEncode(state));
+
+  // ── Pet Photos (device-local only — never uploaded to Firestore) ───────────
+  // A raw file path is meaningless on another device, and the existing
+  // FullPetProfile/Firestore sync model has no support for binary blobs, so
+  // this is kept entirely separate from full_pet_profiles. See
+  // PetPhotoService's header comment for the full reasoning.
+
+  Future<Map<String, String>> fetchPetPhotoPaths() async {
+    final raw = _petPhotos.get(_kPetPhotosKey);
+    if (raw == null) return {};
+    return Map<String, String>.from(_dec(raw));
+  }
+
+  Future<void> savePetPhotoPaths(Map<String, String> paths) async =>
+      _petPhotos.put(_kPetPhotosKey, jsonEncode(paths));
+
   // ── Activity Entries (ActivityService's real activity feed) ────────────────
   // This is the actual, user-facing activity log (feeding, grooming, playing,
   // lessons, quizzes, reminders, profile changes, etc.) — distinct from the
@@ -254,6 +294,7 @@ class LocalStorageService {
       _pending.clear(),
       _virtualPet.clear(),
       _activityEntries.clear(),
+      _petPhotos.clear(),
     ]);
   }
 }

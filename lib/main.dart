@@ -7,8 +7,11 @@ import 'firebase_options.dart';
 import 'providers/app_provider.dart';
 import 'providers/virtual_pet_provider.dart';
 import 'providers/reminder_provider.dart';
+import 'providers/pet_profile_provider.dart';
 import 'services/activity_log_service.dart';
 import 'services/activity_service.dart';
+import 'services/virtual_achievement_service.dart';
+import 'services/pet_photo_service.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/firebase_sync_service.dart';
@@ -44,22 +47,62 @@ Future<void> main() async {
   // 6b. Activity service — the real, user-facing activity feed
   await ActivityService.instance.init();
 
+  // 6c. Virtual Cat achievement tracking — loads from Hive
+  await VirtualAchievementService.instance.init();
+
+  // 6d. Pet profile photos — loads petId -> local file path map from Hive
+  await PetPhotoService.instance.init();
+
   // 7. Notification service — requests permissions, sets up channels
   await NotificationService.instance.init();
 
-  runApp(const PersipalApp());
+  // 8. Reminder provider — constructed eagerly (rather than lazily inside
+  // MultiProvider's create) so the notification-action wiring below is
+  // guaranteed to be in place, and any "Mark Done" tap that cold-started
+  // the app just now is never silently dropped, before the first frame.
+  final reminderProvider = ReminderProvider();
+  await reminderProvider.init();
+
+  // Cross-provider wiring via injected callbacks — avoids a circular
+  // import between reminder_provider.dart and pet_profile_provider.dart
+  // (see each field's doc comment).
+  ReminderProvider.petNameResolver =
+      (petId) => PetProfileProvider.instance.getById(petId)?.name;
+  ReminderProvider.onReminderCompleted =
+      PetProfileProvider.instance.checkCareAchievements;
+  NotificationService.onMarkDoneAction = reminderProvider.completeReminderOccurrence;
+  NotificationService.instance.consumeStartupAction();
+
+  runApp(PersipalApp(reminderProvider: reminderProvider));
 }
 
 class PersipalApp extends StatelessWidget {
-  const PersipalApp({super.key});
+  // Nullable + defaulted (rather than required) so existing callers that
+  // construct PersipalApp without one — e.g. test/widget_test.dart — keep
+  // working unchanged, falling back to the original lazily-created,
+  // not-notification-wired instance.
+  final ReminderProvider? reminderProvider;
+
+  const PersipalApp({super.key, this.reminderProvider});
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AppProvider()..init()),
-        ChangeNotifierProvider(create: (_) => VirtualPetProvider()..init()),
-        ChangeNotifierProvider(create: (_) => ReminderProvider()..init()),
+        ChangeNotifierProvider(create: (_) {
+          final vp = VirtualPetProvider()..init();
+          // Forwards the virtual pet's already-persisted feed/groom/play
+          // counters to VirtualAchievementService on every change, without
+          // VirtualPetProvider (frozen) needing any achievement awareness.
+          vp.addListener(() {
+            VirtualAchievementService.instance.onVirtualPetChanged(vp.pet);
+          });
+          return vp;
+        }),
+        reminderProvider != null
+            ? ChangeNotifierProvider.value(value: reminderProvider!)
+            : ChangeNotifierProvider(create: (_) => ReminderProvider()..init()),
         ChangeNotifierProvider.value(value: ActivityLogService.instance),
         ChangeNotifierProvider.value(value: ActivityService.instance),
         ChangeNotifierProvider.value(value: AuthService.instance),

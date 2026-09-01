@@ -135,16 +135,9 @@ class _ReminderScreenState extends State<ReminderScreen>
     }
 
     final reminders = context.read<ReminderProvider>();
-    await reminders.markReminderDone(item.id);
-
-    if (item.petId != null) {
-      await PetProfileProvider.instance.checkCareAchievements(
-        item.petId!,
-      );
-    }
+    await reminders.completeReminderOccurrence(item.id);
 
     if (item.recurrence != 'none') {
-      await reminders.scheduleNextOccurrence(item);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:
             Text('Nice! Next ${item.title} reminder scheduled automatically.'),

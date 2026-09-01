@@ -1,7 +1,8 @@
 // lib/screens/home_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/app_provider.dart';
+import '../providers/pet_profile_provider.dart';
 import '../providers/reminder_provider.dart';
 import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
@@ -14,6 +15,7 @@ import 'reminder_screen.dart';
 import 'pet_profile_screen.dart';
 import 'settings_screen.dart';
 import 'activity_log_screen.dart';
+import 'achievements_hub_screen.dart';
 import '../widgets/animated_idle_cat.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -21,7 +23,6 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final prov = context.watch<AppProvider>();
     final auth = AuthService.instance;
     final isOnline = ConnectivityService.instance.isOnline;
 
@@ -30,8 +31,17 @@ class HomeScreen extends StatelessWidget {
         .reminders
         .where((r) => !r.isDone)
         .length;
-    final petCount = prov.pets.length;
     final actCount = context.watch<ActivityLogService>().count;
+
+    // PetProfileProvider isn't registered in the app's MultiProvider tree
+    // (it's accessed as a singleton elsewhere too, e.g. PetProfileScreen),
+    // and isn't guaranteed to have been init()'d yet on this launch (e.g.
+    // splash routes straight to Home for an already-authenticated/guest
+    // session, bypassing LoginScreen's init() call). init() is idempotent
+    // and cheap to call again, so this just guarantees the Hive-backed
+    // profile list is loaded; the ListenableBuilder below picks up the
+    // resulting notifyListeners() once loading finishes.
+    unawaited(PetProfileProvider.instance.init());
     return Scaffold(
       backgroundColor: AppTheme.cream,
       body: Stack(
@@ -148,15 +158,19 @@ class HomeScreen extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
                     child: Row(
                       children: [
-                        _StatCard(
-                          value: '$petCount',
-                          label: 'Cat Profiles',
-                          icon: Icons.account_circle,
-                          color: AppTheme.lavender,
-                          onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const PetProfileScreen())),
+                        ListenableBuilder(
+                          listenable: PetProfileProvider.instance,
+                          builder: (context, _) => _StatCard(
+                            value: '${PetProfileProvider.instance.count}',
+                            label: 'Cat Profiles',
+                            icon: Icons.account_circle,
+                            color: AppTheme.lavender,
+                            onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const PetProfileScreen())),
+                          ),
                         ),
                         const SizedBox(width: 10),
                         _StatCard(
@@ -228,14 +242,28 @@ class HomeScreen extends StatelessWidget {
                         page: const ReminderScreen(),
                       ),
                       const SizedBox(height: 10),
-                      _ModuleTile(
-                        icon: '🐾',
-                        title: 'Pet Profile',
-                        subtitle:
-                            'Manage your Persian cat\'s profile & details',
-                        color: AppTheme.teal,
-                        badge: petCount > 0 ? '$petCount' : null,
-                        page: const PetProfileScreen(),
+                      ListenableBuilder(
+                        listenable: PetProfileProvider.instance,
+                        builder: (context, _) {
+                          final petCount = PetProfileProvider.instance.count;
+                          return _ModuleTile(
+                            icon: '🐾',
+                            title: 'Pet Profile',
+                            subtitle:
+                                'Manage your Persian cat\'s profile & details',
+                            color: AppTheme.teal,
+                            badge: petCount > 0 ? '$petCount' : null,
+                            page: const PetProfileScreen(),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      const _ModuleTile(
+                        icon: '🏆',
+                        title: 'Achievements',
+                        subtitle: 'Virtual Cat milestones & real-pet care badges',
+                        color: Color(0xFFFFB347),
+                        page: AchievementsHubScreen(),
                       ),
                     ]),
                   ),

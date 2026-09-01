@@ -30,6 +30,19 @@ import '../services/activity_log_service.dart';
 class ReminderProvider extends ChangeNotifier {
   ReminderProvider();
 
+  /// Resolves a pet's display name for notification text (e.g. "Milo").
+  /// Injected externally (see main.dart) instead of importing
+  /// PetProfileProvider directly, since PetProfileProvider already imports
+  /// this file (for its ReminderProvider-typed method parameters) — a
+  /// direct import back would be circular.
+  static String? Function(String petId)? petNameResolver;
+
+  /// Called after a reminder occurrence is completed so real-pet
+  /// achievement progress can be checked — same circular-import reason as
+  /// [petNameResolver] above. Injected once from main.dart as
+  /// `PetProfileProvider.instance.checkCareAchievements`.
+  static Future<void> Function(String petId)? onReminderCompleted;
+
   final LocalStorageService _local = LocalStorageService.instance;
   final NotificationService _notifications = NotificationService.instance;
   final ActivityLogService _activityLog = ActivityLogService.instance;
@@ -415,6 +428,23 @@ class ReminderProvider extends ChangeNotifier {
   // Delete
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// Deletes every reminder associated with [petId]. Called when a real
+  /// pet profile is deleted, so its reminders don't survive as orphaned
+  /// entries that still count toward "Reminders Due" and still fire
+  /// notifications for a pet that no longer exists. Reuses [deleteReminder]
+  /// so Hive/cloud/notification/activity-log cleanup stays identical to a
+  /// normal single-reminder delete.
+  Future<void> deleteRemindersForPet(String petId) async {
+    final ids = _reminders
+        .where((r) => r.petId == petId)
+        .map((r) => r.id)
+        .toList();
+
+    for (final id in ids) {
+      await deleteReminder(id);
+    }
+  }
+
   Future<void> deleteReminder(String id) async {
     final index = _reminders.indexWhere((r) => r.id == id);
 
@@ -478,6 +508,36 @@ class ReminderProvider extends ChangeNotifier {
       updated.title,
       petId: updated.petId ?? '',
     );
+  }
+
+  /// Fully completes one reminder occurrence exactly the way the in-app
+  /// "Mark Done" button does: marks it done (which also cancels its entire
+  /// repeat-notification chain — see [_cancelNotification]), checks
+  /// real-pet achievement progress via [onReminderCompleted], and schedules
+  /// the next occurrence if the reminder recurs. Used by both
+  /// ReminderScreen's Done button and the "Mark Done" notification action,
+  /// so both paths log/unlock/reschedule identically and a repeated
+  /// notification can never itself be mistaken for a completion.
+  ///
+  /// Vaccine-linked reminders are NOT handled here — completing those must
+  /// go through `showVaccinationCompleteDialog` to keep the vaccination
+  /// record in sync, so this is a no-op for them (callers should check
+  /// `linkedVaccinationId` first and route there instead).
+  Future<void> completeReminderOccurrence(String id) async {
+    final reminder = getById(id);
+
+    if (reminder == null || reminder.isDone) return;
+    if (reminder.linkedVaccinationId != null) return;
+
+    await markReminderDone(id);
+
+    if (reminder.petId != null) {
+      await onReminderCompleted?.call(reminder.petId!);
+    }
+
+    if (reminder.recurrence != 'none') {
+      await scheduleNextOccurrence(reminder);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -569,10 +629,14 @@ class ReminderProvider extends ChangeNotifier {
 
     await _notifications.scheduleCareReminder(
       notificationId: notificationId,
-      title: reminder.title,
+      title: _titleFor(reminder),
       body: _bodyFor(reminder),
       scheduledDate: reminder.scheduledAt,
       payload: 'care:${reminder.id}',
+      // Vaccine-linked reminders must be completed through the vaccination
+      // dialog (keeps the vaccination record in sync) — never directly
+      // from a notification action.
+      allowMarkDoneAction: reminder.linkedVaccinationId == null,
     );
   }
 
@@ -584,12 +648,25 @@ class ReminderProvider extends ChangeNotifier {
     );
   }
 
-  String _bodyFor(ReminderItem reminder) {
-    if (reminder.type.trim().isEmpty) {
-      return 'Care reminder';
-    }
+  String? _petNameFor(ReminderItem reminder) {
+    final petId = reminder.petId;
+    if (petId == null || petId.isEmpty) return null;
+    final name = petNameResolver?.call(petId);
+    return (name == null || name.trim().isEmpty) ? null : name.trim();
+  }
 
-    return '${reminder.type} reminder';
+  String _titleFor(ReminderItem reminder) {
+    final type = reminder.type.trim().isEmpty ? 'Care' : reminder.type.trim();
+    final petName = _petNameFor(reminder);
+    return petName != null ? '🐱 $petName — $type Reminder' : '⏰ $type Reminder';
+  }
+
+  String _bodyFor(ReminderItem reminder) {
+    final what = reminder.title.trim().isEmpty
+        ? '${reminder.type.trim().isEmpty ? 'care' : reminder.type.trim()} reminder'
+        : reminder.title.trim();
+    final petName = _petNameFor(reminder);
+    return petName != null ? "It's time for $petName's $what." : what;
   }
 
   // ─────────────────────────────────────────────────────────────────────────

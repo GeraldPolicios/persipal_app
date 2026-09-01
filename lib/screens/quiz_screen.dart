@@ -15,6 +15,11 @@ class _QuizScreenState extends State<QuizScreen> {
   int? _selected;
   bool _answered = false;
 
+  // Records the user's chosen answer index for every question (null = not
+  // yet answered), so the results screen can show a review of what was
+  // missed. Reset alongside the other quiz state on retry.
+  final List<int?> _answersGiven = List.filled(_questions.length, null);
+
   static const _questions = [
     {
       'q': 'What is the best food for Persian cats?',
@@ -58,6 +63,7 @@ class _QuizScreenState extends State<QuizScreen> {
     setState(() {
       _selected = idx;
       _answered = true;
+      _answersGiven[_current] = idx;
       if (idx == _questions[_current]['correct']) _score++;
     });
   }
@@ -307,7 +313,7 @@ class _QuizScreenState extends State<QuizScreen> {
             ? 'Good job! Keep learning!'
             : 'Keep practicing — you\'ll get there!';
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -354,6 +360,11 @@ class _QuizScreenState extends State<QuizScreen> {
 
           const SizedBox(height: 32),
 
+          if (_score < _questions.length) ...[
+            _buildIncorrectReview(),
+            const SizedBox(height: 24),
+          ],
+
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -381,12 +392,73 @@ class _QuizScreenState extends State<QuizScreen> {
                 _current = 0;
                 _selected = null;
                 _answered = false;
+                _answersGiven.fillRange(0, _answersGiven.length, null);
               });
             },
             child: const Text('Try Again',
                 style: TextStyle(
                     color: Color(0xFF7B68EE), fontWeight: FontWeight.bold)),
           ),
+        ],
+      ),
+    );
+  }
+
+  // Compact list of the questions answered incorrectly — shows what the
+  // user picked next to the correct answer, so they can learn from misses
+  // without re-taking the whole quiz.
+  Widget _buildIncorrectReview() {
+    final missedIndexes = <int>[
+      for (var i = 0; i < _questions.length; i++)
+        if (_answersGiven[i] != _questions[i]['correct']) i,
+    ];
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Review Incorrect Answers',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          ...missedIndexes.map((i) {
+            final q = _questions[i];
+            final answers = q['a'] as List<String>;
+            final correctIdx = q['correct'] as int;
+            final givenIdx = _answersGiven[i];
+            final givenText =
+                givenIdx != null ? answers[givenIdx] : '(not answered)';
+
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: Colors.redAccent.withValues(alpha: 0.25)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(q['q'] as String,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  Text('Your answer: $givenText',
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.redAccent)),
+                  const SizedBox(height: 2),
+                  Text('Correct answer: ${answers[correctIdx]}',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF32CD32),
+                          fontWeight: FontWeight.w600)),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );

@@ -31,6 +31,7 @@ import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/pet_photo_service.dart';
 import 'reminder_provider.dart';
 
 const String _boxName = 'full_pet_profiles';
@@ -358,11 +359,15 @@ class PetProfileProvider extends ChangeNotifier {
       gender: gender,
     );
 
-    final achievements = await _unlockAndLog(
+    var achievements = await _unlockAndLog(
       List.of(kDefaultAchievements),
       AchievementType.firstProfile,
       1,
       base.name,
+    );
+
+    achievements = await _checkProfileComplete(
+      base.copyWith(achievements: achievements),
     );
 
     final profile = base.copyWith(
@@ -402,6 +407,7 @@ class PetProfileProvider extends ChangeNotifier {
     }
 
     final saved = updated.copyWith(
+      achievements: await _checkProfileComplete(updated),
       updatedAt: DateTime.now(),
     );
 
@@ -447,6 +453,8 @@ class PetProfileProvider extends ChangeNotifier {
       _deleteFromCloud(id),
     );
 
+    await PetPhotoService.instance.deletePhotoForPet(id);
+
     await _log.logProfileDeleted(
       profile.name,
     );
@@ -473,10 +481,29 @@ class PetProfileProvider extends ChangeNotifier {
         ),
       );
 
-    final achievements = await _unlockAndLog(
+    var achievements = await _unlockAndLog(
       profile.achievements,
       AchievementType.growthMilestone,
       entries.length,
+      profile.name,
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.firstWeighIn,
+      entries.length,
+      profile.name,
+    );
+
+    final careDays = _addDay(
+      profile.careActivityDays,
+      _dayKey(entry.recordedAt),
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.weekOfCare,
+      careDays.length,
       profile.name,
     );
 
@@ -484,6 +511,7 @@ class PetProfileProvider extends ChangeNotifier {
       profile.copyWith(
         growthEntries: entries,
         achievements: achievements,
+        careActivityDays: careDays,
       ),
     );
   }
@@ -556,6 +584,10 @@ class PetProfileProvider extends ChangeNotifier {
 
     if (logActivity) {
       await _log.logVaccinationAdded(record.vaccineName, profile.name);
+    }
+
+    if (record.status == 'completed') {
+      await _checkVaccinationAchievements(petId);
     }
   }
 
@@ -672,6 +704,13 @@ class PetProfileProvider extends ChangeNotifier {
       profile.name,
     );
 
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.vaccinationKeeper,
+      completedCount,
+      profile.name,
+    );
+
     if (seriesId != null && totalDosesInSeries != null) {
       final completedInSeries = profile.vaccinations
           .where(
@@ -687,8 +726,23 @@ class PetProfileProvider extends ChangeNotifier {
       );
     }
 
+    final careDays = _addDay(
+      profile.careActivityDays,
+      _dayKey(DateTime.now()),
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.weekOfCare,
+      careDays.length,
+      profile.name,
+    );
+
     await updateDetails(
-      profile.copyWith(achievements: achievements),
+      profile.copyWith(
+        achievements: achievements,
+        careActivityDays: careDays,
+      ),
     );
   }
 
@@ -1153,6 +1207,32 @@ class PetProfileProvider extends ChangeNotifier {
     return updated;
   }
 
+  /// Re-evaluates the "Profile Complete" achievement against [profile]'s
+  /// current field values. Safe to call on every save (createProfile AND
+  /// updateDetails) since it's a pure function of already-stored fields —
+  /// no extra counters needed.
+  Future<List<PetAchievement>> _checkProfileComplete(
+    FullPetProfile profile,
+  ) {
+    final isComplete = profile.birthday.trim().isNotEmpty &&
+        profile.weightKg.trim().isNotEmpty &&
+        profile.furColor.trim().isNotEmpty &&
+        profile.adoptionDate.trim().isNotEmpty;
+
+    return _unlockAndLog(
+      profile.achievements,
+      AchievementType.profileComplete,
+      isComplete ? 1 : 0,
+      profile.name,
+    );
+  }
+
+  String _dayKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  List<String> _addDay(List<String> days, String key) =>
+      days.contains(key) ? days : [...days, key];
+
   /// Checks/unlocks Grooming Pro, Healthy Eater, and Care Champion for one
   /// specific pet, based on that pet's own real-pet reminder completions.
   /// Reads directly from the existing persisted [ReminderItem] records
@@ -1190,6 +1270,12 @@ class PetProfileProvider extends ChangeNotifier {
     final careCount =
         doneForThisPet.where((r) => careTypes.contains(r.type)).length;
 
+    final totalCompleted = doneForThisPet.length;
+
+    final today = _dayKey(DateTime.now());
+    final reminderDays = _addDay(profile.reminderCompletionDays, today);
+    final careDays = _addDay(profile.careActivityDays, today);
+
     var achievements = await _unlockAndLog(
       profile.achievements,
       AchievementType.groomingCare,
@@ -1211,8 +1297,40 @@ class PetProfileProvider extends ChangeNotifier {
       profile.name,
     );
 
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.responsibleHuman,
+      totalCompleted,
+      profile.name,
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.onSchedule,
+      totalCompleted,
+      profile.name,
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.careRoutine,
+      reminderDays.length,
+      profile.name,
+    );
+
+    achievements = await _unlockAndLog(
+      achievements,
+      AchievementType.weekOfCare,
+      careDays.length,
+      profile.name,
+    );
+
     await updateDetails(
-      profile.copyWith(achievements: achievements),
+      profile.copyWith(
+        achievements: achievements,
+        reminderCompletionDays: reminderDays,
+        careActivityDays: careDays,
+      ),
     );
   }
 

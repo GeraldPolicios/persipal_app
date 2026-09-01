@@ -4,7 +4,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../providers/pet_profile_provider.dart';
+import '../../providers/reminder_provider.dart';
 import '../../models/pet_extended_models.dart';
 
 const _kAvatarColors = [
@@ -153,8 +155,10 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () async {
+              final reminderProvider = context.read<ReminderProvider>();
               Navigator.pop(ctx);
               await _provider.deleteProfile(widget.petId);
+              await reminderProvider.deleteRemindersForPet(widget.petId);
               if (mounted) {
                 Navigator.pop(context); // back to hub
                 Navigator.pop(context); // back to list

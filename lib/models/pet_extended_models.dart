@@ -232,6 +232,13 @@ enum AchievementType {
   feedingCare,
   careChampion,
   vaccinationSeriesComplete,
+  profileComplete,
+  firstWeighIn,
+  vaccinationKeeper,
+  responsibleHuman,
+  onSchedule,
+  careRoutine,
+  weekOfCare,
 }
 
 class PetAchievement {
@@ -299,16 +306,23 @@ class PetAchievement {
 const kDefaultAchievements = [
   PetAchievement(
     type: AchievementType.firstProfile,
-    title: 'New Family Member',
-    description: 'Added your first cat profile.',
+    title: 'Welcome Home',
+    description: 'Added a profile for a new family member.',
     emoji: '🐾',
     progressTarget: 1,
   ),
   PetAchievement(
-    type: AchievementType.vaccinationComplete,
-    title: 'Vaccine Hero',
-    description: "Completed your cat's first vaccination.",
-    emoji: '💉',
+    type: AchievementType.profileComplete,
+    title: 'Profile Complete',
+    description: "Filled in your cat's birthday, weight, fur color and adoption date.",
+    emoji: '📋',
+    progressTarget: 1,
+  ),
+  PetAchievement(
+    type: AchievementType.firstWeighIn,
+    title: 'First Weigh-In',
+    description: "Recorded your cat's first growth entry.",
+    emoji: '⚖️',
     progressTarget: 1,
   ),
   PetAchievement(
@@ -317,6 +331,27 @@ const kDefaultAchievements = [
     description: 'Logged 3 growth check-ins for your cat.',
     emoji: '📈',
     progressTarget: 3,
+  ),
+  PetAchievement(
+    type: AchievementType.vaccinationComplete,
+    title: 'First Vaccination',
+    description: "Recorded your cat's first vaccination.",
+    emoji: '💉',
+    progressTarget: 1,
+  ),
+  PetAchievement(
+    type: AchievementType.vaccinationKeeper,
+    title: 'Vaccination Keeper',
+    description: 'Recorded 3 vaccinations for your cat.',
+    emoji: '📒',
+    progressTarget: 3,
+  ),
+  PetAchievement(
+    type: AchievementType.vaccinationSeriesComplete,
+    title: 'Vaccination Series Complete',
+    description: "Completed your cat's entire vaccination series.",
+    emoji: '💉',
+    progressTarget: 1,
   ),
   PetAchievement(
     type: AchievementType.groomingCare,
@@ -333,6 +368,27 @@ const kDefaultAchievements = [
     progressTarget: 5,
   ),
   PetAchievement(
+    type: AchievementType.responsibleHuman,
+    title: 'Responsible Human',
+    description: 'Completed your first care reminder for this cat.',
+    emoji: '🙌',
+    progressTarget: 1,
+  ),
+  PetAchievement(
+    type: AchievementType.onSchedule,
+    title: 'On Schedule',
+    description: 'Completed 10 care reminders for this cat.',
+    emoji: '🗓️',
+    progressTarget: 10,
+  ),
+  PetAchievement(
+    type: AchievementType.careRoutine,
+    title: 'Care Routine',
+    description: 'Completed care reminders on 5 different days.',
+    emoji: '🔁',
+    progressTarget: 5,
+  ),
+  PetAchievement(
     type: AchievementType.careChampion,
     title: 'Care Champion',
     description: 'Completed 10 real-pet care reminders.',
@@ -340,11 +396,11 @@ const kDefaultAchievements = [
     progressTarget: 10,
   ),
   PetAchievement(
-    type: AchievementType.vaccinationSeriesComplete,
-    title: 'Vaccination Complete',
-    description: "Completed your cat's entire vaccination series.",
-    emoji: '💉',
-    progressTarget: 1,
+    type: AchievementType.weekOfCare,
+    title: 'Week of Care',
+    description: 'Recorded meaningful care — reminders, vaccinations or growth entries — on 7 different days.',
+    emoji: '🗓️',
+    progressTarget: 7,
   ),
 ];
 
@@ -368,6 +424,16 @@ class FullPetProfile {
   final int feedCount;
   final int groomCount;
   final int playCount;
+
+  // ISO 'yyyy-MM-dd' calendar days on which a care reminder was completed
+  // for this pet — backs the "Care Routine" achievement.
+  final List<String> reminderCompletionDays;
+
+  // ISO 'yyyy-MM-dd' calendar days on which ANY care activity (reminder
+  // completion, vaccination added, growth entry recorded) happened for this
+  // pet — backs the "Week of Care" achievement.
+  final List<String> careActivityDays;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -389,6 +455,8 @@ class FullPetProfile {
     this.feedCount = 0,
     this.groomCount = 0,
     this.playCount = 0,
+    this.reminderCompletionDays = const [],
+    this.careActivityDays = const [],
     required this.createdAt,
     required this.updatedAt,
   });
@@ -418,6 +486,8 @@ class FullPetProfile {
     int? feedCount,
     int? groomCount,
     int? playCount,
+    List<String>? reminderCompletionDays,
+    List<String>? careActivityDays,
     DateTime? updatedAt,
   }) =>
       FullPetProfile(
@@ -438,6 +508,9 @@ class FullPetProfile {
         feedCount: feedCount ?? this.feedCount,
         groomCount: groomCount ?? this.groomCount,
         playCount: playCount ?? this.playCount,
+        reminderCompletionDays:
+            reminderCompletionDays ?? this.reminderCompletionDays,
+        careActivityDays: careActivityDays ?? this.careActivityDays,
         createdAt: createdAt,
         updatedAt: updatedAt ?? DateTime.now(),
       );
@@ -460,6 +533,8 @@ class FullPetProfile {
         'feedCount': feedCount,
         'groomCount': groomCount,
         'playCount': playCount,
+        'reminderCompletionDays': reminderCompletionDays,
+        'careActivityDays': careActivityDays,
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
       };
@@ -500,6 +575,11 @@ class FullPetProfile {
       feedCount: (m['feedCount'] as num?)?.toInt() ?? 0,
       groomCount: (m['groomCount'] as num?)?.toInt() ?? 0,
       playCount: (m['playCount'] as num?)?.toInt() ?? 0,
+      reminderCompletionDays:
+          (m['reminderCompletionDays'] as List<dynamic>? ?? [])
+              .cast<String>(),
+      careActivityDays:
+          (m['careActivityDays'] as List<dynamic>? ?? []).cast<String>(),
       createdAt:
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
       updatedAt:

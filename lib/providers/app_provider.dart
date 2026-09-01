@@ -15,6 +15,7 @@ import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/session_manager.dart';
 import '../services/activity_log_service.dart';
+import '../services/pet_photo_service.dart';
 import 'pet_profile_provider.dart';
 import 'reminder_provider.dart';
 
@@ -334,6 +335,7 @@ class AppProvider extends ChangeNotifier {
     await clearAllLocalData();
     await PetProfileProvider.instance.clearAllLocalData();
     await reminderProvider.clearAllLocalData();
+    await PetPhotoService.instance.clearAll();
   }
 
   // ── Pet CRUD ──────────────────────────────────────────────────────────────

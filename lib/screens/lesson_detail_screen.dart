@@ -1,6 +1,9 @@
 // screens/lesson_detail_screen.dart
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../models/lesson_reference_model.dart';
 import '../services/activity_log_service.dart';
+import '../services/connectivity_service.dart';
 
 class LessonDetailScreen extends StatefulWidget {
   final String type;
@@ -13,6 +16,34 @@ class LessonDetailScreen extends StatefulWidget {
 
 class _LessonDetailScreenState extends State<LessonDetailScreen> {
   bool _completed = false;
+
+  List<LessonReference> _references() => kLessonReferences[widget.type] ?? const [];
+
+  Future<void> _openReference(LessonReference ref) async {
+    if (!ConnectivityService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'This source requires an internet connection. Please reconnect and try again.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final uri = Uri.parse(ref.url);
+    final launched =
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Couldn\'t open ${ref.title}.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   void _markComplete() {
     if (_completed) return;
@@ -98,6 +129,27 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
 
                       // Content cards
                       ..._content(),
+
+                      // References / Sources
+                      if (_references().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: Text(
+                            'REFERENCES / SOURCES',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                                color: Color(0xFFAA7755)),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ..._references().map((ref) => _ReferenceTile(
+                              reference: ref,
+                              onTap: () => _openReference(ref),
+                            )),
+                      ],
 
                       const SizedBox(height: 16),
 
@@ -352,6 +404,68 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
       default:
         return '';
     }
+  }
+}
+
+// ── Reference / source tile ────────────────────────────────────────────────
+
+class _ReferenceTile extends StatelessWidget {
+  final LessonReference reference;
+  final VoidCallback onTap;
+
+  const _ReferenceTile({required this.reference, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: Colors.white.withValues(alpha: 0.85),
+      elevation: 0,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.open_in_new, size: 16, color: Color(0xFF7B68EE)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reference.title,
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF4A2C1A)),
+                    ),
+                    if (reference.publisher != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        reference.publisher!,
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFFAA7755)),
+                      ),
+                    ],
+                    if (reference.description != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        reference.description!,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

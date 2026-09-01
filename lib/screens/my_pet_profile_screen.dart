@@ -17,6 +17,8 @@ import 'package:persipal_app/providers/reminder_provider.dart';
 import 'package:persipal_app/models/reminder_item_model.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
+import '../../services/pet_photo_service.dart';
+import '../../widgets/pet_photo_avatar.dart';
 import 'pet_details_screen.dart';
 import 'growth_tracker_screen.dart';
 import 'vaccination_screen.dart';
@@ -40,12 +42,21 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
   void initState() {
     super.initState();
     _provider.addListener(_refresh);
+    PetPhotoService.instance.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _provider.removeListener(_refresh);
+    PetPhotoService.instance.removeListener(_refresh);
     super.dispose();
+  }
+
+  Future<void> _changePhoto() async {
+    final file = await pickPetPhotoFromGallery(context);
+    if (file != null) {
+      await PetPhotoService.instance.setPhoto(widget.petId, file);
+    }
   }
 
   void _refresh() => setState(() {});
@@ -128,192 +139,162 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                   ),
                 ),
 
-                // ── Hero cat card (now centered) ───────────────────────
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 22, horizontal: 18),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          pet.avatarColor,
-                          pet.avatarColor.withValues(alpha: 0.6),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: [
-                        BoxShadow(
-                          color: pet.avatarColor.withValues(alpha: 0.4),
-                          blurRadius: 14,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // Centered avatar
-                        Container(
-                          width: 84,
-                          height: 84,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.35),
-                            shape: BoxShape.circle,
-                          ),
-                          child:
-                              const Text('🐱', style: TextStyle(fontSize: 44)),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          pet.name,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color.fromARGB(255, 56, 56, 56),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          pet.breed,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              color: Color.fromARGB(255, 69, 68, 68),
-                              fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 14),
-
-                // ── What's Next card ────────────────────────────────────
-                if (nextReminder != null || nextVaccine != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _WhatsNextCard(
-                      reminder: nextReminder,
-                      vaccine: nextVaccine,
-                      onTapReminders: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const ReminderScreen()),
-                      ),
-                      onTapVaccines: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) =>
-                                VaccinationScreen(petId: widget.petId)),
-                      ),
-                    ),
-                  ),
-
-                const SizedBox(height: 14),
-
-                // ── Section label ─────────────────────────────────────
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'MANAGE PROFILE',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.4,
-                        color: Color(0xFFAA7755),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // ── 4 Module cards ────────────────────────────────────
+                // ── Scrollable content ──────────────────────────────────
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: GridView.count(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 1.1,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: Column(
                       children: [
-                        _ModuleCard(
-                          emoji: '📋',
-                          title: 'Pet Details',
-                          subtitle: 'Full info & edit',
-                          color: const Color(0xFFFF8C69),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  PetDetailsScreen(petId: widget.petId),
+                        // ── Hero cat card ───────────────────────────────
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                          child: _ProfileHero(
+                            pet: pet,
+                            photoPath:
+                                PetPhotoService.instance.pathFor(pet.id),
+                            onTapPhoto: _changePhoto,
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        // ── Pet info chips ──────────────────────────────
+                        if (_infoChips(pet).isNotEmpty)
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 20),
+                            child: _InfoChipsCard(chips: _infoChips(pet)),
+                          ),
+
+                        if (_infoChips(pet).isNotEmpty)
+                          const SizedBox(height: 14),
+
+                        // ── What's Next card ────────────────────────────
+                        if (nextReminder != null || nextVaccine != null)
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 20),
+                            child: _WhatsNextCard(
+                              reminder: nextReminder,
+                              vaccine: nextVaccine,
+                              onTapReminders: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const ReminderScreen()),
+                              ),
+                              onTapVaccines: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => VaccinationScreen(
+                                        petId: widget.petId)),
+                              ),
                             ),
                           ),
-                        ),
-                        _ModuleCard(
-                          emoji: '🩺',
-                          title: 'Health & Care',
-                          subtitle: 'Full overview',
-                          color: const Color(0xFF32CD32),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PetHealthDashboardScreen(
-                                petId: widget.petId,
+
+                        const SizedBox(height: 14),
+
+                        // ── Section label ────────────────────────────────
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 20),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'MANAGE PROFILE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.4,
+                                color: Color(0xFFAA7755),
                               ),
                             ),
                           ),
                         ),
-                        _ModuleCard(
-                          emoji: '📈',
-                          title: 'Growth Tracker',
-                          subtitle: '${pet.growthEntries.length} entries',
-                          color: const Color(0xFF20B2AA),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  GrowthTrackerScreen(petId: widget.petId),
-                            ),
-                          ),
-                        ),
-                        _ModuleCard(
-                          emoji: '💉',
-                          title: 'Vaccinations',
-                          subtitle: vaccineDue > 0
-                              ? '$vaccineDue overdue!'
-                              : '${pet.vaccinations.length} records',
-                          color: const Color(0xFF7B68EE),
-                          badgeText: vaccineDue > 0 ? '$vaccineDue' : null,
-                          badgeColor: Colors.redAccent,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  VaccinationScreen(petId: widget.petId),
-                            ),
-                          ),
-                        ),
-                        _ModuleCard(
-                          emoji: '🏆',
-                          title: 'Achievements',
-                          subtitle:
-                              '$unlockedCount / ${pet.achievements.length} unlocked',
-                          color: const Color(0xFFFFB347),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  AchievementsScreen(petId: widget.petId),
-                            ),
+                        const SizedBox(height: 10),
+
+                        // ── 5 Module cards ──────────────────────────────
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: GridView.count(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 1.1,
+                            children: [
+                              _ModuleCard(
+                                emoji: '📋',
+                                title: 'Pet Details',
+                                subtitle: 'Full info & edit',
+                                color: const Color(0xFFFF8C69),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        PetDetailsScreen(petId: widget.petId),
+                                  ),
+                                ),
+                              ),
+                              _ModuleCard(
+                                emoji: '🩺',
+                                title: 'Health & Care',
+                                subtitle: 'Full overview',
+                                color: const Color(0xFF32CD32),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PetHealthDashboardScreen(
+                                      petId: widget.petId,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _ModuleCard(
+                                emoji: '📈',
+                                title: 'Growth Tracker',
+                                subtitle: '${pet.growthEntries.length} entries',
+                                color: const Color(0xFF20B2AA),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => GrowthTrackerScreen(
+                                        petId: widget.petId),
+                                  ),
+                                ),
+                              ),
+                              _ModuleCard(
+                                emoji: '💉',
+                                title: 'Vaccinations',
+                                subtitle: vaccineDue > 0
+                                    ? '$vaccineDue overdue!'
+                                    : '${pet.vaccinations.length} records',
+                                color: const Color(0xFF7B68EE),
+                                badgeText:
+                                    vaccineDue > 0 ? '$vaccineDue' : null,
+                                badgeColor: Colors.redAccent,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        VaccinationScreen(petId: widget.petId),
+                                  ),
+                                ),
+                              ),
+                              _ModuleCard(
+                                emoji: '🏆',
+                                title: 'Achievements',
+                                subtitle:
+                                    '$unlockedCount / ${pet.achievements.length} unlocked',
+                                color: const Color(0xFFFFB347),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        AchievementsScreen(petId: widget.petId),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -327,6 +308,212 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
       ),
     );
   }
+}
+
+// ─── Info chips ─────────────────────────────────────────────────────────────
+
+class _ChipData {
+  final String emoji;
+  final String label;
+  final String value;
+  const _ChipData(this.emoji, this.label, this.value);
+}
+
+List<_ChipData> _infoChips(FullPetProfile pet) {
+  final chips = <_ChipData>[];
+  if (pet.birthday.trim().isNotEmpty) {
+    chips.add(_ChipData('🎂', 'Birthday', pet.birthday));
+  }
+  if (pet.furColor.trim().isNotEmpty) {
+    chips.add(_ChipData('🎨', 'Fur Color', pet.furColor));
+  }
+  if (pet.adoptionDate.trim().isNotEmpty) {
+    chips.add(_ChipData('🏠', 'Adopted', pet.adoptionDate));
+  }
+  final latestWeight = pet.growthEntries.isNotEmpty
+      ? pet.growthEntries.last.weightKg
+      : double.tryParse(pet.weightKg.trim());
+  if (latestWeight != null && latestWeight > 0) {
+    chips.add(
+        _ChipData('⚖️', 'Weight', '${latestWeight.toStringAsFixed(1)} kg'));
+  }
+  return chips;
+}
+
+class _InfoChipsCard extends StatelessWidget {
+  final List<_ChipData> chips;
+  const _InfoChipsCard({required this.chips});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.90),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: chips.map(_chip).toList(),
+      ),
+    );
+  }
+
+  Widget _chip(_ChipData c) => Semantics(
+        label: '${c.label}: ${c.value}',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF8C69).withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(c.emoji, style: const TextStyle(fontSize: 14)),
+              const SizedBox(width: 6),
+              Text(
+                c.value,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF7A5C45),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+// ─── Profile hero ───────────────────────────────────────────────────────────
+
+class _ProfileHero extends StatelessWidget {
+  final FullPetProfile pet;
+  final String? photoPath;
+  final VoidCallback onTapPhoto;
+
+  const _ProfileHero({
+    required this.pet,
+    required this.photoPath,
+    required this.onTapPhoto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPhoto = photoPath != null;
+    final subtitle = [pet.breed, pet.gender]
+        .where((s) => s.trim().isNotEmpty)
+        .join(' • ');
+
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [pet.avatarColor, pet.avatarColor.withValues(alpha: 0.55)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: pet.avatarColor.withValues(alpha: 0.4),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Subtle cozy pattern — kept low-opacity so it stays secondary
+          // to the pet's photo and name.
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.08,
+              child: Image.asset('assets/images/paws_bg.png',
+                  fit: BoxFit.cover),
+            ),
+          ),
+          // Soft decorative accent shapes.
+          Positioned(
+            top: -30,
+            right: -30,
+            child: _softCircle(90, Colors.white.withValues(alpha: 0.18)),
+          ),
+          Positioned(
+            bottom: -40,
+            left: -20,
+            child: _softCircle(110, Colors.white.withValues(alpha: 0.12)),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PetPhotoAvatar(
+                  photoPath: photoPath,
+                  color: pet.avatarColor,
+                  size: 96,
+                  showEditBadge: true,
+                  onTap: onTapPhoto,
+                ),
+                if (!hasPhoto)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Tap to add a photo',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                Text(
+                  pet.name,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF3A2A1E),
+                  ),
+                ),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _softCircle(double size, Color color) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
 }
 
 // ─── What's Next Card ───────────────────────────────────────────────────────

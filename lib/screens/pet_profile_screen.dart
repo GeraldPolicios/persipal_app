@@ -3,10 +3,14 @@
 // Pet Profiles — main selection screen.
 // Shows ONLY: avatar emoji, name, breed.  Max 10 profiles.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
+import '../../services/pet_photo_service.dart';
+import '../../widgets/pet_photo_avatar.dart';
 import 'my_pet_profile_screen.dart';
 import '../../widgets/tap_effects.dart';
 
@@ -37,12 +41,14 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     super.initState();
     _provider = PetProfileProvider.instance;
     _provider.addListener(_refresh);
+    PetPhotoService.instance.addListener(_refresh);
     WidgetsBinding.instance.addPostFrameCallback((_) => _provider.init());
   }
 
   @override
   void dispose() {
     _provider.removeListener(_refresh);
+    PetPhotoService.instance.removeListener(_refresh);
     super.dispose();
   }
 
@@ -60,6 +66,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     DateTime? birthday;
     String gender = 'Female';
     int colorVal = _kColors[_provider.count % _kColors.length].value;
+    File? pickedPhoto;
 
     showDialog(
       context: context,
@@ -133,6 +140,34 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                       );
                     }).toList(),
                   ),
+                  const SizedBox(height: 18),
+                  const Text('Profile Photo (optional)',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFAA7755))),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    PetPhotoAvatar(
+                      photoPath: pickedPhoto?.path,
+                      color: Color(colorVal),
+                      size: 56,
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton.icon(
+                      onPressed: () async {
+                        final file = await pickPetPhotoFromGallery(ctx);
+                        if (file != null) setD(() => pickedPhoto = file);
+                      },
+                      icon: const Icon(Icons.add_a_photo,
+                          size: 16, color: Color(0xFFFF8C69)),
+                      label: Text(
+                          pickedPhoto == null ? 'Add Photo' : 'Change Photo',
+                          style: const TextStyle(
+                              color: Color(0xFFFF8C69),
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ]),
                   const SizedBox(height: 18),
                   _field(nameCtrl, 'Cat Name *', Icons.edit),
                   const SizedBox(height: 12),
@@ -270,6 +305,10 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                                 recordedAt: DateTime.now(),
                               ),
                             );
+                            if (pickedPhoto != null) {
+                              await PetPhotoService.instance
+                                  .setPhoto(profile.id, pickedPhoto!);
+                            }
                           }
                         },
                       ),
@@ -469,21 +508,10 @@ class _PetCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // Avatar
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: profile.avatarColor,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                          color: profile.avatarColor.withOpacity(0.5),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4))
-                    ],
-                  ),
-                  child: const Center(
-                      child: Text('🐱', style: TextStyle(fontSize: 36))),
+                PetPhotoAvatar(
+                  photoPath: PetPhotoService.instance.pathFor(profile.id),
+                  color: profile.avatarColor,
+                  size: 80,
                 ),
                 const SizedBox(height: 12),
 
