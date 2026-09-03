@@ -45,6 +45,7 @@ dependencies:
   # UI
   flutter_animate: ^4.5.0
   cupertino_icons: ^1.0.8
+  flame: ^1.38.2
 
 dev_dependencies:
   flutter_test:
@@ -72,4 +73,11 @@ flutter:
     - assets/images/eating_cat/
     - assets/images/cat_room/
     - assets/images/cat_pet/
+    - assets/images/cat_parts/
+    - assets/images/cat_parts/sleep/
+    - assets/images/cat_parts/wake/
+    - assets/images/cat_parts/stretch/
+    - assets/images/cat_parts/look/
+    - assets/images/cat_parts/sit/
+    - assets/images/cat_parts/idle/
 

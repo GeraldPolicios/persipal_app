@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flame/game.dart';
 
 import '../providers/virtual_pet_provider.dart';
 import '../services/activity_service.dart';
@@ -17,6 +18,8 @@ import 'groom_screen.dart';
 
 import '../models/pet_brain.dart';
 import '../models/dirty_state.dart';
+
+import '../game/cat_animation.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -74,9 +77,13 @@ class _GameScreenState extends State<GameScreen> {
   // Init
   // ────────────────────────────────────────────────────────────────────────
 
+  late CatAnimation catGame;
+
   @override
   void initState() {
     super.initState();
+
+    catGame = CatAnimation();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -158,6 +165,8 @@ class _GameScreenState extends State<GameScreen> {
 
   void _onCatTap() {
     if (!mounted) return;
+
+    catGame.wakeUp();
 
     final vp = context.read<VirtualPetProvider>();
 
@@ -684,11 +693,12 @@ class _GameScreenState extends State<GameScreen> {
 
                                 Align(
                                   alignment: Alignment.bottomCenter,
-                                  child: AnimatedPet(
-                                    state: brain.animation,
-                                    furStage: furStage,
-                                    isDirty: isDirty,
-                                    height: 100,
+                                  child: SizedBox(
+                                    width: 180,
+                                    height: 170,
+                                    child: GameWidget<CatAnimation>(
+                                      game: catGame,
+                                    ),
                                   ),
                                 ),
 
