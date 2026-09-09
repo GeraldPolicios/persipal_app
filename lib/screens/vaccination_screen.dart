@@ -209,13 +209,13 @@ class _VaccinationScreenState extends State<VaccinationScreen>
                               value: useRecurringSchedule,
                               onChanged: (v) =>
                                   setD(() => useRecurringSchedule = v),
-                              activeColor: const Color(0xFF20B2AA),
+                              activeThumbColor: const Color(0xFF20B2AA),
                             ),
                           ]),
                           if (useRecurringSchedule) ...[
                             const SizedBox(height: 10),
                             DropdownButtonFormField<String>(
-                              value: recurrenceType,
+                              initialValue: recurrenceType,
                               decoration: _fieldDeco('Repeats',
                                   Icons.event_repeat, const Color(0xFF20B2AA)),
                               items: const [
@@ -668,21 +668,21 @@ class _VaccinationScreenState extends State<VaccinationScreen>
     );
   }
 
-  Widget _emptyState() => Center(
+  Widget _emptyState() => const Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Opacity(
             opacity: 0.35,
             child:
-                const Icon(Icons.vaccines, size: 80, color: Color(0xFF7B68EE)),
+                Icon(Icons.vaccines, size: 80, color: Color(0xFF7B68EE)),
           ),
-          const SizedBox(height: 16),
-          const Text('No vaccination records yet.',
+          SizedBox(height: 16),
+          Text('No vaccination records yet.',
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFFAA7755))),
-          const SizedBox(height: 8),
-          const Text('Tap + to add your first vaccine record.',
+          SizedBox(height: 8),
+          Text('Tap + to add your first vaccine record.',
               style: TextStyle(fontSize: 12, color: Colors.grey)),
         ]),
       );

@@ -1013,9 +1013,9 @@ class _GrowthCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Text(
+                        const Text(
                           kCatWeightStatusDisclaimer,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 10,
                             color: Colors.grey,
                             fontStyle: FontStyle.italic,

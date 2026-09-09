@@ -419,9 +419,9 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
             style: const TextStyle(fontSize: 12, color: Color(0xFFAA7755)),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             kCatWeightStatusDisclaimer,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               color: Colors.grey,
               fontStyle: FontStyle.italic,

@@ -173,7 +173,7 @@ class PetProfileProvider extends ChangeNotifier {
 
     final userId = _auth.userId;
 
-    if (userId == null || userId.isEmpty) {
+    if (userId.isEmpty) {
       return null;
     }
 

@@ -434,7 +434,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                         color: const Color(0xFFDC143C).withOpacity(0.08),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Row(children: const [
+                      child: const Row(children: [
                         Icon(Icons.link, size: 14, color: Color(0xFFDC143C)),
                         SizedBox(width: 6),
                         Expanded(

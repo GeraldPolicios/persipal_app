@@ -449,18 +449,18 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     );
   }
 
-  Widget _emptyState() => Center(
+  Widget _emptyState() => const Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Opacity(
+          Opacity(
               opacity: 0.35, child: Text('🐱', style: TextStyle(fontSize: 80))),
-          const SizedBox(height: 16),
-          const Text('No cat profiles yet!',
+          SizedBox(height: 16),
+          Text('No cat profiles yet!',
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFFAA7755))),
-          const SizedBox(height: 8),
-          const Text('Tap + Add Cat to create your\nfirst Persian cat profile.',
+          SizedBox(height: 8),
+          Text('Tap + Add Cat to create your\nfirst Persian cat profile.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, color: Colors.grey)),
         ]),
@@ -493,13 +493,13 @@ class _PetCard extends StatelessWidget {
         ),
         child: Stack(children: [
           // Watermark paw
-          Positioned(
+          const Positioned(
               right: -8,
               bottom: -8,
               child: Opacity(
                 opacity: 0.06,
                 child:
-                    const Icon(Icons.pets, size: 68, color: Color(0xFFFF8C69)),
+                    Icon(Icons.pets, size: 68, color: Color(0xFFFF8C69)),
               )),
 
           Center(

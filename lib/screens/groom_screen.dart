@@ -25,7 +25,7 @@ class _GroomScreenState extends State<GroomScreen> {
 
   late int cleanliness;
   late bool isDirty;
-  int _furStage = 3;
+  final int _furStage = 3;
   int _groomProgress = 0;
   bool _hovering = false;
   bool _trimMode = false;
