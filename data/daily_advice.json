@@ -1,87 +1,71 @@
 {
-  "version": 1,
-  "updated": "2026-09-20",
-  "notice": "Hosted online and fetched by the PersiPal app (not bundled). Each item is a concise summary or short quotation of published guidance; see sourceUrl. textType is 'paraphrase' (our wording) or 'quote' (verbatim). General information only, not veterinary advice.",
+  "version": 2,
+  "updated": "2026-09-23",
+  "notice": "Hosted online and fetched by the PersiPal app (not bundled). Persian-cat-exclusive: every item is specifically about Persian cats (their coat, brachycephalic/flat-faced traits, or breed-associated health risks like PKD), not general cat care. Each item is a concise summary or short quotation of published guidance; see sourceUrl. textType is 'paraphrase' (our wording) or 'quote' (verbatim). General information only, not veterinary advice.",
   "items": [
     {
-      "id": "cornell-litter-count",
-      "text": "Aim for one litter box per cat, plus one extra. So a home with one cat should ideally have two boxes.",
+      "id": "cornell-pkd-prevalence",
+      "text": "Polycystic kidney disease occurs most frequently in Persian cats — an inherited disorder in which small, fluid-filled sacs develop in the kidney tissue over time.",
       "textType": "paraphrase",
       "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Choosing and Caring for Your New Cat",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+      "sourceName": "Polycystic Kidney Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/polycystic-kidney-disease"
     },
     {
-      "id": "cornell-litter-type",
-      "text": "Most cats prefer simple litter boxes without hoods and unscented, fine-textured litter. Keep the box clean and change the litter frequently.",
+      "id": "cornell-pkd-signs",
+      "text": "Persian cats with polycystic kidney disease typically show increased thirst and urination, reduced appetite, weight loss, or lethargy — often first noticed around age seven.",
       "textType": "paraphrase",
       "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Choosing and Caring for Your New Cat",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+      "sourceName": "Polycystic Kidney Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/polycystic-kidney-disease"
     },
     {
-      "id": "cornell-dishes-away-from-litter",
-      "text": "Keep your cat's food and water dishes far away from the litter box to avoid contamination.",
+      "id": "cornell-pkd-diagnosis",
+      "text": "Ultrasound is the only way to get a definitive diagnosis of polycystic kidney disease in a Persian cat — genetic testing alone can't determine how severe a case is.",
       "textType": "paraphrase",
       "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Choosing and Caring for Your New Cat",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+      "sourceName": "Polycystic Kidney Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/polycystic-kidney-disease"
     },
     {
-      "id": "cornell-new-cat-vet-exam",
-      "text": "A new cat should be examined by a veterinarian as soon as possible after coming home.",
+      "id": "cornell-pkd-breeding",
+      "text": "A Persian cat suspected of carrying the polycystic kidney disease gene should be genetically tested, and a carrier should never be bred, to avoid passing the disease to kittens.",
       "textType": "paraphrase",
       "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Choosing and Caring for Your New Cat",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+      "sourceName": "Polycystic Kidney Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/polycystic-kidney-disease"
     },
     {
-      "id": "cornell-scratching-rewards",
-      "text": "Help your cat use a scratching post by rewarding it with treats, strokes and praise when it does.",
+      "id": "icatcare-persian-eyes",
+      "text": "A Persian's large, protruding eyes have a reduced ability to close fully, leaving more of the eye's surface exposed — one reason Persians tear-stain more than most other breeds.",
       "textType": "paraphrase",
-      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Choosing and Caring for Your New Cat",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+      "attribution": "International Cat Care",
+      "sourceName": "Persian Cats and Brachycephaly",
+      "sourceUrl": "https://icatcare.org/articles/persian-cats-and-brachycephaly"
     },
     {
-      "id": "cornell-dental-prevalence",
-      "text": "Dental disease is very common in older cats: studies report that between 50 and 90% of cats over four years of age have some form of it. Most forms are largely preventable or treatable with good preventive care.",
+      "id": "icatcare-persian-breathing",
+      "text": "Many Persian cats develop brachycephalic obstructive airway syndrome — narrow nostrils, narrow nasal passages, and an overly long soft palate that can seriously restrict airflow.",
       "textType": "paraphrase",
-      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Feline Dental Disease",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
+      "attribution": "International Cat Care",
+      "sourceName": "Persian Cats and Brachycephaly",
+      "sourceUrl": "https://icatcare.org/articles/persian-cats-and-brachycephaly"
     },
     {
-      "id": "cornell-dental-brushing",
-      "text": "The best way to prevent gingivitis in cats is to regularly remove plaque build-up by tooth brushing.",
-      "textType": "quote",
-      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Feline Dental Disease",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
-    },
-    {
-      "id": "cornell-dental-toothpaste",
-      "text": "Use only tooth gel or toothpaste made specifically for cats. Human products can be toxic to cats.",
+      "id": "icatcare-persian-dental",
+      "text": "A Persian's flattened face can leave the teeth misaligned (dental malocclusion), so they cannot bite and chew as effectively as a typically-shaped cat's jaw allows.",
       "textType": "paraphrase",
-      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Feline Dental Disease",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
+      "attribution": "International Cat Care",
+      "sourceName": "Persian Cats and Brachycephaly",
+      "sourceUrl": "https://icatcare.org/articles/persian-cats-and-brachycephaly"
     },
     {
-      "id": "cornell-dental-signs",
-      "text": "Drooling, bad breath, bleeding where the gums meet the teeth, or reluctance to eat can be signs of dental disease. Mention them to your veterinarian.",
+      "id": "icatcare-persian-skinfolds",
+      "text": "The deep facial skin folds common in Persian cats can predispose them to bacterial or fungal skin infections and facial dermatitis if not kept clean.",
       "textType": "paraphrase",
-      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
-      "sourceName": "Feline Dental Disease",
-      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
-    },
-    {
-      "id": "aspca-lilies",
-      "text": "Lilies are dangerous to cats: any exposure to leaves, bulbs, flowers, pollen or even the water the flowers sat in can cause acute kidney injury. If you suspect exposure, contact a veterinarian or the ASPCA Animal Poison Control Center right away.",
-      "textType": "paraphrase",
-      "attribution": "ASPCA (American Society for the Prevention of Cruelty to Animals)",
-      "sourceName": "Top 10 Toxic Plants for Pets",
-      "sourceUrl": "https://www.aspca.org/news/top-10-toxic-plants-pets-what-look-out"
+      "attribution": "International Cat Care",
+      "sourceName": "Persian Cats and Brachycephaly",
+      "sourceUrl": "https://icatcare.org/articles/persian-cats-and-brachycephaly"
     },
     {
       "id": "icatcare-persian-grooming",
@@ -92,28 +76,44 @@
       "sourceUrl": "https://icatcare.org/articles/everyday-care-for-your-cat"
     },
     {
-      "id": "icatcare-scratching-posts",
-      "text": "Scratching posts placed around your home let your cat scratch naturally, help limit damage to furniture and support healthy claws.",
+      "id": "icatcare-persian-tailarea",
+      "text": "Persians and other long-coated breeds need regular cleaning underneath the tail, since fecal matter can stick to the fur there far more easily than on a short-haired cat.",
       "textType": "paraphrase",
       "attribution": "International Cat Care",
       "sourceName": "Everyday care for your cat",
       "sourceUrl": "https://icatcare.org/articles/everyday-care-for-your-cat"
     },
     {
-      "id": "icatcare-fresh-water",
-      "text": "Always keep a constant supply of fresh, clean water available. Cats fed mainly dry food tend not to drink enough on their own, so several water stations, ceramic or steel bowls, or a fountain can encourage drinking.",
+      "id": "icatcare-persian-senior-grooming",
+      "text": "As a Persian ages, reduced mobility can make self-grooming harder — many senior Persians need more hands-on brushing help than they did when younger.",
       "textType": "paraphrase",
       "attribution": "International Cat Care",
-      "sourceName": "Should I feed my cat wet or dry food?",
-      "sourceUrl": "https://icatcare.org/articles/should-i-feed-my-cat-wet-or-dry-food"
+      "sourceName": "Everyday care for your cat",
+      "sourceUrl": "https://icatcare.org/articles/everyday-care-for-your-cat"
     },
     {
-      "id": "icatcare-low-thirst",
-      "text": "Cats evolved in dry regions and respond to low-moisture food by concentrating their urine rather than drinking more, which is one reason moisture-rich wet food can help hydration.",
+      "id": "humaneworld-persian-breathing-sign",
+      "text": "\"Their nasal openings are so small that they're basically breathing through a straw,\" one veterinary specialist has said of flat-faced cats — wheezing or snoring in a Persian is not just a normal breed trait, and is worth mentioning to your vet.",
       "textType": "paraphrase",
-      "attribution": "International Cat Care",
-      "sourceName": "Should I feed my cat wet or dry food?",
-      "sourceUrl": "https://icatcare.org/articles/should-i-feed-my-cat-wet-or-dry-food"
+      "attribution": "Humane World for Animals, formerly The Humane Society of the United States",
+      "sourceName": "Brachycephalic Cat Care",
+      "sourceUrl": "https://www.humaneworld.org/en/resources/brachycephalic-cat-care"
+    },
+    {
+      "id": "humaneworld-persian-heat",
+      "text": "Flat-faced cats like Persians struggle more to cool themselves in hot, humid weather, and air travel poses extra respiratory risk for the breed — keep them cool and avoid unnecessary heat exposure.",
+      "textType": "paraphrase",
+      "attribution": "Humane World for Animals, formerly The Humane Society of the United States",
+      "sourceName": "Brachycephalic Cat Care",
+      "sourceUrl": "https://www.humaneworld.org/en/resources/brachycephalic-cat-care"
+    },
+    {
+      "id": "humaneworld-persian-activity",
+      "text": "A Persian that seems unusually low-energy may actually be struggling to breathe rather than simply being laid-back — reduced activity is worth mentioning to your vet rather than assuming it's just temperament.",
+      "textType": "paraphrase",
+      "attribution": "Humane World for Animals, formerly The Humane Society of the United States",
+      "sourceName": "Brachycephalic Cat Care",
+      "sourceUrl": "https://www.humaneworld.org/en/resources/brachycephalic-cat-care"
     }
   ]
 }
