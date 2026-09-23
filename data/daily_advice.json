@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "updated": "2026-09-20",
+  "notice": "Hosted online and fetched by the PersiPal app (not bundled). Each item is a concise summary or short quotation of published guidance; see sourceUrl. textType is 'paraphrase' (our wording) or 'quote' (verbatim). General information only, not veterinary advice.",
+  "items": [
+    {
+      "id": "cornell-litter-count",
+      "text": "Aim for one litter box per cat, plus one extra. So a home with one cat should ideally have two boxes.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Choosing and Caring for Your New Cat",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+    },
+    {
+      "id": "cornell-litter-type",
+      "text": "Most cats prefer simple litter boxes without hoods and unscented, fine-textured litter. Keep the box clean and change the litter frequently.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Choosing and Caring for Your New Cat",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+    },
+    {
+      "id": "cornell-dishes-away-from-litter",
+      "text": "Keep your cat's food and water dishes far away from the litter box to avoid contamination.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Choosing and Caring for Your New Cat",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+    },
+    {
+      "id": "cornell-new-cat-vet-exam",
+      "text": "A new cat should be examined by a veterinarian as soon as possible after coming home.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Choosing and Caring for Your New Cat",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+    },
+    {
+      "id": "cornell-scratching-rewards",
+      "text": "Help your cat use a scratching post by rewarding it with treats, strokes and praise when it does.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Choosing and Caring for Your New Cat",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/choosing-and-caring-your-new-cat"
+    },
+    {
+      "id": "cornell-dental-prevalence",
+      "text": "Dental disease is very common in older cats: studies report that between 50 and 90% of cats over four years of age have some form of it. Most forms are largely preventable or treatable with good preventive care.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Feline Dental Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
+    },
+    {
+      "id": "cornell-dental-brushing",
+      "text": "The best way to prevent gingivitis in cats is to regularly remove plaque build-up by tooth brushing.",
+      "textType": "quote",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Feline Dental Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
+    },
+    {
+      "id": "cornell-dental-toothpaste",
+      "text": "Use only tooth gel or toothpaste made specifically for cats. Human products can be toxic to cats.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Feline Dental Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
+    },
+    {
+      "id": "cornell-dental-signs",
+      "text": "Drooling, bad breath, bleeding where the gums meet the teeth, or reluctance to eat can be signs of dental disease. Mention them to your veterinarian.",
+      "textType": "paraphrase",
+      "attribution": "Cornell Feline Health Center, Cornell University College of Veterinary Medicine",
+      "sourceName": "Feline Dental Disease",
+      "sourceUrl": "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center/health-information/feline-health-topics/feline-dental-disease"
+    },
+    {
+      "id": "aspca-lilies",
+      "text": "Lilies are dangerous to cats: any exposure to leaves, bulbs, flowers, pollen or even the water the flowers sat in can cause acute kidney injury. If you suspect exposure, contact a veterinarian or the ASPCA Animal Poison Control Center right away.",
+      "textType": "paraphrase",
+      "attribution": "ASPCA (American Society for the Prevention of Cruelty to Animals)",
+      "sourceName": "Top 10 Toxic Plants for Pets",
+      "sourceUrl": "https://www.aspca.org/news/top-10-toxic-plants-pets-what-look-out"
+    },
+    {
+      "id": "icatcare-persian-grooming",
+      "text": "Long-haired breeds will need a little help, particularly Persians, who have a very thick undercoat and a long top layer of fur.",
+      "textType": "quote",
+      "attribution": "International Cat Care",
+      "sourceName": "Everyday care for your cat",
+      "sourceUrl": "https://icatcare.org/articles/everyday-care-for-your-cat"
+    },
+    {
+      "id": "icatcare-scratching-posts",
+      "text": "Scratching posts placed around your home let your cat scratch naturally, help limit damage to furniture and support healthy claws.",
+      "textType": "paraphrase",
+      "attribution": "International Cat Care",
+      "sourceName": "Everyday care for your cat",
+      "sourceUrl": "https://icatcare.org/articles/everyday-care-for-your-cat"
+    },
+    {
+      "id": "icatcare-fresh-water",
+      "text": "Always keep a constant supply of fresh, clean water available. Cats fed mainly dry food tend not to drink enough on their own, so several water stations, ceramic or steel bowls, or a fountain can encourage drinking.",
+      "textType": "paraphrase",
+      "attribution": "International Cat Care",
+      "sourceName": "Should I feed my cat wet or dry food?",
+      "sourceUrl": "https://icatcare.org/articles/should-i-feed-my-cat-wet-or-dry-food"
+    },
+    {
+      "id": "icatcare-low-thirst",
+      "text": "Cats evolved in dry regions and respond to low-moisture food by concentrating their urine rather than drinking more, which is one reason moisture-rich wet food can help hydration.",
+      "textType": "paraphrase",
+      "attribution": "International Cat Care",
+      "sourceName": "Should I feed my cat wet or dry food?",
+      "sourceUrl": "https://icatcare.org/articles/should-i-feed-my-cat-wet-or-dry-food"
+    }
+  ]
+}
