@@ -32,6 +32,7 @@ import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/pet_photo_service.dart';
+import '../services/reward_service.dart';
 import 'reminder_provider.dart';
 
 const String _boxName = 'full_pet_profiles';
@@ -353,7 +354,7 @@ class PetProfileProvider extends ChangeNotifier {
     final base = FullPetProfile.create(
       id: _uuid.v4(),
       name: name.trim(),
-      breed: breed.trim().isEmpty ? 'Persian' : breed.trim(),
+      breed: kPersianBreed, // Persian-only app: the breed can't vary
       avatarColorValue: avatarColorValue,
       birthday: birthday,
       gender: gender,
@@ -472,6 +473,11 @@ class PetProfileProvider extends ChangeNotifier {
 
     if (profile == null) return;
 
+    // Reward points: a recorded weigh-in is a real-pet care activity (once
+    // per entry id).
+    unawaited(RewardService.instance
+        .awardOnce('growth:${entry.id}', RewardService.growthPoints));
+
     final entries = [
       ...profile.growthEntries,
       entry,
@@ -514,6 +520,101 @@ class PetProfileProvider extends ChangeNotifier {
         careActivityDays: careDays,
       ),
     );
+
+    // Activity History — logged only after the entry is actually saved
+    // above, so a failed/cancelled add is never recorded. Participates in
+    // the existing date filter/search/trends like any other entry.
+    unawaited(_log.logGrowthAdded(
+      profile.name,
+      entry.weightKg,
+      entry.notes,
+      petId: petId,
+    ));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Health / checkup records (PET-8) — add, edit (in place, same id) and
+  // delete. Notes live inside the pet's own FullPetProfile, so they are
+  // persisted to Hive and synced to Firestore by updateDetails like every
+  // other profile change, and can never belong to another pet.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Pure list transform behind [updateHealthRecord]: replaces the note with
+  /// [updated]'s id (never appends), keeps the list date-sorted. Returns
+  /// null if no note has that id.
+  @visibleForTesting
+  static List<HealthRecord>? applyHealthRecordEdit(
+    List<HealthRecord> records,
+    HealthRecord updated,
+  ) {
+    if (!records.any((r) => r.id == updated.id)) return null;
+    return [for (final r in records) r.id == updated.id ? updated : r]
+      ..sort((a, b) => a.date.compareTo(b.date));
+  }
+
+  /// Pure list transform behind [deleteHealthRecord].
+  @visibleForTesting
+  static List<HealthRecord> applyHealthRecordDelete(
+    List<HealthRecord> records,
+    String recordId,
+  ) =>
+      records.where((r) => r.id != recordId).toList();
+
+  /// Edits an existing checkup note in place (same id — never a duplicate).
+  /// Activity History is an append-only log, so the original "added" entry is
+  /// left as it was; the edit itself is recorded by updateDetails' normal
+  /// profile-updated entry.
+  Future<void> updateHealthRecord(
+    String petId,
+    HealthRecord updated,
+  ) async {
+    final profile = _getById(petId);
+    if (profile == null) return;
+
+    final records = applyHealthRecordEdit(profile.healthRecords, updated);
+    if (records == null) return; // no such note on THIS pet — change nothing
+
+    await updateDetails(profile.copyWith(healthRecords: records));
+  }
+
+  /// Deletes one checkup note from this pet. Past Activity History entries
+  /// are deliberately kept (history is never rewritten).
+  Future<void> deleteHealthRecord(
+    String petId,
+    String recordId,
+  ) async {
+    final profile = _getById(petId);
+    if (profile == null) return;
+    if (!profile.healthRecords.any((r) => r.id == recordId)) return;
+
+    await updateDetails(
+      profile.copyWith(
+        healthRecords: applyHealthRecordDelete(profile.healthRecords, recordId),
+      ),
+    );
+  }
+
+  Future<void> addHealthRecord(
+    String petId,
+    HealthRecord record,
+  ) async {
+    final profile = _getById(petId);
+    if (profile == null) return;
+
+    final records = [...profile.healthRecords, record]
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final careDays = _addDay(profile.careActivityDays, _dayKey(record.date));
+
+    await updateDetails(
+      profile.copyWith(healthRecords: records, careActivityDays: careDays),
+    );
+
+    unawaited(_log.logHealthRecord(
+      profile.name,
+      record.notes,
+      petId: petId,
+    ));
   }
 
   Future<void> updateGrowthEntry(
@@ -774,10 +875,14 @@ class PetProfileProvider extends ChangeNotifier {
     // ───────────────────────────────────────────────────────────────────────
 
     if (old.status == 'upcoming') {
-      // Keep reminder in Done tab.
+      // Keep reminder in Done tab. logActivity: false — logVaccinationCompleted
+      // below already records this exact same completion; logging it twice
+      // (once as "reminder completed", once as "vaccination completed") for
+      // one user action would be a duplicate Activity History entry.
       if (old.linkedReminderId != null && reminderProvider != null) {
         await reminderProvider.markReminderDone(
           old.linkedReminderId!,
+          logActivity: false,
         );
       }
 
@@ -818,10 +923,13 @@ class PetProfileProvider extends ChangeNotifier {
     // NORMAL / NON-SERIES DOSE
     // ───────────────────────────────────────────────────────────────────────
 
-    // Mark old reminder DONE.
+    // Mark old reminder DONE. logActivity: false — see the same-named
+    // parameter's use above; logVaccinationCompleted below is the single
+    // Activity History entry for this completion.
     if (old.linkedReminderId != null && reminderProvider != null) {
       await reminderProvider.markReminderDone(
         old.linkedReminderId!,
+        logActivity: false,
       );
     }
 

@@ -2,19 +2,21 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
+import '../providers/pet_profile_provider.dart';
 import '../providers/reminder_provider.dart';
+import '../providers/virtual_pet_provider.dart';
 import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_sync_service.dart'
-    show
-        FirebaseSyncService,
-        SyncState; // FIX: only import what's needed, not AppProvider
+    show FirebaseSyncService; // only import what's needed, not AppProvider
 import '../services/connectivity_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/shared_widgets.dart';
 import 'activity_log_screen.dart';
+import '../widgets/vet_report_dialog.dart';
 import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -50,40 +52,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _exportData() async {
     final prov = context.read<AppProvider>();
+    final reminders = context.read<ReminderProvider>();
     try {
       final data = await prov.exportLocalData();
+      // The real cats and their care reminders live in their own stores, not
+      // in the legacy data exportLocalData() covers.
+      data['petProfiles'] =
+          PetProfileProvider.instance.profiles.map((p) => p.toMap()).toList();
+      data['careReminders'] = reminders.reminders.map((r) => r.toMap()).toList();
       final json = const JsonEncoder.withIndent('  ').convert(data);
+      await Clipboard.setData(ClipboardData(text: json));
       if (mounted) {
         showPersipalSnackBar(context,
-            'Export complete. ${(json.length / 1024).toStringAsFixed(1)} KB of data.',
+            'Backup copied to clipboard (${(json.length / 1024).toStringAsFixed(1)} KB). Paste it somewhere safe.',
             icon: Icons.download_done, color: AppTheme.teal);
       }
     } catch (e) {
       if (mounted) {
         showPersipalSnackBar(context, 'Export failed.', isError: true);
       }
-    }
-  }
-
-  // ── Clear local data ───────────────────────────────────────────────────────
-
-  Future<void> _confirmClearLocal() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => _confirmDialog(
-        ctx,
-        title: 'Clear Local Data?',
-        body: 'All locally stored pets, reminders, and logs will be deleted. '
-            'Cloud data (if signed in) will remain safe.',
-        confirmLabel: 'Delete Local Data',
-        confirmColor: Colors.redAccent,
-      ),
-    );
-    if (ok != true || !mounted) return;
-    await context.read<AppProvider>().clearLocalData();
-    if (mounted) {
-      showPersipalSnackBar(context, 'Local data cleared.',
-          icon: Icons.delete_sweep, color: Colors.redAccent);
     }
   }
 
@@ -102,15 +89,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+
+    // Firebase only lets an account be deleted shortly after signing in.
+    // Check that BEFORE deleting anything, so a rejected deletion can never
+    // leave the account intact with its cloud data already wiped.
+    final lastSignIn = _auth.currentUser?.metadata.lastSignInTime;
+    if (lastSignIn != null &&
+        DateTime.now().difference(lastSignIn) > const Duration(minutes: 4)) {
+      showPersipalSnackBar(
+          context,
+          'For your security, please sign out and sign back in, '
+          'then try deleting your account again.',
+          isError: true);
+      return;
+    }
+
     try {
       final reminderProvider = context.read<ReminderProvider>();
+      final virtualPetProvider = context.read<VirtualPetProvider>();
       final appProvider = context.read<AppProvider>();
       await FirebaseSyncService.instance.deleteAllCloudData();
-      await _auth.deleteAccount();
+      final result = await _auth.deleteAccount();
+      if (!result.isSuccess) {
+        if (mounted) {
+          showPersipalSnackBar(
+              context, result.error ?? 'Could not delete your account.',
+              isError: true);
+        }
+        return;
+      }
       // Cloud data and the Firebase Auth account are already gone at this
-      // point — clear local data too, so the device is left in a clean
+      // point — clear on-device data too, so the device is left in a clean
       // guest state rather than showing the deleted account's data.
-      await appProvider.clearAllLocalDataAfterAccountDeletion(reminderProvider);
+      await appProvider.clearAllLocalDataAfterAccountDeletion(
+        reminderProvider,
+        virtualPetProvider,
+      );
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
@@ -126,18 +140,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 : _auth.friendlyError(e),
             isError: true);
       }
+    } catch (_) {
+      if (mounted) {
+        showPersipalSnackBar(
+            context,
+            "Couldn't delete your account. Check your connection and try again.",
+            isError: true);
+      }
     }
   }
 
   // ── Sign out ───────────────────────────────────────────────────────────────
 
+  // Signing out removes this account's data from the device, so confirm
+  // first — and warn when offline, because changes that haven't synced yet
+  // can't be uploaded before the local copy is cleared.
+  Future<void> _confirmSignOut() async {
+    final offline = !ConnectivityService.instance.isOnline;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => _confirmDialog(
+        ctx,
+        title: 'Sign Out?',
+        body: offline
+            ? "You're offline, so changes that haven't synced yet can't be "
+                'uploaded and will be lost when this device is cleared. '
+                'Connect to the internet first, or sign out anyway.'
+            : 'Your data stays safe in your account and returns when you sign '
+                'back in. It will be removed from this device.',
+        confirmLabel: 'Sign Out',
+        confirmColor: Colors.redAccent,
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _signOut();
+  }
+
   Future<void> _signOut() async {
     final reminderProvider = context.read<ReminderProvider>();
+    final virtualPetProvider = context.read<VirtualPetProvider>();
     final appProvider = context.read<AppProvider>();
     // Best-effort flushes pending syncs while still authenticated, then
-    // signs out and clears local working data across all three stores —
+    // signs out and clears local working data across all four stores —
     // see AppProvider.signOutAndClearLocalData for the full sequencing.
-    await appProvider.signOutAndClearLocalData(reminderProvider);
+    await appProvider.signOutAndClearLocalData(
+      reminderProvider,
+      virtualPetProvider,
+    );
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
@@ -201,7 +250,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.logout,
                         iconColor: Colors.redAccent,
                         label: 'Sign Out',
-                        onTap: _signOut,
+                        onTap: _confirmSignOut,
                       ),
                       _tile(
                         icon: Icons.delete_forever,
@@ -257,15 +306,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       iconColor: AppTheme.gold,
                       label: 'Notifications',
                       value: prov.settings.notificationsEnabled,
-                      // FIX: AppSettings is immutable — use copyWith instead of cascade mutation
-                      onChanged: (v) => prov.updateSettings(
-                        prov.settings.copyWith(notificationsEnabled: v),
-                      ),
+                      onChanged: (v) async {
+                        final reminders = context.read<ReminderProvider>();
+                        await prov.updateSettings(
+                          prov.settings.copyWith(notificationsEnabled: v),
+                        );
+                        // Re-sync scheduled notifications so the switch takes
+                        // effect immediately rather than at the next app start.
+                        await reminders.refreshNotifications();
+                      },
                     ),
                     _switchTile(
                       icon: Icons.volume_up_outlined,
                       iconColor: AppTheme.lavender,
                       label: 'Sound Effects',
+                      subtitle: 'Virtual cat simulation only',
                       value: prov.settings.soundEnabled,
                       // FIX: AppSettings is immutable — use copyWith instead of cascade mutation
                       onChanged: (v) => prov.updateSettings(
@@ -291,17 +346,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.download,
                       iconColor: AppTheme.lavender,
                       label: 'Export Local Data',
-                      subtitle: 'Backup all local data',
+                      subtitle: 'Copy a backup of your local data to the clipboard',
                       onTap: _exportData,
                     ),
                     _tile(
-                      icon: Icons.delete_sweep,
+                      icon: Icons.description_outlined,
                       iconColor: Colors.redAccent,
-                      label: 'Clear Local Data',
-                      subtitle: 'Delete all local data (cloud data stays safe)',
-                      onTap: _confirmClearLocal,
+                      label: 'Vet-Friendly Report',
+                      subtitle: 'Plain-text care summary for one of your cats',
+                      onTap: () => showVetReportDialog(context),
                     ),
-
                     const SizedBox(height: 6),
 
                     // ── About ────────────────────────────────────────────────────
@@ -465,6 +519,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required IconData icon,
     required Color iconColor,
     required String label,
+    String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
@@ -486,6 +541,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         title: Text(label,
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        subtitle: subtitle != null
+            ? Text(subtitle,
+                style: const TextStyle(fontSize: 11, color: Colors.grey))
+            : null,
         trailing: Switch.adaptive(
           value: value,
           onChanged: onChanged,

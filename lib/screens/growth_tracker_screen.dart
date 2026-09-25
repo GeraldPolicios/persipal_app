@@ -1,6 +1,8 @@
 // screens/pet_profiles/growth_tracker_screen.dart
 //
-// Monthly weight / growth tracking with a simple line chart and full CRUD.
+// Monthly weight / growth tracking with a simple bar chart. Recording a
+// new weight is the only mutation offered — once added, a GrowthEntry is a
+// permanent historical record (no edit/delete from this screen).
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +11,7 @@ import '../../providers/pet_profile_provider.dart';
 import '../../models/pet_extended_models.dart';
 import '../../utils/cat_weight_status.dart';
 import '../../widgets/growth_chart.dart';
+import '../../widgets/date_filter_control.dart';
 
 class GrowthTrackerScreen extends StatefulWidget {
   final String petId;
@@ -21,6 +24,10 @@ class GrowthTrackerScreen extends StatefulWidget {
 class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
   final _provider = PetProfileProvider.instance;
   final _uuid = const Uuid();
+
+  static const _accentColor = Color(0xFF20B2AA);
+
+  DateFilterSelection _filter = const DateFilterSelection.allDates();
 
   @override
   void initState() {
@@ -38,13 +45,63 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
 
   FullPetProfile? get _pet => _provider.getById(widget.petId);
 
-  // ── Add / Edit dialog ─────────────────────────────────────────────────────
+  // ── Date filter (display-only — never mutates growthEntries) ─────────────
 
-  void _showEntryDialog({GrowthEntry? existing}) {
-    final weightCtrl = TextEditingController(
-        text: existing != null ? existing.weightKg.toString() : '');
-    final notesCtrl = TextEditingController(text: existing?.notes ?? '');
-    DateTime selectedDate = existing?.recordedAt ?? DateTime.now();
+  /// Filters [all] (the pet's full, untouched growthEntries) down to the
+  /// active period, then returns newest-first by `recordedAt` — display
+  /// order only. Never sorts by weight, never mutates the source list, and
+  /// never touches storage. The end boundary from [dateRangeForSelection]
+  /// is already end-of-day inclusive for a custom range, so a record any
+  /// time on the selected end date is included.
+  List<GrowthEntry> _filteredNewestFirst(List<GrowthEntry> all) {
+    final range = dateRangeForSelection(_filter);
+    final filtered = range == null
+        ? all
+        : all
+            .where((e) =>
+                !e.recordedAt.isBefore(range.$1) &&
+                e.recordedAt.isBefore(range.$2))
+            .toList();
+    return filtered.reversed.toList();
+  }
+
+  Widget _noRecordsForPeriod() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
+        children: [
+          Icon(Icons.filter_alt_off,
+              size: 36, color: _accentColor.withValues(alpha: 0.4)),
+          const SizedBox(height: 8),
+          const Text(
+            'No weight records found for this date range.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFAA7755)),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Your full history is still saved — try a different filter.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Add dialog ─────────────────────────────────────────────────────────────
+  // A recorded GrowthEntry is a historical record once added — there is no
+  // edit mode. To correct a mistaken measurement, record a new entry rather
+  // than editing an old one (matches how a real growth chart works: a new
+  // weigh-in is a new data point, not a correction to the last one).
+
+  void _showEntryDialog() {
+    final weightCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    DateTime selectedDate = DateTime.now();
 
     showDialog(
       context: context,
@@ -57,115 +114,119 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
               const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF20B2AA).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.show_chart,
-                        color: Color(0xFF20B2AA), size: 20),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(existing == null ? 'Add Growth Entry' : 'Edit Entry',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
-                ]),
-                const SizedBox(height: 18),
-
-                // Date picker
-                GestureDetector(
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: ctx,
-                      initialDate: selectedDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime.now(),
-                      builder: (c, child) => Theme(
-                        data: Theme.of(c).copyWith(
-                            colorScheme: const ColorScheme.light(
-                                primary: Color(0xFF20B2AA))),
-                        child: child!,
+            // Scrollable so the dialog never overflows when the keyboard is
+            // open, on short/landscape screens, or with large text.
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF20B2AA).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                    );
-                    if (d != null) setD(() => selectedDate = d);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color:
-                              const Color(0xFF20B2AA).withValues(alpha: 0.3)),
+                      child: const Icon(Icons.show_chart,
+                          color: Color(0xFF20B2AA), size: 20),
                     ),
-                    child: Row(children: [
-                      const Icon(Icons.calendar_today,
-                          size: 16, color: Color(0xFF20B2AA)),
-                      const SizedBox(width: 10),
-                      Text(DateFormat('MMMM d, yyyy').format(selectedDate),
-                          style: const TextStyle(fontSize: 13)),
-                    ]),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Weight
-                TextField(
-                  controller: weightCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: _deco('Weight (kg) *', Icons.monitor_weight,
-                      const Color(0xFF20B2AA)),
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const SizedBox(height: 10),
-
-                // Notes
-                TextField(
-                  controller: notesCtrl,
-                  maxLines: 3,
-                  decoration:
-                      _deco('Notes', Icons.notes, const Color(0xFF20B2AA)),
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const SizedBox(height: 18),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel',
-                          style: TextStyle(color: Colors.grey)),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text('Add Growth Entry',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF20B2AA),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
+                  ]),
+                  const SizedBox(height: 18),
+
+                  // Date picker
+                  GestureDetector(
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now(),
+                        builder: (c, child) => Theme(
+                          data: Theme.of(c).copyWith(
+                              colorScheme: const ColorScheme.light(
+                                  primary: Color(0xFF20B2AA))),
+                          child: child!,
+                        ),
+                      );
+                      if (d != null) setD(() => selectedDate = d);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color:
+                                const Color(0xFF20B2AA).withValues(alpha: 0.3)),
                       ),
-                      onPressed: () async {
-                        final w = double.tryParse(weightCtrl.text.trim());
-                        if (w == null || w <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Enter a valid weight.')));
-                          return;
-                        }
-                        Navigator.pop(ctx);
-                        if (existing == null) {
+                      child: Row(children: [
+                        const Icon(Icons.calendar_today,
+                            size: 16, color: Color(0xFF20B2AA)),
+                        const SizedBox(width: 10),
+                        Text(DateFormat('MMMM d, yyyy').format(selectedDate),
+                            style: const TextStyle(fontSize: 13)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Weight
+                  TextField(
+                    controller: weightCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: _deco('Weight (kg) *', Icons.monitor_weight,
+                        const Color(0xFF20B2AA)),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Notes
+                  TextField(
+                    controller: notesCtrl,
+                    maxLines: 3,
+                    decoration:
+                        _deco('Notes', Icons.notes, const Color(0xFF20B2AA)),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 18),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel',
+                            style: TextStyle(color: Colors.grey)),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF20B2AA),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+                        ),
+                        onPressed: () async {
+                          final w = double.tryParse(weightCtrl.text.trim());
+                          if (w == null || !w.isFinite || w <= 0) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Enter a valid weight.')));
+                            return;
+                          }
+                          Navigator.pop(ctx);
                           await _provider.addGrowthEntry(
                             widget.petId,
                             GrowthEntry(
@@ -175,55 +236,16 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
                               recordedAt: selectedDate,
                             ),
                           );
-                        } else {
-                          await _provider.updateGrowthEntry(
-                            widget.petId,
-                            existing.copyWith(
-                              weightKg: w,
-                              notes: notesCtrl.text.trim(),
-                              recordedAt: selectedDate,
-                            ),
-                          );
-                        }
-                      },
-                      child: Text(existing == null ? 'Add' : 'Save'),
-                    ),
-                  ],
-                ),
-              ],
+                        },
+                        child: const Text('Add'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  void _confirmDelete(GrowthEntry entry) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        backgroundColor: const Color(0xFFFFF5EE),
-        title: const Text('Delete Entry?',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Remove this growth record?',
-            style: TextStyle(fontSize: 13)),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10))),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _provider.deleteGrowthEntry(widget.petId, entry.id);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
       ),
     );
   }
@@ -287,37 +309,66 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
           Expanded(
             child: entries.isEmpty
                 ? _emptyState()
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                    children: [
-                      // Estimated weight status (latest entry)
-                      _buildWeightStatusCard(pet, entries),
-                      const SizedBox(height: 16),
+                : Builder(builder: (_) {
+                    // The status card and chart always reflect the pet's
+                    // FULL history (see requirement: filtering must never
+                    // change the derived "current/latest weight"). Only the
+                    // "WEIGHT HISTORY" list below is affected by the date
+                    // filter.
+                    final filteredNewestFirst = _filteredNewestFirst(entries);
 
-                      // Mini chart — bars colored by each month's weight
-                      // status, using the same classifier as the status
-                      // card above so the two stay consistent.
-                      GrowthChart(
-                        entries: entries,
-                        statusForEntry: (e) => classifyCatWeight(
-                          weightKg: e.weightKg,
-                          birthDate: pet.birthDate,
-                          gender: pet.gender,
-                          asOf: e.recordedAt,
-                        ).status,
-                      ),
-                      const SizedBox(height: 16),
+                    return ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
+                      children: [
+                        // Estimated weight status (latest entry)
+                        _buildWeightStatusCard(pet, entries),
+                        const SizedBox(height: 16),
 
-                      // Entries
-                      const _Label('WEIGHT HISTORY'),
-                      const SizedBox(height: 8),
-                      ...entries.reversed.map((e) => _EntryCard(
-                            entry: e,
-                            onEdit: () => _showEntryDialog(existing: e),
-                            onDelete: () => _confirmDelete(e),
-                          )),
-                    ],
-                  ),
+                        // Mini chart — bars colored by each month's weight
+                        // status, using the same classifier as the status
+                        // card above so the two stay consistent. Always
+                        // shows the full history, independent of the list
+                        // filter below.
+                        GrowthChart(
+                          entries: entries,
+                          statusForEntry: (e) => classifyCatWeight(
+                            weightKg: e.weightKg,
+                            birthDate: pet.birthDate,
+                            gender: pet.gender,
+                            asOf: e.recordedAt,
+                          ).status,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Entries — historical, view-only. Each recorded
+                        // weigh-in is its own permanent record; to correct
+                        // a mistake, record a new entry rather than editing
+                        // an old one.
+                        const _Label('WEIGHT HISTORY'),
+                        const SizedBox(height: 8),
+                        DateFilterButton(
+                          selection: _filter,
+                          accentColor: _accentColor,
+                          onTap: () async {
+                            final picked = await showDateFilterSheet(
+                              context,
+                              current: _filter,
+                              accentColor: _accentColor,
+                            );
+                            if (picked != null && mounted) {
+                              setState(() => _filter = picked);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        if (filteredNewestFirst.isEmpty)
+                          _noRecordsForPeriod()
+                        else
+                          ...filteredNewestFirst
+                              .map((e) => _EntryCard(entry: e)),
+                      ],
+                    );
+                  }),
           ),
         ])),
       ]),
@@ -468,13 +519,13 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
       );
 }
 
+// Historical, view-only — a recorded weight measurement is never editable
+// or deletable from this screen (see requirement: record a new
+// measurement instead of correcting an old one).
 class _EntryCard extends StatelessWidget {
   final GrowthEntry entry;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
 
-  const _EntryCard(
-      {required this.entry, required this.onEdit, required this.onDelete});
+  const _EntryCard({required this.entry});
 
   @override
   Widget build(BuildContext context) {
@@ -520,16 +571,6 @@ class _EntryCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis),
           ],
         )),
-        IconButton(
-          icon: const Icon(Icons.edit_outlined,
-              size: 18, color: Color(0xFF4682B4)),
-          onPressed: onEdit,
-        ),
-        IconButton(
-          icon: const Icon(Icons.delete_outline,
-              size: 18, color: Colors.redAccent),
-          onPressed: onDelete,
-        ),
       ]),
     );
   }

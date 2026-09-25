@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class PlayPet extends StatefulWidget {
   const PlayPet({
@@ -27,6 +28,33 @@ class _PlayPetState extends State<PlayPet> {
   static const int laserFrames = 302;
   static const int featherFrames = 302;
 
+  static const Map<String, String> _toyFolders = {
+    'Yarn Ball': 'yarn_cat',
+    'Tennis Ball': 'tennis_ball_cat',
+    'Laser Dot': 'laser_cat',
+    'Feather': 'feather_cat',
+  };
+
+  static const Map<String, int> _toyFrameCounts = {
+    'Yarn Ball': yarnFrames,
+    'Tennis Ball': tennisFrames,
+    'Laser Dot': laserFrames,
+    'Feather': featherFrames,
+  };
+
+  // Source PNGs are 832x1120 — far larger than this widget's ~110px
+  // display height. Decoding all four ~300-frame toy sequences plus idle
+  // at full resolution would blow well past Flutter's default 100MB
+  // image-cache budget, causing ongoing eviction/re-decode stutter rather
+  // than a one-time hitch. cacheHeight downsamples at decode time instead.
+  int get _cacheHeight => (widget.height * 3).round();
+
+  final List<Image> _idleImages = [];
+  final Map<String, List<Image>> _toyImages = {};
+  Image? _dirtyImage;
+
+  bool _loaded = false;
+
   int _idleFrame = 0;
   int _playFrame = 0;
 
@@ -38,38 +66,86 @@ class _PlayPetState extends State<PlayPet> {
   void initState() {
     super.initState();
 
-    _timer = Timer.periodic(
-      const Duration(milliseconds: 16),
-      (_) {
-        if (!mounted) return;
+    _loadFrames();
+  }
 
-        // Dirty cat does not animate
-        if (widget.isDirty) {
-          return;
+  Future<void> _loadFrames() async {
+    try {
+      for (var i = 1; i <= idleFrames; i++) {
+        _idleImages.add(await _loadFrame(
+          'assets/images/idle/frame_${i.toString().padLeft(4, '0')}.png',
+        ));
+      }
+
+      for (final toy in _toyFolders.keys) {
+        final folder = _toyFolders[toy]!;
+        final count = _toyFrameCounts[toy]!;
+        final frames = <Image>[];
+
+        for (var i = 1; i <= count; i++) {
+          frames.add(await _loadFrame(
+            'assets/images/play_cat/$folder/frame_${i.toString().padLeft(4, '0')}.png',
+          ));
         }
 
-        setState(() {
-          if (widget.isPlaying) {
-            _playFrame++;
+        _toyImages[toy] = frames;
+      }
 
-            if (_playFrame >= _getMaxFrame()) {
-              _playFrame = 0;
-            }
-          } else {
-            _idleTick++;
+      _dirtyImage = await _loadFrame('assets/images/states/dirty_cat.png');
 
-            if (_idleTick >= 3) {
-              _idleTick = 0;
+      if (!mounted) return;
 
-              _idleFrame++;
+      setState(() {
+        _loaded = true;
+      });
 
-              if (_idleFrame >= idleFrames) {
-                _idleFrame = 0;
+      _timer = Timer.periodic(
+        const Duration(milliseconds: 16),
+        (_) {
+          if (!mounted || !_loaded) return;
+
+          // Dirty cat does not animate
+          if (widget.isDirty) {
+            return;
+          }
+
+          setState(() {
+            if (widget.isPlaying) {
+              _playFrame++;
+
+              if (_playFrame >= _getMaxFrame()) {
+                _playFrame = 0;
+              }
+            } else {
+              _idleTick++;
+
+              if (_idleTick >= 3) {
+                _idleTick = 0;
+
+                _idleFrame++;
+
+                if (_idleFrame >= idleFrames) {
+                  _idleFrame = 0;
+                }
               }
             }
-          }
-        });
-      },
+          });
+        },
+      );
+    } catch (error) {
+      debugPrint('Failed to load play cat frames: $error');
+    }
+  }
+
+  Future<Image> _loadFrame(String assetPath) async {
+    final bytes = await rootBundle.load(assetPath);
+
+    return Image.memory(
+      bytes.buffer.asUint8List(),
+      cacheHeight: _cacheHeight,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.none,
     );
   }
 
@@ -108,71 +184,36 @@ class _PlayPetState extends State<PlayPet> {
       return idleFrames;
     }
 
-    switch (widget.toy) {
-      case 'Yarn Ball':
-        return yarnFrames;
-
-      case 'Tennis Ball':
-        return tennisFrames;
-
-      case 'Laser Dot':
-        return laserFrames;
-
-      case 'Feather':
-        return featherFrames;
-
-      default:
-        return idleFrames;
-    }
-  }
-
-  String _getImagePath() {
-    // ============================
-    // DIRTY HAS HIGHEST PRIORITY
-    // ============================
-
-    if (widget.isDirty) {
-      return 'assets/images/states/dirty_cat.png';
-    }
-
-    // ============================
-    // IDLE
-    // ============================
-
-    if (!widget.isPlaying) {
-      return 'assets/images/idle/frame_${(_idleFrame + 1).toString().padLeft(4, '0')}.png';
-    }
-
-    // ============================
-    // PLAY ANIMATIONS
-    // ============================
-
-    switch (widget.toy) {
-      case 'Yarn Ball':
-        return 'assets/images/play_cat/yarn_cat/frame_${(_playFrame + 1).toString().padLeft(4, '0')}.png';
-
-      case 'Tennis Ball':
-        return 'assets/images/play_cat/tennis_ball_cat/frame_${(_playFrame + 1).toString().padLeft(4, '0')}.png';
-
-      case 'Laser Dot':
-        return 'assets/images/play_cat/laser_cat/frame_${(_playFrame + 1).toString().padLeft(4, '0')}.png';
-
-      case 'Feather':
-        return 'assets/images/play_cat/feather_cat/frame_${(_playFrame + 1).toString().padLeft(4, '0')}.png';
-
-      default:
-        return 'assets/images/idle/frame_0001.png';
-    }
+    return _toyFrameCounts[widget.toy] ?? idleFrames;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      _getImagePath(),
+    if (!_loaded) {
+      return SizedBox(
+        height: widget.height,
+        child: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    final Image frame;
+
+    if (widget.isDirty) {
+      frame = _dirtyImage!;
+    } else if (widget.isPlaying) {
+      final toyFrames = _toyImages[widget.toy];
+      frame = (toyFrames != null && _playFrame < toyFrames.length)
+          ? toyFrames[_playFrame]
+          : _idleImages[_idleFrame % _idleImages.length];
+    } else {
+      frame = _idleImages[_idleFrame];
+    }
+
+    return SizedBox(
       height: widget.height,
-      fit: BoxFit.contain,
-      gaplessPlayback: true,
-      filterQuality: FilterQuality.none,
+      child: frame,
     );
   }
 }

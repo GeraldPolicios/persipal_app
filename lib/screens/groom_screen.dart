@@ -1,6 +1,10 @@
 // screens/groom_screen.dart
+import 'dart:async';
 import 'dart:math';
+import 'package:flame/game.dart' show GameWidget;
 import 'package:flutter/material.dart';
+import '../game/interaction_state.dart';
+import '../game/virtual_pet_interaction_game.dart';
 import '../services/activity_service.dart';
 
 class GroomScreen extends StatefulWidget {
@@ -32,10 +36,16 @@ class _GroomScreenState extends State<GroomScreen> {
   bool _isCutting = false;
   Offset _scissorPosition = const Offset(0, 0);
   int _currentFurStage = 3;
-  bool _trimFinished = false;
 
   String _feedbackText = '';
   int _sparkleCount = 0;
+
+  // Cat rendering/reactions now live in the reusable Flame interaction
+  // engine instead of a bespoke Flutter frame-timer (see the architecture
+  // report) — this screen only sends it narrow commands and keeps owning
+  // everything else (drag/drop, progress, feedback, stats, Activity Log).
+  final VirtualPetInteractionGame _catGame =
+      VirtualPetInteractionGame(displayHeight: 95);
 
   final List<Map<String, dynamic>> _tools = const [
     {'emoji': '🧼', 'name': 'Soap', 'color': Color(0xFFE1F5FE)},
@@ -56,6 +66,21 @@ class _GroomScreenState extends State<GroomScreen> {
       _currentFurStage = _furStage;
     } else {
       _currentFurStage = _furStage;
+    }
+  }
+
+  GroomTool? _toolFromName(String name) {
+    switch (name) {
+      case 'Soap':
+        return GroomTool.soap;
+      case 'Shower':
+        return GroomTool.shower;
+      case 'Brush':
+        return GroomTool.brush;
+      case 'Trim':
+        return GroomTool.trim;
+      default:
+        return null;
     }
   }
 
@@ -88,6 +113,15 @@ class _GroomScreenState extends State<GroomScreen> {
       _sparkleCount = 8;
     });
 
+    // Fire-and-forget: the Flame reaction is purely visual and must never
+    // gate the stat/Activity-Log updates above or below, which stay
+    // exactly as they were (synchronous, on drop) — see the completion-
+    // safety requirement in the architecture report.
+    final kind = _toolFromName(tool);
+    if (kind != null) {
+      unawaited(_catGame.groom(kind));
+    }
+
     widget.onAction('groom');
 
     // Log to activity service
@@ -99,6 +133,7 @@ class _GroomScreenState extends State<GroomScreen> {
 
     Future.delayed(const Duration(milliseconds: 700), () {
       if (!mounted) return;
+
       setState(() {
         _sparkleCount = 0;
         _feedbackText = '';
@@ -279,6 +314,7 @@ class _GroomScreenState extends State<GroomScreen> {
                                 setState(() {
                                   _currentFurStage = 2;
                                 });
+                                unawaited(_catGame.setFurStage(2));
                               }
 
                               if (_currentFurStage == 2 &&
@@ -286,12 +322,14 @@ class _GroomScreenState extends State<GroomScreen> {
                                 setState(() {
                                   _currentFurStage = 1;
                                 });
+                                unawaited(_catGame.setFurStage(1));
                               }
 
                               if (_currentFurStage == 1 &&
                                   details.localPosition.dx > 240) {
+                                unawaited(
+                                    _catGame.finishTrim(dirty: isDirty));
                                 setState(() {
-                                  _trimFinished = true;
                                   _trimMode = false;
                                 });
                               }
@@ -354,28 +392,20 @@ class _GroomScreenState extends State<GroomScreen> {
                                     child: Padding(
                                       padding:
                                           const EdgeInsets.only(bottom: 16),
-                                      child: AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 300),
-                                        child: AnimatedSwitcher(
-                                          duration:
-                                              const Duration(milliseconds: 250),
-                                          child: _trimFinished
-                                              ? Image.asset(
-                                                  isDirty
-                                                      ? 'assets/images/states/dirty.png'
-                                                      : 'assets/images/idle/idle_0001.png',
-                                                  key: ValueKey(isDirty
-                                                      ? 'dirty'
-                                                      : 'idle'),
-                                                  height: 95,
-                                                )
-                                              : Image.asset(
-                                                  'assets/images/states/fur_cat$_currentFurStage.png',
-                                                  key: ValueKey(
-                                                      _currentFurStage),
-                                                  height: 95,
-                                                ),
+                                      // Cat rendering/reactions now live in
+                                      // the reusable Flame interaction
+                                      // engine (_catGame) — see
+                                      // lib/game/virtual_pet_interaction_game.dart.
+                                      // The fur-stage/dirty/reaction state
+                                      // is still driven by this screen's
+                                      // existing logic above; only the
+                                      // pixels are Flame's now.
+                                      child: SizedBox(
+                                        width: 140,
+                                        height: 110,
+                                        child: GameWidget<
+                                            VirtualPetInteractionGame>(
+                                          game: _catGame,
                                         ),
                                       ),
                                     ),

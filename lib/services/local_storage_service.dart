@@ -27,9 +27,13 @@ class LocalStorageService {
   static const _bPetPhotos =
       'ls_pet_photos'; // single-record: petId -> local photo file path
 
+  static const _bDailyAdvice =
+      'ls_daily_advice'; // public online advice cache — not account data
+
   static const _kVirtualPetKey = 'virtual_pet_state';
   static const _kVirtualAchievementsKey = 'virtual_achievement_state';
   static const _kPetPhotosKey = 'pet_photo_paths';
+  static const _kPetCoverPhotosKey = 'pet_cover_photo_paths';
 
   bool _ready = false;
   bool get isReady => _ready;
@@ -50,6 +54,7 @@ class LocalStorageService {
       Hive.openBox<String>(_bActivityEntries),
       Hive.openBox<String>(_bVirtualAchievements),
       Hive.openBox<String>(_bPetPhotos),
+      Hive.openBox<String>(_bDailyAdvice),
     ]);
     _ready = true;
   }
@@ -68,6 +73,7 @@ class LocalStorageService {
   Box<String> get _virtualAchievements =>
       Hive.box<String>(_bVirtualAchievements);
   Box<String> get _petPhotos => Hive.box<String>(_bPetPhotos);
+  Box<String> get _dailyAdvice => Hive.box<String>(_bDailyAdvice);
 
   Map<String, dynamic> _dec(String raw) =>
       jsonDecode(raw) as Map<String, dynamic>;
@@ -96,10 +102,19 @@ class LocalStorageService {
 
   Future<void> addLog(ActivityLogModel log) async {
     await _logs.put(log.id, jsonEncode(log.toMap()));
-    // Prune if over 500
+    // Prune the OLDEST entry if over 500. (Hive orders keys alphabetically,
+    // not by insertion, so keys.first would delete an arbitrary record.)
     if (_logs.length > 500) {
-      final keys = _logs.keys.toList();
-      await _logs.delete(keys.first);
+      dynamic oldestKey;
+      DateTime? oldestAt;
+      for (final key in _logs.keys) {
+        final at = ActivityLogModel.fromMap(_dec(_logs.get(key)!)).timestamp;
+        if (oldestAt == null || at.isBefore(oldestAt)) {
+          oldestAt = at;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey != null) await _logs.delete(oldestKey);
     }
   }
 
@@ -153,6 +168,30 @@ class LocalStorageService {
   Future<void> clearSelectedPetId() async =>
       _settings.delete('selected_pet_id');
 
+  // ── Lesson progress ───────────────────────────────────────────────────────
+  // Which Learn Cat Care topics ('feeding'|'grooming'|...) the user has
+  // actually completed. Reuses the existing settings box/pattern (same
+  // shape as selected_pet_id above) rather than a new Hive box — this is
+  // the smallest persistence addition the existing architecture needs.
+
+  Future<List<String>> fetchCompletedLessonTypes() async {
+    final raw = _settings.get('completed_lesson_types');
+    if (raw == null) return const [];
+    return (jsonDecode(raw) as List<dynamic>).cast<String>();
+  }
+
+  Future<void> saveCompletedLessonTypes(Set<String> types) async =>
+      _settings.put('completed_lesson_types', jsonEncode(types.toList()));
+
+  // ── Reward points / claims ────────────────────────────────────────────────
+  // One JSON blob in the settings box (same pattern as lesson progress) —
+  // wiped by clearAll(), so it follows the account-isolation rules.
+
+  String? fetchRewardState() => _settings.get('reward_state');
+
+  Future<void> saveRewardState(String json) =>
+      _settings.put('reward_state', json);
+
   // ── Quiz Results ──────────────────────────────────────────────────────────
 
   Future<List<QuizResult>> fetchQuizResults() async =>
@@ -202,6 +241,28 @@ class LocalStorageService {
 
   Future<void> savePetPhotoPaths(Map<String, String> paths) async =>
       _petPhotos.put(_kPetPhotosKey, jsonEncode(paths));
+
+  // ── Pet cover/background photos (device-local, same box/pattern as the
+  // profile photo above — a separate key, not a new Hive box). ────────────
+
+  Future<Map<String, String>> fetchPetCoverPhotoPaths() async {
+    final raw = _petPhotos.get(_kPetCoverPhotosKey);
+    if (raw == null) return {};
+    return Map<String, String>.from(_dec(raw));
+  }
+
+  Future<void> savePetCoverPhotoPaths(Map<String, String> paths) async =>
+      _petPhotos.put(_kPetCoverPhotosKey, jsonEncode(paths));
+
+  // ── Daily advice cache ────────────────────────────────────────────────────
+  // The last successfully downloaded public advice feed (see
+  // DailyAdviceService). It holds no user data, so — like the photo box it is
+  // deliberately NOT part of clearAll()/sign-out.
+
+  String? fetchDailyAdviceCache() => _dailyAdvice.get('cache');
+
+  Future<void> saveDailyAdviceCache(String json) =>
+      _dailyAdvice.put('cache', json);
 
   // ── Activity Entries (ActivityService's real activity feed) ────────────────
   // This is the actual, user-facing activity log (feeding, grooming, playing,
@@ -293,6 +354,7 @@ class LocalStorageService {
       _quizzes.clear(),
       _pending.clear(),
       _virtualPet.clear(),
+      _virtualAchievements.clear(),
       _activityEntries.clear(),
       _petPhotos.clear(),
     ]);

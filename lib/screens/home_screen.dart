@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/pet_profile_provider.dart';
 import '../providers/reminder_provider.dart';
-import '../services/activity_log_service.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../themes/app_theme.dart';
@@ -14,9 +13,9 @@ import 'learn_screen.dart';
 import 'reminder_screen.dart';
 import 'pet_profile_screen.dart';
 import 'settings_screen.dart';
-import 'activity_log_screen.dart';
 import 'achievements_hub_screen.dart';
 import '../widgets/animated_idle_cat.dart';
+import '../widgets/daily_advice_card.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -31,7 +30,6 @@ class HomeScreen extends StatelessWidget {
         .reminders
         .where((r) => !r.isDone)
         .length;
-    final actCount = context.watch<ActivityLogService>().count;
 
     // PetProfileProvider isn't registered in the app's MultiProvider tree
     // (it's accessed as a singleton elsewhere too, e.g. PetProfileScreen),
@@ -152,6 +150,14 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
 
+                // ── Daily cat-care advice ───────────────────────────────────────
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(20, 14, 20, 0),
+                    child: DailyAdviceCard(),
+                  ),
+                ),
+
                 // ── Quick stats ─────────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
@@ -182,17 +188,6 @@ class HomeScreen extends StatelessWidget {
                               context,
                               MaterialPageRoute(
                                   builder: (_) => const ReminderScreen())),
-                        ),
-                        const SizedBox(width: 10),
-                        _StatCard(
-                          value: '$actCount',
-                          label: 'Activities',
-                          icon: Icons.history,
-                          color: AppTheme.teal,
-                          onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const ActivityLogScreen())),
                         ),
                       ],
                     ),
@@ -330,8 +325,17 @@ class _InfoBanner extends StatelessWidget {
           children: [
             Icon(icon, size: 14, color: color),
             const SizedBox(width: 6),
-            Text(text, style: TextStyle(fontSize: 12, color: color)),
-            if (action != null) action,
+            // Wrap so the message + "sign in" link flow onto a second line
+            // instead of overflowing on narrow screens / large text.
+            Expanded(
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(text, style: TextStyle(fontSize: 12, color: color)),
+                  if (action != null) action,
+                ],
+              ),
+            ),
           ],
         ),
       );

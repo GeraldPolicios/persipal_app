@@ -60,7 +60,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
       return;
     }
     final nameCtrl = TextEditingController();
-    final breedCtrl = TextEditingController(text: 'Persian');
+    final breedCtrl = TextEditingController(text: kPersianBreed);
     final birthdayCtrl = TextEditingController();
     final weightCtrl = TextEditingController();
     DateTime? birthday;
@@ -171,7 +171,9 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   const SizedBox(height: 18),
                   _field(nameCtrl, 'Cat Name *', Icons.edit),
                   const SizedBox(height: 12),
-                  _field(breedCtrl, 'Breed', Icons.pets),
+                  _field(breedCtrl, 'Breed (PersiPal is for Persian cats)',
+                      Icons.pets,
+                      readOnly: true),
                   const SizedBox(height: 12),
                   Row(
                       children: ['Female', 'Male'].map((g) {
@@ -290,7 +292,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                           Navigator.pop(ctx);
                           final profile = await _provider.createProfile(
                             name: nameCtrl.text.trim(),
-                            breed: breedCtrl.text.trim(),
+                            breed: kPersianBreed,
                             avatarColorValue: colorVal,
                             birthday:
                                 DateFormat('MMMM d, yyyy').format(birthday!),
@@ -333,9 +335,10 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
   }
 
   Widget _field(TextEditingController c, String label, IconData icon,
-          {TextInputType? keyboardType}) =>
+          {TextInputType? keyboardType, bool readOnly = false}) =>
       TextField(
         controller: c,
+        readOnly: readOnly,
         keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,

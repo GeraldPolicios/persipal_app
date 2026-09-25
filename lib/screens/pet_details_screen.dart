@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../providers/reminder_provider.dart';
 import '../../models/pet_extended_models.dart';
+import '../../utils/pet_age.dart';
 
 const _kAvatarColors = [
   Color(0xFFFFB3BA),
@@ -38,7 +39,6 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
   // Edit controllers
   late TextEditingController _name,
       _breed,
-      _age,
       _weight,
       _furColor,
       _birthday,
@@ -60,7 +60,6 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
     for (final c in [
       _name,
       _breed,
-      _age,
       _weight,
       _furColor,
       _birthday,
@@ -81,7 +80,6 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
     if (p == null) return;
     _name = TextEditingController(text: p.name);
     _breed = TextEditingController(text: p.breed);
-    _age = TextEditingController(text: p.age);
     _weight = TextEditingController(text: p.weightKg);
     _furColor = TextEditingController(text: p.furColor);
     _birthday = TextEditingController(text: p.birthday);
@@ -99,8 +97,8 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
     setState(() => _saving = true);
     await _provider.updateDetails(pet.copyWith(
       name: _name.text.trim(),
-      breed: _breed.text.trim(),
-      age: _age.text.trim(),
+      breed: pet.breed,
+      age: pet.age, // legacy free-text field, kept as stored
       weightKg: _weight.text.trim(),
       furColor: _furColor.text.trim(),
       birthday: _birthday.text.trim(),
@@ -279,8 +277,8 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                         children: _kAvatarColors.map((c) {
                           final sel = c.toARGB32() == _avatarColorValue;
                           return GestureDetector(
-                            onTap: () =>
-                                setState(() => _avatarColorValue = c.toARGB32()),
+                            onTap: () => setState(
+                                () => _avatarColorValue = c.toARGB32()),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
                               width: 30,
@@ -312,7 +310,8 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                              color: Color(_avatarColorValue).withValues(alpha: 0.4),
+                              color: Color(_avatarColorValue)
+                                  .withValues(alpha: 0.4),
                               blurRadius: 12,
                               offset: const Offset(0, 5))
                         ],
@@ -332,9 +331,20 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                 // Form fields
                 _section('Basic Info', [
                   _editRow('Name', _name, Icons.edit, editing: _editing),
-                  _editRow('Breed', _breed, Icons.pets, editing: _editing),
-                  _editRow('Age', _age, Icons.cake,
-                      hint: 'e.g. 2 years', editing: _editing),
+                  // Persian-only app: the breed is fixed, so it's never an
+                  // editable field (an existing value is kept exactly as
+                  // stored).
+                  _readRow(
+                      'Breed',
+                      _breed.text.isEmpty ? kPersianBreed : _breed.text,
+                      Icons.pets),
+                  // Age is always computed from the birthday.
+                  _readRow(
+                      'Age',
+                      petAgeLabel(_birthday.text).isEmpty
+                          ? 'Set a valid birthday to see age'
+                          : petAgeLabel(_birthday.text),
+                      Icons.cake),
                 ]),
                 const SizedBox(height: 12),
                 _section('Physical Info', [
@@ -362,8 +372,8 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                                   sel ? const Color(0xFFFF8C69) : Colors.white,
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                  color:
-                                      const Color(0xFFFF8C69).withValues(alpha: 0.5)),
+                                  color: const Color(0xFFFF8C69)
+                                      .withValues(alpha: 0.5)),
                             ),
                             child:
                                 Row(mainAxisSize: MainAxisSize.min, children: [

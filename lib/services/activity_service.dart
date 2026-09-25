@@ -1,27 +1,45 @@
 // services/activity_service.dart
 //
-// Singleton service that acts as the single source of truth for:
-//   • Activity log entries (real, not hardcoded)
-//   • Pet profiles (persisted in-memory across navigations)
-//   • Reminders (persisted in-memory across navigations)
+// Singleton service for the activity feed the virtual-cat screens (feed /
+// groom / play / game) write to via logActivity(), persisted through
+// LocalStorageService (Hive). Nothing reads this feed back today — the
+// user-facing Activity History screen is driven by ActivityLogService.
 //
-// In a production app you would swap the in-memory lists for
-// shared_preferences / sqflite / hive calls.  The public API is
-// identical regardless of the backing store, so the migration is
-// a one-file change.
-//
-// WHAT'S NEW:
-//   • ReminderItem now carries petId (which cat it's for), linkedVaccinationId
-//     (set when it was auto-created from a vaccine's "next dose"), and
-//     recurrence ('none' | 'daily' | 'weekly' | 'monthly').
-//   • ReminderItem.copyWith() — uses a sentinel so petId/linkedVaccinationId
-//     can be explicitly cleared (copyWith(petId: null)), not just skipped.
-//   • remindersForPet() and scheduleNextOccurrence() helpers.
+// Real-pet reminders and profiles are NOT handled here: they live in
+// ReminderProvider / models/reminder_item_model.dart and PetProfileProvider
+// respectively (an older in-memory copy of both used to live in this file
+// and was removed once nothing referenced it).
 
 import 'package:flutter/material.dart';
 import 'local_storage_service.dart';
 
-const Object _unset = Object();
+// Every icon this service's logActivity() is ever called with (feed/groom/
+// play/game_screen.dart's activity logging, plus icons persisted by older
+// app versions that also logged reminder/profile events from this service —
+// kept so those old Hive entries still decode) — each a literal `Icons.x`
+// reference in source, which
+// is what lets the release build's icon tree-shaker keep exactly the
+// glyphs actually used. Keyed by codepoint (computed once, not a const
+// map — the tree-shaker only cares that `Icons.x` appears literally in
+// source, not whether the surrounding map/switch is itself const; see
+// ActivityLogModel.icon in models.dart for the same already-working
+// pattern). Add to this list (never remove an in-use entry) if a new icon
+// is ever logged.
+final Map<int, IconData> _knownActivityIcons = {
+  for (final icon in const <IconData>[
+    Icons.restaurant, // feed_screen.dart
+    Icons.content_cut, // groom_screen.dart
+    Icons.sports_esports, // play_screen.dart
+    Icons.pets, // game_screen.dart (+ old persisted "Added profile" entries)
+    Icons.alarm_add, // old persisted "Added reminder" entries
+    Icons.alarm_on, // old persisted "Completed reminder" entries
+    Icons.alarm_off, // old persisted "Deleted reminder" entries
+    Icons.edit_notifications, // old persisted "Edited reminder" entries
+    Icons.edit, // old persisted "Edited profile" entries
+    Icons.delete_outline, // old persisted "Deleted profile" entries
+  ])
+    icon.codePoint: icon,
+};
 
 // ─── Activity Entry ──────────────────────────────────────────────────────────
 
@@ -50,93 +68,24 @@ class ActivityEntry {
         'timestamp': timestamp.toIso8601String(),
       };
 
+  /// Reads the same 'iconCodePoint'/'iconFontFamily'/'iconFontPackage'
+  /// fields [toMap] always wrote (old persisted Hive entries decode
+  /// unchanged), but resolves them through [_knownActivityIcons] — a fixed
+  /// set of literal `Icons.x` constants — instead of calling the `IconData`
+  /// constructor at runtime, which is what broke release icon tree-shaking
+  /// (a codepoint the release build can't statically prove is one of a
+  /// known set of glyphs). An unrecognized codepoint (never expected, but
+  /// possible from a corrupted/foreign record) falls back to a plain info
+  /// icon rather than crashing.
   factory ActivityEntry.fromMap(Map<String, dynamic> m) => ActivityEntry(
         id: m['id'] as String,
-        icon: IconData(
-          m['iconCodePoint'] as int,
-          fontFamily: m['iconFontFamily'] as String?,
-          fontPackage: m['iconFontPackage'] as String?,
-        ),
+        icon: _knownActivityIcons[m['iconCodePoint'] as int? ?? 0] ??
+            Icons.info_outline,
         iconColor: Color(m['colorValue'] as int),
         title: m['title'] as String? ?? '',
         timestamp: DateTime.tryParse(m['timestamp'] as String? ?? '') ??
             DateTime.now(),
       );
-}
-
-// ─── Reminder Model ──────────────────────────────────────────────────────────
-
-class ReminderItem {
-  String id;
-  String title;
-  String type;
-  DateTime scheduledAt;
-  bool isDone;
-  String? petId; // NEW — which cat this reminder belongs to
-  String? linkedVaccinationId; // NEW — set if auto-created from a vaccine dose
-  String recurrence; // NEW — 'none' | 'daily' | 'weekly' | 'monthly'
-
-  ReminderItem({
-    required this.id,
-    required this.title,
-    required this.type,
-    required this.scheduledAt,
-    this.isDone = false,
-    this.petId,
-    this.linkedVaccinationId,
-    this.recurrence = 'none',
-  });
-
-  /// Returns a new ReminderItem with the given fields replaced.
-  /// Pass `petId: null` / `linkedVaccinationId: null` explicitly to CLEAR
-  /// those fields (they use a sentinel default so "not passed" != "null").
-  ReminderItem copyWith({
-    String? title,
-    String? type,
-    DateTime? scheduledAt,
-    bool? isDone,
-    Object? petId = _unset,
-    Object? linkedVaccinationId = _unset,
-    String? recurrence,
-  }) =>
-      ReminderItem(
-        id: id,
-        title: title ?? this.title,
-        type: type ?? this.type,
-        scheduledAt: scheduledAt ?? this.scheduledAt,
-        isDone: isDone ?? this.isDone,
-        petId: identical(petId, _unset) ? this.petId : petId as String?,
-        linkedVaccinationId: identical(linkedVaccinationId, _unset)
-            ? this.linkedVaccinationId
-            : linkedVaccinationId as String?,
-        recurrence: recurrence ?? this.recurrence,
-      );
-}
-
-// ─── Pet Profile Model ───────────────────────────────────────────────────────
-// (Legacy/simple profile model used elsewhere in the app — unrelated to
-// FullPetProfile in pet_extended_models.dart, left untouched.)
-
-class PetProfile {
-  String id;
-  String name;
-  String age;
-  String gender;
-  String weight;
-  String furColor;
-  String notes;
-  Color avatarColor;
-
-  PetProfile({
-    required this.id,
-    required this.name,
-    required this.age,
-    required this.gender,
-    required this.weight,
-    required this.furColor,
-    required this.notes,
-    required this.avatarColor,
-  });
 }
 
 // ─── Singleton Service ───────────────────────────────────────────────────────
@@ -150,15 +99,11 @@ class ActivityService extends ChangeNotifier {
 
   // ── Data stores ──────────────────────────────────────────────────────────
   final List<ActivityEntry> _log = [];
-  final List<ReminderItem> _reminders = [];
-  final List<PetProfile> _profiles = [];
 
   bool _loading = true;
   bool get loading => _loading;
 
   List<ActivityEntry> get log => List.unmodifiable(_log);
-  List<ReminderItem> get reminders => List.unmodifiable(_reminders);
-  List<PetProfile> get profiles => List.unmodifiable(_profiles);
 
   /// Loads persisted activity entries from Hive. Call once at app startup,
   /// before the first screen that reads `.log` builds — same pattern as the
@@ -195,126 +140,5 @@ class ActivityService extends ChangeNotifier {
     _log.clear();
     notifyListeners();
     _local.clearActivityEntries();
-  }
-
-  // ── Reminders ─────────────────────────────────────────────────────────────
-
-  void addReminder(ReminderItem reminder) {
-    _reminders.add(reminder);
-    logActivity(
-      icon: Icons.alarm_add,
-      iconColor: const Color(0xFFFFA500),
-      title: 'Added reminder — ${reminder.title} (${reminder.type})',
-    );
-    notifyListeners();
-  }
-
-  void markReminderDone(String id) {
-    final idx = _reminders.indexWhere((r) => r.id == id);
-    if (idx == -1) return;
-    _reminders[idx].isDone = true;
-    logActivity(
-      icon: Icons.alarm_on,
-      iconColor: const Color(0xFF32CD32),
-      title: 'Completed reminder — ${_reminders[idx].title}',
-    );
-    notifyListeners();
-  }
-
-  void deleteReminder(String id) {
-    final idx = _reminders.indexWhere((r) => r.id == id);
-    if (idx == -1) return;
-    final title = _reminders[idx].title;
-    _reminders.removeAt(idx);
-    logActivity(
-      icon: Icons.alarm_off,
-      iconColor: Colors.redAccent,
-      title: 'Deleted reminder — $title',
-    );
-    notifyListeners();
-  }
-
-  void updateReminder(ReminderItem updated) {
-    final idx = _reminders.indexWhere((r) => r.id == updated.id);
-    if (idx == -1) return;
-    _reminders[idx] = updated;
-    logActivity(
-      icon: Icons.edit_notifications,
-      iconColor: const Color(0xFFFFA500),
-      title: 'Edited reminder — ${updated.title}',
-    );
-    notifyListeners();
-  }
-
-  /// NEW — reminders for one cat, or all reminders if petId is null.
-  List<ReminderItem> remindersForPet(String? petId) {
-    if (petId == null) return reminders;
-    return _reminders.where((r) => r.petId == petId).toList();
-  }
-
-  /// NEW — call right after markReminderDone() for a recurring reminder
-  /// (daily/weekly/monthly feeding, grooming, litter, etc.) to automatically
-  /// schedule the next occurrence.
-  void scheduleNextOccurrence(ReminderItem completed) {
-    if (completed.recurrence == 'none') return;
-    addReminder(ReminderItem(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      title: completed.title,
-      type: completed.type,
-      scheduledAt: _nextDate(completed.scheduledAt, completed.recurrence),
-      petId: completed.petId,
-      recurrence: completed.recurrence,
-    ));
-  }
-
-  DateTime _nextDate(DateTime from, String recurrence) {
-    switch (recurrence) {
-      case 'daily':
-        return from.add(const Duration(days: 1));
-      case 'weekly':
-        return from.add(const Duration(days: 7));
-      case 'monthly':
-        return DateTime(
-            from.year, from.month + 1, from.day, from.hour, from.minute);
-      default:
-        return from;
-    }
-  }
-
-  // ── Pet Profiles (legacy, unrelated to FullPetProfile) ────────────────────
-
-  void addProfile(PetProfile profile) {
-    _profiles.add(profile);
-    logActivity(
-      icon: Icons.pets,
-      iconColor: const Color(0xFF32CD32),
-      title: 'Added profile — ${profile.name}',
-    );
-    notifyListeners();
-  }
-
-  void updateProfile(PetProfile updated) {
-    final idx = _profiles.indexWhere((p) => p.id == updated.id);
-    if (idx == -1) return;
-    _profiles[idx] = updated;
-    logActivity(
-      icon: Icons.edit,
-      iconColor: const Color(0xFF4682B4),
-      title: "Edited profile — ${updated.name}'s details updated",
-    );
-    notifyListeners();
-  }
-
-  void deleteProfile(String id) {
-    final idx = _profiles.indexWhere((p) => p.id == id);
-    if (idx == -1) return;
-    final name = _profiles[idx].name;
-    _profiles.removeAt(idx);
-    logActivity(
-      icon: Icons.delete_outline,
-      iconColor: Colors.redAccent,
-      title: 'Deleted profile — $name',
-    );
-    notifyListeners();
   }
 }

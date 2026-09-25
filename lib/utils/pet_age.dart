@@ -32,6 +32,17 @@ DateTime? parsePetBirthday(String raw) {
   }
 }
 
+/// The pet's CURRENT age as display text, computed from the stored birthday
+/// string (never stored). Empty when the birthday is missing, unparseable or
+/// in the future, so callers can simply hide the age instead of showing a
+/// wrong one.
+String petAgeLabel(String birthdayRaw, {DateTime? now}) {
+  final birth = parsePetBirthday(birthdayRaw);
+  final today = now ?? DateTime.now();
+  if (birth == null || birth.isAfter(today)) return '';
+  return formatAge(birth, today);
+}
+
 /// Formats [birthDate] as a human-readable age relative to [asOf].
 ///
 /// This is deliberately generic over [asOf] so the same function can be

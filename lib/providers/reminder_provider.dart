@@ -18,16 +18,18 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../models/reminder_item_model.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/care_notification_plan.dart';
 import '../services/notification_service.dart';
 import '../services/activity_log_service.dart';
+import '../services/reward_service.dart';
 
-class ReminderProvider extends ChangeNotifier {
+class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
   ReminderProvider();
 
   /// Resolves a pet's display name for notification text (e.g. "Milo").
@@ -84,18 +86,14 @@ class ReminderProvider extends ChangeNotifier {
         ..clear()
         ..addAll(loaded);
 
-      // Reconcile all stored reminders with notifications.
-      //
-      // Future + pending:
-      //     schedule notification
-      //
-      // Done/past:
-      //     cancel notification
-      //
-      // This is safe to execute every time the app starts.
-      for (final reminder in List<ReminderItem>.from(_reminders)) {
-        await _syncNotification(reminder);
-      }
+      // One-time-per-load data correction — see its own doc comment. Runs
+      // before notification reconciliation so a reverted reminder's
+      // notification is correctly resumed by the step right after this.
+      await _correctPrematureCompletions();
+
+      // Reconcile all stored reminders with notifications. Safe to execute
+      // every time — see _reconcileAllNotifications.
+      await _reconcileAllNotifications();
     } finally {
       _loading = false;
       notifyListeners();
@@ -107,13 +105,119 @@ class ReminderProvider extends ChangeNotifier {
     }
     _auth.addListener(_onAuthChanged);
     _connectivity.addListener(_onConnectivityChanged);
+
+    // Resuming from background counts as "reopening" for the purposes of
+    // keeping an overdue reminder's notification cycle alive — see
+    // didChangeAppLifecycleState below.
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);
     _connectivity.removeListener(_onConnectivityChanged);
     super.dispose();
+  }
+
+  /// Reverts any reminder that ended up marked done BEFORE it was ever due
+  /// — a bug (now fixed — see markReminderDone/completeReminderOccurrence's
+  /// own guards, and ReminderScreen's Done button, which no longer offers
+  /// this at all) let "Mark Done" complete a reminder whose scheduledAt
+  /// hadn't arrived yet. `completedAt` earlier than `scheduledAt` is a
+  /// logical impossibility for a correct completion, so this detects
+  /// exactly (and only) the reminders that bug actually produced —
+  /// legitimately-completed history (completedAt at/after scheduledAt) is
+  /// never touched. Reverting also removes it from the Done tab's history
+  /// and (via _reconcileAllNotifications right after this) correctly
+  /// resumes its notification, restoring it to Upcoming/Overdue exactly
+  /// where it belongs.
+  ///
+  /// Deliberately does NOT try to find/delete a "phantom" next occurrence
+  /// that a premature recurring completion may have already spawned
+  /// (scheduleNextOccurrence creates a fresh id, so there's no reliable
+  /// link back to it without guessing by title/type/date — too easy to
+  /// delete the wrong, legitimately separate reminder). If a recurring
+  /// reminder was affected, check for and manually remove any obviously
+  /// duplicate future occurrence it left behind.
+  /// True iff [r] is marked done with a completion timestamp earlier than
+  /// its own scheduled time — a logical impossibility for a correct
+  /// completion, and exactly what [_correctPrematureCompletions] reverts.
+  /// Pulled out as its own pure, public function specifically so this
+  /// detection rule is unit-testable without a live ReminderProvider —
+  /// see test/reminder_premature_completion_test.dart.
+  @visibleForTesting
+  static bool wasCompletedPrematurely(ReminderItem r) {
+    final completedAt = r.completedAt;
+    return r.isDone && completedAt != null && completedAt.isBefore(r.scheduledAt);
+  }
+
+  Future<void> _correctPrematureCompletions() async {
+    final toRevert = _reminders.where(wasCompletedPrematurely).toList();
+
+    if (toRevert.isEmpty) return;
+
+    for (final reminder in toRevert) {
+      final index = _reminders.indexWhere((r) => r.id == reminder.id);
+      if (index < 0) continue;
+      final reverted = reminder.copyWith(isDone: false, completedAt: null);
+      _reminders[index] = reverted;
+      await _local.saveReminderItem(reverted);
+      unawaited(_uploadToCloud(reverted));
+    }
+
+    notifyListeners();
+  }
+
+  /// Re-syncs every stored reminder's notifications against its current
+  /// isDone/scheduledAt state (the rules live in planCareNotifications):
+  ///   • Future + pending  → exact due-time alarm PLUS the pre-scheduled
+  ///     follow-up chain (every 5 minutes for 1 hour after it), so a
+  ///     reminder keeps notifying even if the app is never opened.
+  ///   • Overdue + pending → the endless ~5-minute repeat cycle takes over
+  ///     (started only if none is running) and the pre-scheduled follow-ups
+  ///     are cancelled, so the two never both notify.
+  ///   • Done              → every notification cancelled.
+  /// Idempotent and cheap to repeat (app start, app resume, Settings
+  /// toggle): it reads what the OS already has scheduled ONCE and arms only
+  /// what is missing, so it never duplicates a chain or resets a running
+  /// countdown, and never issues cancel calls for the (ever-growing) history
+  /// of completed reminders that have nothing scheduled.
+  Future<void> _reconcileAllNotifications() async {
+    // Re-reads the device's current UTC offset before (re)scheduling
+    // anything below — see NotificationService.refreshLocalTimeZone's doc
+    // comment for exactly what this does/doesn't guarantee. Cheap and
+    // idempotent, so doing it on every reconcile (app start + every
+    // resume) keeps it fresh without needing a dedicated timer.
+    NotificationService.refreshLocalTimeZone();
+
+    final pending = await _notifications.pendingNotificationIds();
+    final shown = await _notifications.shownNotificationIds();
+    final chained = _chainedReminderIds(DateTime.now());
+
+    for (final reminder in List<ReminderItem>.from(_reminders)) {
+      await _syncNotification(
+        reminder,
+        pendingIds: pending,
+        shownIds: shown,
+        chained: chained,
+      );
+    }
+  }
+
+  /// Reminders allowed a follow-up chain right now — see
+  /// pickChainedReminderIds (bounded so the chains can never exhaust
+  /// Android's per-app alarm limit).
+  Set<String> _chainedReminderIds(DateTime now) => pickChainedReminderIds([
+        for (final r in _reminders)
+          if (!r.isDone) (id: r.id, scheduledAt: r.scheduledAt),
+      ], now);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_reconcileAllNotifications());
+    }
   }
 
   void _onAuthChanged() {
@@ -146,6 +250,16 @@ class ReminderProvider extends ChangeNotifier {
         .collection('reminder_items');
   }
 
+  /// Reminder ids with an [_uploadToCloud] write currently in flight —
+  /// checked by [_downloadFromCloud] so a concurrent download can never
+  /// race a local upload that hasn't committed (or failed and queued)
+  /// yet. In-memory only (this process only, cleared as soon as the write
+  /// settles either way): the persisted pending-ops queue is what
+  /// protects the equivalent case across an app restart/offline gap — see
+  /// [_downloadFromCloud]'s doc comment for the full conflict-ordering
+  /// rule this and the queue together implement.
+  final Set<String> _uploadsInFlight = {};
+
   Future<void> _uploadToCloud(ReminderItem item) async {
     final collection = _collection;
     if (collection == null) {
@@ -158,12 +272,15 @@ class ReminderProvider extends ChangeNotifier {
       return;
     }
 
+    _uploadsInFlight.add(item.id);
     try {
       await collection
           .doc(item.id)
           .set(item.toMap(), SetOptions(merge: true));
     } catch (_) {
       await _local.queuePendingOp('reminder_item:${item.id}');
+    } finally {
+      _uploadsInFlight.remove(item.id);
     }
   }
 
@@ -183,11 +300,35 @@ class ReminderProvider extends ChangeNotifier {
     }
   }
 
-  /// Union by id, matching AppProvider's existing reminder-merge strategy
-  /// (no field-level conflict resolution): a cloud reminder is added
-  /// locally only if this device doesn't already have that id. An edit to
-  /// an already-present id is not pulled — same limitation AppProvider
-  /// already has for its own reminders.
+  /// Merges by id: a cloud reminder new to this device is added; a cloud
+  /// reminder this device already has is UPDATED IN PLACE (same id, never
+  /// a duplicate) whenever its fields actually differ — this is what lets
+  /// a completion (isDone/completedAt) or an edit made on another device
+  /// reach this one. (Previously this only ever added brand-new ids and
+  /// silently ignored any cloud change to an id already present locally —
+  /// so a completion on Device A, once uploaded, would never reach Device
+  /// B's already-downloaded copy of that same occurrence.)
+  ///
+  /// Conflict ordering — cloud must never clobber a local change that
+  /// hasn't made it to the cloud yet:
+  ///   • [_uploadsInFlight] — an upload for this exact id is being written
+  ///     right now, on this device, in this process.
+  ///   • the persisted 'reminder_item:{id}' pending-sync-op token — an
+  ///     earlier upload for this id failed or was made offline and is
+  ///     still queued (see [_uploadToCloud]/[_flushPendingOps]); the token
+  ///     is only removed once that write actually succeeds, so it's still
+  ///     present for a download that races an in-progress flush too.
+  /// A cloud doc for an id caught by either check is skipped entirely for
+  /// this download pass — local wins, and reconciles on its own once that
+  /// pending write actually lands (a later download then finds no reason
+  /// left to skip it, and pulls whatever's now in the cloud — which, if
+  /// nothing else changed it in between, is exactly this same local
+  /// state, making that pull a harmless no-op).
+  ///
+  /// Recurrence is unaffected by any of this: a completed occurrence and
+  /// its freshly-scheduled next occurrence are always two separate ids
+  /// (see scheduleNextOccurrence), so they're never merged into each
+  /// other here — one updates in place, the other is added as new.
   Future<void> _downloadFromCloud() async {
     final collection = _collection;
     if (collection == null) return;
@@ -196,17 +337,44 @@ class ReminderProvider extends ChangeNotifier {
       final snap = await collection.get();
       if (snap.docs.isEmpty) return;
 
-      final existingIds = _reminders.map((r) => r.id).toSet();
+      final pendingIds = (await _local.fetchPendingOps())
+          .where((token) => token.startsWith('reminder_item:'))
+          .map((token) => token.substring('reminder_item:'.length))
+          .toSet();
+
       var changed = false;
 
       for (final doc in snap.docs) {
         try {
-          final item = ReminderItem.fromMap(doc.data());
-          if (!existingIds.contains(item.id)) {
-            _reminders.add(item);
-            await _local.saveReminderItem(item);
-            await _syncNotification(item);
-            changed = true;
+          final cloudItem = ReminderItem.fromMap(doc.data());
+          final index = _reminders.indexWhere((r) => r.id == cloudItem.id);
+
+          final decision = resolveMergeDecision(
+            cloudItem: cloudItem,
+            existingLocal: index < 0 ? null : _reminders[index],
+            hasPendingLocalChange: pendingIds.contains(cloudItem.id) ||
+                _uploadsInFlight.contains(cloudItem.id),
+          );
+
+          switch (decision) {
+            case ReminderMergeDecision.skipLocalWins:
+            case ReminderMergeDecision.noopAlreadySame:
+              break;
+            case ReminderMergeDecision.addNew:
+              _reminders.add(cloudItem);
+              await _local.saveReminderItem(cloudItem);
+              await _syncNotification(cloudItem, restartOverdueRepeat: true);
+              changed = true;
+            case ReminderMergeDecision.updateInPlace:
+              // Already present, nothing of this device's own still
+              // unsynced for it — the cloud reflects the more recent
+              // state (e.g. a completion made on another device). Same
+              // id (index found above), so this can never create a
+              // duplicate.
+              _reminders[index] = cloudItem;
+              await _local.saveReminderItem(cloudItem);
+              await _syncNotification(cloudItem, restartOverdueRepeat: true);
+              changed = true;
           }
         } catch (_) {
           // Skip a malformed cloud doc rather than fail the whole sync.
@@ -218,6 +386,39 @@ class ReminderProvider extends ChangeNotifier {
       // Silent fail — app works offline.
     }
   }
+
+  /// Pure decision for how one cloud doc should be merged against whatever
+  /// this device already has for the same id — the entire conflict-
+  /// ordering rule described in [_downloadFromCloud]'s doc comment,
+  /// pulled out on its own specifically so it's unit-testable without
+  /// Firebase/a live ReminderProvider — see
+  /// test/reminder_sync_merge_test.dart.
+  @visibleForTesting
+  static ReminderMergeDecision resolveMergeDecision({
+    required ReminderItem cloudItem,
+    required ReminderItem? existingLocal,
+    required bool hasPendingLocalChange,
+  }) {
+    if (hasPendingLocalChange) return ReminderMergeDecision.skipLocalWins;
+    if (existingLocal == null) return ReminderMergeDecision.addNew;
+    return _reminderFieldsDiffer(existingLocal, cloudItem)
+        ? ReminderMergeDecision.updateInPlace
+        : ReminderMergeDecision.noopAlreadySame;
+  }
+
+  /// True if any field [resolveMergeDecision] cares about differs — used
+  /// to skip a no-op local write/notifyListeners when a downloaded doc is
+  /// already identical to what's stored locally (e.g. re-downloading
+  /// exactly what this same device just uploaded).
+  static bool _reminderFieldsDiffer(ReminderItem a, ReminderItem b) =>
+      a.title != b.title ||
+      a.type != b.type ||
+      a.scheduledAt != b.scheduledAt ||
+      a.isDone != b.isDone ||
+      a.completedAt != b.completedAt ||
+      a.petId != b.petId ||
+      a.linkedVaccinationId != b.linkedVaccinationId ||
+      a.recurrence != b.recurrence;
 
   Future<void> _flushPendingOps() async {
     if (!_auth.isAuthenticated || !_connectivity.isOnline) return;
@@ -383,7 +584,7 @@ class ReminderProvider extends ChangeNotifier {
     await _local.saveReminderItem(reminder);
     unawaited(_uploadToCloud(reminder));
 
-    await _syncNotification(reminder);
+    await _syncNotification(reminder, restartOverdueRepeat: true);
 
     await _activityLog.logReminderAdded(
       reminder.title,
@@ -404,6 +605,13 @@ class ReminderProvider extends ChangeNotifier {
       return;
     }
 
+    // Completed occurrences are historical and immutable — this is the
+    // only place any edit (title/date/pet/recurrence) could reach a
+    // reminder, so this one guard closes every edit entry point at once.
+    // The sole legitimate way isDone ever flips is markReminderDone() /
+    // completeReminderOccurrence(), never this method.
+    if (_reminders[index].isDone) return;
+
     _reminders[index] = updated;
 
     notifyListeners();
@@ -416,7 +624,7 @@ class ReminderProvider extends ChangeNotifier {
     //   • changed title
     //   • completed reminder
     //   • past reminder
-    await _syncNotification(updated);
+    await _syncNotification(updated, restartOverdueRepeat: true);
 
     await _activityLog.logReminderEdited(
       updated.title,
@@ -476,7 +684,31 @@ class ReminderProvider extends ChangeNotifier {
   // Complete
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<void> markReminderDone(String id) async {
+  /// Marks one reminder occurrence done "now", stamping [ReminderItem.
+  /// completedAt] with the actual completion moment (never the original
+  /// [scheduledAt]) — this is what the Done tab's date filter and every
+  /// "completion timestamp" requirement key off. Idempotent: calling it
+  /// again on an already-done reminder only re-cancels its notification
+  /// (defensive — should already be cancelled) and does nothing else, so a
+  /// duplicate call (e.g. a stale/duplicate notification action) can never
+  /// overwrite a real completedAt with a later, wrong one.
+  ///
+  /// [logActivity] defaults to true (the normal "Mark Done" path — either
+  /// from the Reminder Screen or a notification's Mark Done action — should
+  /// always leave an Activity History trail). It is set to false only by
+  /// the vaccination-completion flow (PetProfileProvider.
+  /// completeVaccinationDose), which already logs its own, more specific
+  /// "vaccination completed" entry for the same single user action — logging
+  /// both here would be a duplicate entry for one completion.
+  ///
+  /// Refuses to complete a reminder before its own [ReminderItem.
+  /// scheduledAt] actually arrives — completing something early isn't
+  /// "done," it just hides a reminder before the thing it's for could have
+  /// happened yet. This is the single, authoritative place that rule is
+  /// enforced (in the provider, not just the UI), so it holds no matter
+  /// which entry point reaches it — the Reminder Screen's Done button, a
+  /// notification's Mark Done action, or any future caller.
+  Future<void> markReminderDone(String id, {bool logActivity = true}) async {
     final index = _reminders.indexWhere((r) => r.id == id);
 
     if (index < 0) return;
@@ -489,8 +721,12 @@ class ReminderProvider extends ChangeNotifier {
       return;
     }
 
+    // Not due yet — never allow completing it early.
+    if (!current.isDue) return;
+
     final updated = current.copyWith(
       isDone: true,
+      completedAt: DateTime.now(),
     );
 
     _reminders[index] = updated;
@@ -504,10 +740,16 @@ class ReminderProvider extends ChangeNotifier {
     // but their notification must disappear.
     await _cancelNotification(id);
 
-    await _activityLog.logReminderCompleted(
-      updated.title,
-      petId: updated.petId ?? '',
-    );
+    if (logActivity) {
+      await _activityLog.logReminderCompleted(
+        updated.title,
+        petId: updated.petId ?? '',
+      );
+    }
+
+    // Reward points: completing a care task (once per reminder occurrence).
+    unawaited(
+        RewardService.instance.awardOnce('care:$id', RewardService.carePoints));
   }
 
   /// Fully completes one reminder occurrence exactly the way the in-app
@@ -528,6 +770,11 @@ class ReminderProvider extends ChangeNotifier {
 
     if (reminder == null || reminder.isDone) return;
     if (reminder.linkedVaccinationId != null) return;
+    // Not due yet — bail out before any of markReminderDone's completion
+    // side effects (which itself also refuses, redundantly) AND before the
+    // achievement callback / next-occurrence scheduling below, neither of
+    // which should ever fire for a completion that didn't actually happen.
+    if (!reminder.isDue) return;
 
     await markReminderDone(id);
 
@@ -538,6 +785,50 @@ class ReminderProvider extends ChangeNotifier {
     if (reminder.recurrence != 'none') {
       await scheduleNextOccurrence(reminder);
     }
+  }
+
+  /// User-facing "Reset" action for the Done tab — reverts a completed
+  /// reminder back to pending (clears isDone/completedAt), so it moves
+  /// back out of Done and into Upcoming/Overdue, and its notification
+  /// resumes (via the same _syncNotification path everything else uses).
+  /// The manual counterpart to [wasCompletedPrematurely]/
+  /// [_correctPrematureCompletions]'s automatic correction — for when a
+  /// reminder was marked done in error for any other reason and the user
+  /// wants to undo it themselves.
+  ///
+  /// Not available for a vaccine-linked reminder: completing one of those
+  /// also updates a separate vaccination record (see
+  /// PetProfileProvider.completeVaccinationDose), and resetting only the
+  /// reminder half would leave the two out of sync — undo that from the
+  /// Vaccinations screen instead.
+  ///
+  /// Reward points already earned for the original completion are NOT
+  /// clawed back — this only ever changes the reminder's own pending/done
+  /// state, never the points ledger.
+  Future<void> resetReminderToPending(String id) async {
+    final index = _reminders.indexWhere((r) => r.id == id);
+    if (index < 0) return;
+
+    final current = _reminders[index];
+    if (!current.isDone) return;
+    if (current.linkedVaccinationId != null) return;
+
+    final reverted = current.copyWith(isDone: false, completedAt: null);
+    _reminders[index] = reverted;
+
+    notifyListeners();
+
+    await _local.saveReminderItem(reverted);
+    unawaited(_uploadToCloud(reverted));
+
+    // Pending again, so its notification needs to resume — future one-shot
+    // or overdue-repeat, whichever its scheduledAt now calls for.
+    await _syncNotification(reverted, restartOverdueRepeat: true);
+
+    await _activityLog.logReminderReset(
+      reverted.title,
+      petId: reverted.petId ?? '',
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -556,10 +847,18 @@ class ReminderProvider extends ChangeNotifier {
       return null;
     }
 
-    final nextDate = _nextDate(
+    // Step from the completed occurrence's own schedule, but never land in
+    // the past: a reminder completed while overdue would otherwise spawn a
+    // next occurrence that is already overdue (one per missed period),
+    // instead of the next genuinely upcoming one.
+    var nextDate = _nextDate(
       completed.scheduledAt,
       completed.recurrence,
     );
+    final now = DateTime.now();
+    for (var i = 0; i < 1000 && !nextDate.isAfter(now); i++) {
+      nextDate = _nextDate(nextDate, completed.recurrence);
+    }
 
     final next = ReminderItem(
       id: _newId(),
@@ -576,68 +875,124 @@ class ReminderProvider extends ChangeNotifier {
     return next;
   }
 
-  /// Convenience method:
-  /// complete the reminder and, if recurring, create the next occurrence.
-  ///
-  /// Vaccination reminders use recurrence == 'none', so they are NOT
-  /// automatically duplicated here.
-  Future<ReminderItem?> completeAndScheduleNext(
-    String id,
-  ) async {
-    final reminder = getById(id);
-
-    if (reminder == null) {
-      return null;
-    }
-
-    await markReminderDone(id);
-
-    if (reminder.recurrence == 'none') {
-      return null;
-    }
-
-    return scheduleNextOccurrence(reminder);
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
   // Notification synchronization
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// Re-syncs every reminder's notification(s) — called after the user
+  /// flips the Notifications switch in Settings so it takes effect at once.
+  Future<void> refreshNotifications() => _reconcileAllNotifications();
+
+  /// [restartOverdueRepeat] (true for add / edit / reset / cloud update):
+  /// this reminder's schedule or text may have changed, so everything is
+  /// re-armed and a running overdue repeat is replaced. Leave false for
+  /// plain reconciliation (app start/resume, Settings toggle), which arms
+  /// only what is missing — see planCareNotifications.
+  /// [pendingIds]/[shownIds]/[chained] let reconciliation share one read of
+  /// the OS state across all reminders.
   Future<void> _syncNotification(
-    ReminderItem reminder,
-  ) async {
+    ReminderItem reminder, {
+    bool restartOverdueRepeat = false,
+    Set<int>? pendingIds,
+    Set<int>? shownIds,
+    Set<String>? chained,
+  }) async {
+    try {
+      await _syncNotificationOrThrow(
+        reminder,
+        restartOverdueRepeat: restartOverdueRepeat,
+        pendingIds: pendingIds,
+        shownIds: shownIds,
+        chained: chained,
+      );
+    } catch (e) {
+      // A notification problem (e.g. the OS denying exact alarms) must never
+      // break reminder add/edit/complete or stop the app from starting — the
+      // reminder itself is already saved.
+      debugPrint(
+        'ReminderProvider: notification sync failed for ${reminder.id}: $e',
+      );
+    }
+  }
+
+  Future<void> _syncNotificationOrThrow(
+    ReminderItem reminder, {
+    bool restartOverdueRepeat = false,
+    Set<int>? pendingIds,
+    Set<int>? shownIds,
+    Set<String>? chained,
+  }) async {
+    final now = DateTime.now();
     final notificationId = NotificationService.careNotifId(reminder.id);
 
-    // Done reminders must never have an active notification.
-    if (reminder.isDone) {
-      await _notifications.cancelCareReminder(
-        notificationId,
-      );
-      return;
-    }
+    // Settings › Notifications off: keep the reminder, drop its alerts. (A
+    // done reminder's plan is "cancel everything" either way, so skip the
+    // settings read for the whole history of completed reminders.)
+    final enabled = reminder.isDone
+        ? true
+        : (await _local.fetchSettings()).notificationsEnabled;
 
-    // Past reminders should not be scheduled.
-    //
-    // We intentionally do not mark them done here.
-    // The reminder remains overdue in the UI.
-    if (!reminder.scheduledAt.isAfter(DateTime.now())) {
-      await _notifications.cancelCareReminder(
-        notificationId,
-      );
-      return;
-    }
-
-    await _notifications.scheduleCareReminder(
+    final plan = planCareNotifications(
       notificationId: notificationId,
-      title: _titleFor(reminder),
-      body: _bodyFor(reminder),
-      scheduledDate: reminder.scheduledAt,
-      payload: 'care:${reminder.id}',
-      // Vaccine-linked reminders must be completed through the vaccination
-      // dialog (keeps the vaccination record in sync) — never directly
-      // from a notification action.
-      allowMarkDoneAction: reminder.linkedVaccinationId == null,
+      now: now,
+      scheduledAt: reminder.scheduledAt,
+      isDone: reminder.isDone,
+      notificationsEnabled: enabled,
+      chainAllowed:
+          (chained ?? _chainedReminderIds(now)).contains(reminder.id),
+      replaceExisting: restartOverdueRepeat,
+      pendingIds: pendingIds,
+      shownIds: shownIds,
     );
+
+    await _notifications.cancelIds(plan.cancelIds);
+
+    final title = _titleFor(reminder);
+    final body = _bodyFor(reminder);
+    final payload = 'care:${reminder.id}';
+    // Vaccine-linked reminders must be completed through the vaccination
+    // dialog (keeps the vaccination record in sync) — never directly from a
+    // notification action.
+    final allowMarkDone = reminder.linkedVaccinationId == null;
+
+    final dueAt = plan.dueAt;
+    if (dueAt != null) {
+      await _notifications.scheduleCareReminder(
+        notificationId: notificationId,
+        title: title,
+        body: body,
+        scheduledDate: dueAt,
+        payload: payload,
+        allowMarkDoneAction: allowMarkDone,
+      );
+    }
+
+    for (final slot in plan.followUps) {
+      await _notifications.scheduleCareFollowUp(
+        id: slot.id,
+        title: title,
+        body: body,
+        at: slot.at,
+        payload: payload,
+        allowMarkDoneAction: allowMarkDone,
+      );
+    }
+
+    // Overdue and not done: the endless repeat (an OS-level repeating
+    // notification that keeps firing with the app closed once started).
+    // Started only if none is running, so reopening the app never resets
+    // its countdown; replaced only when the content changed. It takes over
+    // from the pre-scheduled follow-ups, which the plan just cancelled.
+    if (plan.ensureRepeat) {
+      await _notifications.startOverdueRepeat(
+        notificationId: notificationId,
+        title: title,
+        body: body,
+        payload: payload,
+        allowMarkDoneAction: allowMarkDone,
+        restartIfActive: restartOverdueRepeat,
+      );
+    }
   }
 
   Future<void> _cancelNotification(
@@ -717,4 +1072,25 @@ class ReminderProvider extends ChangeNotifier {
   String _newId() {
     return DateTime.now().microsecondsSinceEpoch.toString();
   }
+}
+
+/// What [ReminderProvider.resolveMergeDecision] decided to do with one
+/// downloaded cloud doc.
+@visibleForTesting
+enum ReminderMergeDecision {
+  /// This id has an unsynced local change (queued or actively uploading)
+  /// — the cloud doc is ignored for this pass; local wins.
+  skipLocalWins,
+
+  /// This device has never seen this id before — add it.
+  addNew,
+
+  /// This device already has this id, no local change is still unsynced
+  /// for it, and the cloud's fields differ — overwrite the local copy in
+  /// place (same id, never a duplicate).
+  updateInPlace,
+
+  /// This device already has this id and every field already matches —
+  /// nothing to do.
+  noopAlreadySame,
 }

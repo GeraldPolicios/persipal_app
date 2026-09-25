@@ -18,6 +18,8 @@ enum ActionType {
   reminder,
   profile,
   vaccination,
+  growth,
+  health,
   login,
   sync,
   other,
@@ -206,6 +208,10 @@ class ActivityLogModel {
         return Icons.pets;
       case ActionType.vaccination:
         return Icons.vaccines;
+      case ActionType.growth:
+        return Icons.monitor_weight;
+      case ActionType.health:
+        return Icons.health_and_safety;
       case ActionType.login:
         return Icons.login;
       case ActionType.sync:
@@ -233,6 +239,10 @@ class ActivityLogModel {
         return const Color(0xFF32CD32);
       case ActionType.vaccination:
         return const Color(0xFFE9573F);
+      case ActionType.growth:
+        return const Color(0xFF20B2AA);
+      case ActionType.health:
+        return const Color(0xFFDC143C);
       case ActionType.login:
         return const Color(0xFF4682B4);
       case ActionType.sync:
@@ -340,11 +350,16 @@ class QuizResult {
   final int total;
   final DateTime completedAt;
 
+  /// Which lesson topic the quiz covered. The app's single shared quiz spans
+  /// every topic, so it is recorded as 'general'.
+  final String topic;
+
   const QuizResult({
     required this.id,
     required this.score,
     required this.total,
     required this.completedAt,
+    this.topic = 'general',
   });
 
   double get percentage => total > 0 ? score / total : 0;
@@ -354,6 +369,7 @@ class QuizResult {
         'score': score,
         'total': total,
         'completedAt': completedAt.toIso8601String(),
+        'topic': topic,
       };
 
   factory QuizResult.fromMap(Map<String, dynamic> m) => QuizResult(
@@ -362,6 +378,7 @@ class QuizResult {
         total: (m['total'] as num?)?.toInt() ?? 0,
         completedAt: DateTime.tryParse(m['completedAt'] as String? ?? '') ??
             DateTime.now(),
+        topic: m['topic'] as String? ?? 'general',
       );
 }
 
@@ -371,14 +388,21 @@ class AppSettings {
   final bool notificationsEnabled;
   final bool soundEnabled;
   final String selectedPetId;
-  final DateTime updatedAt;
+  final DateTime? _updatedAt;
+
+  // Never-saved defaults have no real timestamp; the epoch makes them the
+  // "oldest" version so a cloud copy always wins the merge, and keeps
+  // toMap()/isAfter() from throwing on a default instance.
+  static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+
+  DateTime get updatedAt => _updatedAt ?? _epoch;
 
   const AppSettings({
     this.notificationsEnabled = true,
     this.soundEnabled = true,
     this.selectedPetId = '',
     DateTime? updatedAt,
-  }) : updatedAt = updatedAt ?? const _NowPlaceholder();
+  }) : _updatedAt = updatedAt;
 
   AppSettings copyWith({
     bool? notificationsEnabled,
@@ -405,13 +429,6 @@ class AppSettings {
         selectedPetId: m['selectedPetId'] as String? ?? '',
         updatedAt: DateTime.tryParse(m['updatedAt'] as String? ?? ''),
       );
-}
-
-// Workaround for const constructor with DateTime.now()
-class _NowPlaceholder implements DateTime {
-  const _NowPlaceholder();
-  @override
-  dynamic noSuchMethod(Invocation i) => DateTime.now().noSuchMethod(i);
 }
 
 // ─── SessionModel ─────────────────────────────────────────────────────────────

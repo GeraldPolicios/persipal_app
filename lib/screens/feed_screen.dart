@@ -152,11 +152,18 @@ class _FeedScreenState extends State<FeedScreen> {
           break;
 
         case 'Milk':
-          hunger = (hunger - 10).clamp(0, 100);
-          happiness = (happiness + 15).clamp(0, 100);
-          cleanliness = (cleanliness + 5).clamp(0, 100);
-          feedback = 'Milk time!';
-          _feedbackEmoji = '🥛';
+          // Per the Feeding Guide lesson ("🚫 Foods to Avoid" already lists
+          // Milk alongside chocolate/onion & garlic/spicy or oily food —
+          // see lesson_detail_screen.dart), milk is an inappropriate choice
+          // for a Persian cat: real cats are commonly lactose intolerant.
+          // The cat still "eats" it (small hunger relief), but reacts
+          // negatively rather than happily, and the message names the
+          // reason so the choice teaches something instead of just
+          // penalizing silently.
+          hunger = (hunger - 5).clamp(0, 100);
+          happiness = (happiness - 10).clamp(0, 100);
+          feedback = 'Tummy ache from milk!';
+          _feedbackEmoji = '🤢';
           break;
 
         case 'Water':
@@ -408,6 +415,7 @@ class _FeedScreenState extends State<FeedScreen> {
                                           child: FeedPet(
                                             isEating: _isEating,
                                             isDirty: widget.isDirty,
+                                            isBadFood: _foodInBowl == 'Milk',
                                             height: 105,
                                           ),
                                         ),

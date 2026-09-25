@@ -1,28 +1,35 @@
 // screens/pet_health_dashboard_screen.dart
 //
+// Answers one question for the selected pet: "What is the current overall
+// health and care status of THIS cat?" It is a status summary, not a second
+// Activity History screen.
+//
 // Read-only aggregation of existing real-pet data for one pet:
 //   • Pet Profile        -> PetProfileProvider.instance.getById(petId)
 //   • Vaccination status  -> VaccinationRecord's existing computed getters
 //   • Reminders           -> ReminderProvider.reminders, filtered by petId
 //   • Growth               -> FullPetProfile.growthEntries
-//   • Recent Activity     -> ActivityLogService.instance.logs, filtered by petId
 //
 // This screen creates NO new storage, NO new providers, and does not
 // duplicate or modify any existing scheduling/achievement/activity logic.
-// It only reads and displays what already exists.
+// It only reads and displays what already exists. Every value shown is
+// synthesized from real app data — never a medical diagnosis.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../models/models.dart';
 import '../../models/pet_extended_models.dart';
 import '../../models/reminder_item_model.dart';
 import '../../providers/pet_profile_provider.dart';
 import '../../providers/reminder_provider.dart';
-import '../../services/activity_log_service.dart';
+import '../../services/completed_care_history.dart';
+import '../../services/pet_photo_service.dart';
 import '../../utils/cat_weight_status.dart';
 import '../../widgets/growth_chart.dart';
+import '../../widgets/pet_photo_avatar.dart';
+import 'completed_history_screen.dart';
+import 'growth_tracker_screen.dart';
 
 class PetHealthDashboardScreen extends StatefulWidget {
   final String petId;
@@ -41,17 +48,225 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
   void initState() {
     super.initState();
     _provider.addListener(_refresh);
+    PetPhotoService.instance.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _provider.removeListener(_refresh);
+    PetPhotoService.instance.removeListener(_refresh);
     super.dispose();
   }
 
   void _refresh() => setState(() {});
 
   FullPetProfile? get _pet => _provider.getById(widget.petId);
+
+  // ── Add / edit a health/checkup note (PET-8) ───────────────────────────
+  // One dialog for both: [existing] == null adds a new note, otherwise the
+  // note is edited IN PLACE (same id — the provider replaces it, never
+  // appends a second one).
+  Future<void> _addHealthRecord(FullPetProfile pet) =>
+      _showHealthRecordDialog(pet);
+
+  Future<void> _showHealthRecordDialog(
+    FullPetProfile pet, {
+    HealthRecord? existing,
+  }) async {
+    final isEdit = existing != null;
+    final notesCtrl = TextEditingController(text: existing?.notes ?? '');
+    DateTime selectedDate = existing?.date ?? DateTime.now();
+    // An older note may pre-date the picker's normal 2020 lower bound —
+    // widen it rather than assert on the initial date.
+    final firstDate = selectedDate.isBefore(DateTime(2020))
+        ? DateTime(selectedDate.year)
+        : DateTime(2020);
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          backgroundColor: const Color(0xFFFFF8F2),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC143C).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.health_and_safety,
+                          color: Color(0xFFDC143C), size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                          isEdit
+                              ? 'Edit Health/Checkup Note'
+                              : 'Add Health/Checkup Note',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ]),
+                  const SizedBox(height: 18),
+                  GestureDetector(
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedDate,
+                        firstDate: firstDate,
+                        lastDate: DateTime.now().isBefore(selectedDate)
+                            ? selectedDate
+                            : DateTime.now(),
+                        builder: (c, child) => Theme(
+                          data: Theme.of(c).copyWith(
+                              colorScheme: const ColorScheme.light(
+                                  primary: Color(0xFFDC143C))),
+                          child: child!,
+                        ),
+                      );
+                      if (d != null) setD(() => selectedDate = d);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color:
+                                const Color(0xFFDC143C).withValues(alpha: 0.3)),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.calendar_today,
+                            size: 16, color: Color(0xFFDC143C)),
+                        const SizedBox(width: 10),
+                        Text(DateFormat('MMMM d, yyyy').format(selectedDate),
+                            style: const TextStyle(fontSize: 13)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: notesCtrl,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      labelText: 'Notes (symptoms, checkup findings, etc.) *',
+                      labelStyle: const TextStyle(
+                          fontSize: 12, color: Color(0xFFAA7755)),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none),
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel',
+                            style: TextStyle(color: Colors.grey)),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFDC143C),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+                        ),
+                        onPressed: () {
+                          if (notesCtrl.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Enter a note.')));
+                            return;
+                          }
+                          Navigator.pop(ctx, true);
+                        },
+                        child: Text(isEdit ? 'Save' : 'Add'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // (Not disposed here: the dialog's field is still animating out.)
+    final notes = notesCtrl.text.trim();
+    if (saved != true || !mounted) return;
+
+    if (existing != null) {
+      await _provider.updateHealthRecord(
+        pet.id,
+        existing.copyWith(date: selectedDate, notes: notes),
+      );
+    } else {
+      await _provider.addHealthRecord(
+        pet.id,
+        HealthRecord(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          date: selectedDate,
+          notes: notes,
+        ),
+      );
+    }
+  }
+
+  // ── Delete a health/checkup note ───────────────────────────────────────
+  Future<void> _deleteHealthRecord(
+      FullPetProfile pet, HealthRecord record) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFFFF8F2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: const Text('Delete this note?',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Text(
+          'The health/checkup note from '
+          '${DateFormat('MMMM d, yyyy').format(record.date)} will be '
+          "permanently removed from ${pet.name}'s records.",
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete',
+                style: TextStyle(
+                    color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _provider.deleteHealthRecord(pet.id, record.id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,16 +284,15 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
     final completedVaccines =
         pet.vaccinations.where((v) => !v.isPlanned).toList();
 
+    // Doses still to be given: planned series doses AND completed records
+    // that carry a next-dose date (the same records the profile card's
+    // "overdue" badge counts). Read only from THIS pet.
+    final now = DateTime.now();
+    final pendingVaccines = pendingVaccinationsFor(pet);
     final upcomingVaccines =
-        pet.vaccinations.where((v) => v.isFuturePlanned).toList()
-          ..sort(
-            (a, b) => a.scheduledDateTime.compareTo(b.scheduledDateTime),
-          );
-
-    final overdueVaccines = pet.vaccinations.where((v) => v.isDueNow).toList()
-      ..sort(
-        (a, b) => a.scheduledDateTime.compareTo(b.scheduledDateTime),
-      );
+        pendingVaccines.where((p) => !p.isOverdueAt(now)).toList();
+    final overdueVaccines =
+        pendingVaccines.where((p) => p.isOverdueAt(now)).toList();
 
     final nextVaccine = overdueVaccines.isNotEmpty
         ? overdueVaccines.first
@@ -99,31 +313,35 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
         .toList()
       ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
-    // ── Completed Veterinary Care — completed vaccinations (existing data)
-    // plus standalone completed Vet Visit reminders. Reminders linked to a
-    // vaccination dose (linkedVaccinationId != null) are excluded so the
-    // same event isn't shown twice.
-    //
-    // Only FULLY completed vaccination series are shown here — a dose is
-    // included only if it's the final dose of its series (doseNumber ==
-    // totalDosesInSeries) or isn't part of a series at all (both fields
-    // null, i.e. a single-dose vaccination). This filter applies ONLY to
-    // this dashboard section — completedVaccines itself (used above by
-    // _VaccinationCard's "Completed" stat) is untouched. ───────────────────
-    final fullyCompletedVaccines = completedVaccines.where((v) {
-      if (v.doseNumber == null || v.totalDosesInSeries == null) return true;
-      return v.doseNumber == v.totalDosesInSeries;
-    }).toList();
-
-    final completedVetVisitReminders = petReminders
-        .where((r) =>
-            r.type == 'Vet Visit' && r.isDone && r.linkedVaccinationId == null)
+    // ── Veterinary Care — standalone vet-visit reminders only (excludes
+    // reminders auto-linked to a vaccination dose, which are already
+    // summarized under Preventive Care). Same source list (petReminders)
+    // as above, just filtered further — no new data. ───────────────────────
+    final vetVisitReminders = petReminders
+        .where((r) => r.type == 'Vet Visit' && r.linkedVaccinationId == null)
         .toList();
 
-    final completedVetCare = <_VetCareEntry>[
-      ...fullyCompletedVaccines.map(_VetCareEntry.vaccination),
-      ...completedVetVisitReminders.map(_VetCareEntry.vetVisit),
-    ]..sort((a, b) => b.date.compareTo(a.date));
+    final upcomingVetVisits = vetVisitReminders
+        .where((r) => !r.isDone && !r.isOverdue)
+        .toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+
+    final overdueVetVisits = vetVisitReminders.where((r) => r.isOverdue).toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+
+    final nextVetVisit = overdueVetVisits.isNotEmpty
+        ? overdueVetVisits.first
+        : (upcomingVetVisits.isNotEmpty ? upcomingVetVisits.first : null);
+
+    // ── Completed care — ONE shared definition (services/
+    // completed_care_history.dart, also behind the Completed History
+    // screen): checkup notes + completed vet visits, doses actually given,
+    // completed reminders — this pet only, never pending items. ─────────────
+    final history = buildCompletedCareHistory(
+      pet: pet,
+      reminders: petReminders,
+    );
+    final completedCare = history.all;
 
     // ── Growth — existing model only, no new growth logic. ─────────────────
     GrowthEntry? latestGrowth;
@@ -155,13 +373,33 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
     final growthEntriesNewestFirst = [...pet.growthEntries]
       ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
 
-    // ── Recent activity — filtered by the now-correct petId. ───────────────
-    final recentActivity = context
-        .watch<ActivityLogService>()
-        .logs
-        .where((a) => a.petId == widget.petId)
-        .take(6)
-        .toList();
+    // ── Health & checkup notes (PET-8) — existing model field only. ────────
+    final healthRecordsNewestFirst = [...pet.healthRecords]
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    // ── Overall Health & Care — a synthesized status headline, built only
+    // from values already computed above (never a new data source, never a
+    // medical diagnosis). Reminders linked to a vaccination dose are
+    // excluded from the reminder-overdue/-upcoming counts here so a single
+    // vaccine due date isn't counted twice against the vaccination counts
+    // above it. ─────────────────────────────────────────────────────────────
+    final unlinkedOverdueReminders =
+        overdueReminders.where((r) => r.linkedVaccinationId == null).length;
+    final unlinkedUpcomingReminders =
+        upcomingReminders.where((r) => r.linkedVaccinationId == null).length;
+
+    final overdueCareCount = overdueVaccines.length + unlinkedOverdueReminders;
+    final upcomingCareCount =
+        upcomingVaccines.length + unlinkedUpcomingReminders;
+
+    final latestWeightStatus = latestGrowth == null
+        ? null
+        : classifyCatWeight(
+            weightKg: latestGrowth.weightKg,
+            birthDate: pet.birthDate,
+            gender: pet.gender,
+            asOf: latestGrowth.recordedAt,
+          );
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -205,60 +443,34 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                     children: [
-                      _OverviewCard(pet: pet),
+                      _OverviewCard(
+                        pet: pet,
+                        photoPath: PetPhotoService.instance.pathFor(pet.id),
+                      ),
                       const SizedBox(height: 18),
-                      const _SectionLabel('VACCINATIONS'),
+                      const _SectionLabel('OVERALL HEALTH & CARE'),
                       const SizedBox(height: 8),
-                      _VaccinationCard(
-                        completed: completedVaccines.length,
-                        upcoming: upcomingVaccines.length,
-                        overdue: overdueVaccines.length,
-                        next: nextVaccine,
+                      _OverallHealthCard(
+                        overdueCount: overdueCareCount,
+                        upcomingCount: upcomingCareCount,
+                        weightStatusLabel: latestWeightStatus?.label,
                       ),
                       const SizedBox(height: 18),
                       _CollapsibleSection(
-                        title: 'COMPLETED VETERINARY CARE',
-                        headerSummary: Text(
-                          '${completedVetCare.length} completed',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFAA7755),
+                        title: 'WEIGHT & GROWTH',
+                        trailing: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Open Growth Tracker',
+                          icon: const Icon(Icons.show_chart,
+                              size: 20, color: Color(0xFF20B2AA)),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  GrowthTrackerScreen(petId: widget.petId),
+                            ),
                           ),
                         ),
-                        collapsedPreview: completedVetCare.isEmpty
-                            ? null
-                            : _Card(
-                                child: completedVetCare.first.isVaccination
-                                    ? _VetCareRow(
-                                        icon: Icons.vaccines,
-                                        iconColor: const Color(0xFF7B68EE),
-                                        title: completedVetCare
-                                            .first.vaccination!.vaccineName,
-                                        dateLabel:
-                                            'Completed: ${DateFormat('MMM d, yyyy').format(completedVetCare.first.vaccination!.completedDate)}',
-                                      )
-                                    : _VetCareRow(
-                                        icon: Icons.local_hospital,
-                                        iconColor: const Color(0xFF20B2AA),
-                                        title: completedVetCare
-                                            .first.reminder!.title,
-                                        dateLabel:
-                                            'Scheduled: ${DateFormat('MMM d, yyyy').format(completedVetCare.first.reminder!.scheduledAt)}',
-                                      ),
-                              ),
-                        child: _CompletedVetCareCard(entries: completedVetCare),
-                      ),
-                      const SizedBox(height: 18),
-                      const _SectionLabel('REMINDERS'),
-                      const SizedBox(height: 8),
-                      _ReminderBoxesSection(
-                        upcoming: upcomingReminders,
-                        overdue: overdueReminders,
-                      ),
-                      const SizedBox(height: 18),
-                      _CollapsibleSection(
-                        title: 'GROWTH',
                         collapsedPreview: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -332,14 +544,91 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                         ),
                       ),
                       const SizedBox(height: 18),
+                      const _SectionLabel('PREVENTIVE CARE'),
+                      const SizedBox(height: 8),
+                      _VaccinationCard(
+                        completed: completedVaccines.length,
+                        upcoming: upcomingVaccines.length,
+                        overdue: overdueVaccines.length,
+                        next: nextVaccine,
+                      ),
+                      const SizedBox(height: 18),
+                      const _SectionLabel('VETERINARY CARE'),
+                      const SizedBox(height: 8),
+                      _VetVisitCard(
+                        completed: history.vetVisits.length,
+                        upcoming: upcomingVetVisits.length,
+                        overdue: overdueVetVisits.length,
+                        next: nextVetVisit,
+                      ),
+                      const SizedBox(height: 18),
                       _CollapsibleSection(
-                        title: 'RECENT ACTIVITY',
-                        maxHeight: 250,
-                        collapsedPreview: recentActivity.isEmpty
+                        title: 'HEALTH & CHECKUP NOTES',
+                        trailing: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Add health/checkup note',
+                          icon: const Icon(Icons.add_circle_outline,
+                              size: 20, color: Color(0xFFDC143C)),
+                          onPressed: () => _addHealthRecord(pet),
+                        ),
+                        headerSummary: Text(
+                          '${pet.healthRecords.length} notes',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFAA7755),
+                          ),
+                        ),
+                        collapsedPreview: healthRecordsNewestFirst.isEmpty
                             ? null
                             : _Card(
-                                child: _ActivityRow(a: recentActivity.first)),
-                        child: _RecentActivityCard(activities: recentActivity),
+                                child: _HealthRecordRow(
+                                    record: healthRecordsNewestFirst.first)),
+                        child: _HealthRecordsCard(
+                          entries: healthRecordsNewestFirst,
+                          onEdit: (r) =>
+                              _showHealthRecordDialog(pet, existing: r),
+                          onDelete: (r) => _deleteHealthRecord(pet, r),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const _SectionLabel('UPCOMING & OVERDUE CARE'),
+                      const SizedBox(height: 8),
+                      _ReminderBoxesSection(
+                        upcoming: upcomingReminders,
+                        overdue: overdueReminders,
+                      ),
+                      const SizedBox(height: 18),
+                      _CollapsibleSection(
+                        title: 'COMPLETED HISTORY',
+                        trailing: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Open Completed History',
+                          icon: const Icon(Icons.history,
+                              size: 20, color: Color(0xFF32CD32)),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CompletedHistoryScreen(petId: widget.petId),
+                            ),
+                          ),
+                        ),
+                        headerSummary: Text(
+                          '${completedCare.length} completed',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFAA7755),
+                          ),
+                        ),
+                        collapsedPreview: completedCare.isEmpty
+                            ? null
+                            : _Card(
+                                child: _CompletedCareRow(
+                                    entry: completedCare.first),
+                              ),
+                        child: _CompletedCareCard(entries: completedCare),
                       ),
                     ],
                   ),
@@ -404,11 +693,9 @@ class _SectionLabel extends StatelessWidget {
 //
 // Wraps an existing section card (unchanged) with a tappable header.
 // Collapsed by default. Owns its own expand/collapse state so no changes
-// are needed to the parent screen's state class. Optional [maxHeight]
-// bounds the expanded content in a scrollable box — used only by Recent
-// Activity. Optional [collapsedPreview] renders a compact summary in
-// place of [child] while the section is collapsed — sections that don't
-// pass it behave exactly as before.
+// are needed to the parent screen's state class. Optional [collapsedPreview]
+// renders a compact summary in place of [child] while the section is
+// collapsed — sections that don't pass it behave exactly as before.
 //
 // No chevron: expansion is communicated by the collapsedPreview box
 // itself being tappable (the primary trigger), with the header row kept
@@ -417,16 +704,19 @@ class _SectionLabel extends StatelessWidget {
 class _CollapsibleSection extends StatefulWidget {
   final String title;
   final Widget child;
-  final double? maxHeight;
   final Widget? headerSummary;
   final Widget? collapsedPreview;
+  // Rendered as a sibling of the toggle row (not inside its InkWell), so it
+  // can carry its own onTap (e.g. "open Growth Tracker") without being
+  // swallowed by the section's expand/collapse gesture.
+  final Widget? trailing;
 
   const _CollapsibleSection({
     required this.title,
     required this.child,
-    this.maxHeight,
     this.headerSummary,
     this.collapsedPreview,
+    this.trailing,
   });
 
   @override
@@ -443,18 +733,25 @@ class _CollapsibleSectionState extends State<_CollapsibleSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        InkWell(
-          onTap: _toggle,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                Expanded(child: _SectionLabel(widget.title)),
-                if (widget.headerSummary != null) widget.headerSummary!,
-              ],
+        Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: _toggle,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(child: _SectionLabel(widget.title)),
+                      if (widget.headerSummary != null) widget.headerSummary!,
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ),
+            if (widget.trailing != null) widget.trailing!,
+          ],
         ),
         if (!_expanded && widget.collapsedPreview != null) ...[
           const SizedBox(height: 8),
@@ -469,12 +766,7 @@ class _CollapsibleSectionState extends State<_CollapsibleSection> {
           InkWell(
             onTap: _toggle,
             borderRadius: BorderRadius.circular(18),
-            child: widget.maxHeight != null
-                ? SizedBox(
-                    height: widget.maxHeight,
-                    child: SingleChildScrollView(child: widget.child),
-                  )
-                : widget.child,
+            child: widget.child,
           ),
         ],
       ],
@@ -486,31 +778,25 @@ class _CollapsibleSectionState extends State<_CollapsibleSection> {
 
 class _OverviewCard extends StatelessWidget {
   final FullPetProfile pet;
+  final String? photoPath;
 
-  const _OverviewCard({required this.pet});
+  const _OverviewCard({required this.pet, required this.photoPath});
 
   @override
   Widget build(BuildContext context) {
     final details = <String>[
       if (pet.breed.isNotEmpty) pet.breed,
-      if (pet.age.isNotEmpty) pet.age,
+      if (pet.ageLabel.isNotEmpty) pet.ageLabel,
       if (pet.gender.isNotEmpty) pet.gender,
     ];
 
     return _Card(
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 32,
-            backgroundColor: pet.avatarColor,
-            child: Text(
-              pet.name.isNotEmpty ? pet.name[0].toUpperCase() : '🐱',
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
+          PetPhotoAvatar(
+            photoPath: photoPath,
+            color: pet.avatarColor,
+            size: 64,
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -543,13 +829,95 @@ class _OverviewCard extends StatelessWidget {
   }
 }
 
+// ─── Overall Health & Care ────────────────────────────────────────────────
+//
+// A synthesized status headline built only from already-computed counts
+// (overdue/upcoming vaccination + reminder totals, latest weight-status
+// label). No new data source, no medical diagnosis — a summary of the
+// app's own records, labeled as such.
+
+class _OverallHealthCard extends StatelessWidget {
+  final int overdueCount;
+  final int upcomingCount;
+  final String? weightStatusLabel;
+
+  const _OverallHealthCard({
+    required this.overdueCount,
+    required this.upcomingCount,
+    required this.weightStatusLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOverdue = overdueCount > 0;
+    final headline = hasOverdue
+        ? '$overdueCount care item${overdueCount == 1 ? '' : 's'} need attention'
+        : 'All caught up — no overdue care';
+    final headlineColor =
+        hasOverdue ? Colors.redAccent : const Color(0xFF32CD32);
+    final headlineIcon = hasOverdue ? Icons.warning_amber_rounded : Icons.check_circle;
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(headlineIcon, size: 20, color: headlineColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  headline,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: headlineColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (upcomingCount > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '$upcomingCount upcoming care item${upcomingCount == 1 ? '' : 's'} on the way.',
+              style: const TextStyle(fontSize: 12, color: Color(0xFFAA7755)),
+            ),
+          ],
+          if (weightStatusLabel != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '⚖️ Weight status: $weightStatusLabel',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF20B2AA),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          const Text(
+            'Based on your logged care data only — not a medical diagnosis. '
+            'Always consult your veterinarian for health concerns.',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Vaccinations ─────────────────────────────────────────────────────────
 
 class _VaccinationCard extends StatelessWidget {
   final int completed;
   final int upcoming;
   final int overdue;
-  final VaccinationRecord? next;
+  final PendingVaccination? next;
 
   const _VaccinationCard({
     required this.completed,
@@ -589,12 +957,13 @@ class _VaccinationCard extends StatelessWidget {
           if (next != null)
             _NextItemRow(
               icon: Icons.vaccines,
-              iconColor:
-                  next!.isDueNow ? Colors.redAccent : const Color(0xFF7B68EE),
-              title: next!.vaccineName,
-              subtitle: next!.isDueNow
-                  ? 'Overdue since ${DateFormat('MMM d, yyyy').format(next!.scheduledDateTime)}'
-                  : 'Due ${DateFormat('MMM d, yyyy').format(next!.scheduledDateTime)}',
+              iconColor: next!.isOverdueAt(DateTime.now())
+                  ? Colors.redAccent
+                  : const Color(0xFF7B68EE),
+              title: next!.record.vaccineName,
+              subtitle: next!.isOverdueAt(DateTime.now())
+                  ? 'Overdue since ${DateFormat('MMM d, yyyy').format(next!.dueAt)}'
+                  : 'Due ${DateFormat('MMM d, yyyy').format(next!.dueAt)}',
             )
           else
             const _EmptyRow(text: 'No upcoming or overdue vaccinations.'),
@@ -604,72 +973,132 @@ class _VaccinationCard extends StatelessWidget {
   }
 }
 
-// ─── Completed Veterinary Care ────────────────────────────────────────────
+// ─── Veterinary Care ──────────────────────────────────────────────────────
 //
-// Combines completed vaccinations (existing VaccinationRecord data) with
-// standalone completed 'Vet Visit' reminders (existing ReminderProvider
-// data). Vet Visit reminders auto-linked to a vaccination dose are
-// excluded to avoid showing the same event twice.
+// Standalone vet-visit reminders (checkups, etc.) — excludes reminders
+// auto-linked to a vaccination dose, which are already summarized under
+// Preventive Care above. Same _StatChip/_NextItemRow/_EmptyRow shell as
+// _VaccinationCard.
 
-class _VetCareEntry {
-  final DateTime date;
-  final VaccinationRecord? vaccination;
-  final ReminderItem? reminder;
+class _VetVisitCard extends StatelessWidget {
+  final int completed;
+  final int upcoming;
+  final int overdue;
+  final ReminderItem? next;
 
-  _VetCareEntry.vaccination(VaccinationRecord v)
-      : vaccination = v,
-        reminder = null,
-        date = v.completedDate;
+  const _VetVisitCard({
+    required this.completed,
+    required this.upcoming,
+    required this.overdue,
+    required this.next,
+  });
 
-  _VetCareEntry.vetVisit(ReminderItem r)
-      : vaccination = null,
-        reminder = r,
-        date = r.scheduledAt;
-
-  bool get isVaccination => vaccination != null;
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _StatChip(
+                label: 'Completed',
+                value: completed,
+                color: const Color(0xFF32CD32),
+              ),
+              const SizedBox(width: 8),
+              _StatChip(
+                label: 'Upcoming',
+                value: upcoming,
+                color: const Color(0xFF4682B4),
+              ),
+              const SizedBox(width: 8),
+              _StatChip(
+                label: 'Overdue',
+                value: overdue,
+                color: overdue > 0 ? Colors.redAccent : const Color(0xFFAAAAAA),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (next != null)
+            _NextItemRow(
+              icon: Icons.local_hospital,
+              iconColor:
+                  next!.isOverdue ? Colors.redAccent : const Color(0xFF20B2AA),
+              title: next!.title,
+              subtitle: next!.isOverdue
+                  ? 'Overdue since ${DateFormat('MMM d, yyyy').format(next!.scheduledAt)}'
+                  : 'Due ${DateFormat('MMM d, yyyy').format(next!.scheduledAt)}',
+            )
+          else
+            const _EmptyRow(text: 'No upcoming or overdue vet visits.'),
+        ],
+      ),
+    );
+  }
 }
 
-class _CompletedVetCareCard extends StatelessWidget {
-  final List<_VetCareEntry> entries;
+// ─── Completed History (dashboard summary) ────────────────────────────────
+//
+// Renders CompletedCareEntry items from buildCompletedCareHistory — the same
+// list the full Completed History screen shows (this one is unfiltered).
 
-  const _CompletedVetCareCard({required this.entries});
+class _CompletedCareCard extends StatelessWidget {
+  final List<CompletedCareEntry> entries;
+
+  const _CompletedCareCard({required this.entries});
 
   @override
   Widget build(BuildContext context) {
     return _Card(
       child: entries.isEmpty
-          ? const _EmptyRow(text: 'No completed veterinary care yet.')
+          ? const _EmptyRow(text: 'No completed care yet.')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final e in entries) ...[
-                  if (e.isVaccination)
-                    _VetCareRow(
-                      icon: Icons.vaccines,
-                      iconColor: const Color(0xFF7B68EE),
-                      title: e.vaccination!.vaccineName,
-                      dateLabel:
-                          'Completed: ${DateFormat('MMM d, yyyy').format(e.vaccination!.completedDate)}',
-                      notes: e.vaccination!.vetNotes.isNotEmpty
-                          ? e.vaccination!.vetNotes
-                          : null,
-                      doseInfo: (e.vaccination!.doseNumber != null &&
-                              e.vaccination!.totalDosesInSeries != null)
-                          ? 'Dose ${e.vaccination!.doseNumber} of ${e.vaccination!.totalDosesInSeries}'
-                          : null,
-                    )
-                  else
-                    _VetCareRow(
-                      icon: Icons.local_hospital,
-                      iconColor: const Color(0xFF20B2AA),
-                      title: e.reminder!.title,
-                      dateLabel:
-                          'Scheduled: ${DateFormat('MMM d, yyyy').format(e.reminder!.scheduledAt)}',
-                    ),
-                  if (e != entries.last) const SizedBox(height: 10),
+                for (var i = 0; i < entries.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 10),
+                  _CompletedCareRow(entry: entries[i]),
                 ],
               ],
             ),
+    );
+  }
+}
+
+class _CompletedCareRow extends StatelessWidget {
+  final CompletedCareEntry entry;
+
+  const _CompletedCareRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color) = switch (entry.kind) {
+      CompletedCareKind.vaccination => (
+          Icons.vaccines,
+          const Color(0xFF7B68EE)
+        ),
+      CompletedCareKind.vetVisit => (
+          Icons.local_hospital,
+          const Color(0xFF20B2AA)
+        ),
+      CompletedCareKind.reminder => (
+          Icons.check_circle,
+          const Color(0xFF32CD32)
+        ),
+    };
+    final verb = switch (entry.kind) {
+      CompletedCareKind.vaccination => 'Given',
+      _ => 'Completed',
+    };
+    return _VetCareRow(
+      icon: icon,
+      iconColor: color,
+      title: entry.title,
+      dateLabel: '$verb: ${DateFormat('MMM d, yyyy').format(entry.date)}',
+      notes: entry.notes,
+      doseInfo: entry.doseInfo,
     );
   }
 }
@@ -1034,6 +1463,113 @@ class _GrowthCard extends StatelessWidget {
 // Read-only list of individual growth records, newest-first — shown only
 // in the expanded Growth section. No edit/delete actions (this dashboard
 // is read-only); full CRUD history already lives in Growth Tracker.
+// List of individual health/checkup notes, newest-first. Each note can be
+// edited (in place) or deleted (after a confirmation dialog).
+class _HealthRecordsCard extends StatelessWidget {
+  final List<HealthRecord> entries;
+  final void Function(HealthRecord) onEdit;
+  final void Function(HealthRecord) onDelete;
+
+  const _HealthRecordsCard({
+    required this.entries,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: entries.isEmpty
+          ? const _EmptyRow(text: 'No health or checkup notes yet.')
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final e in entries) ...[
+                  _HealthRecordRow(
+                    record: e,
+                    onEdit: () => onEdit(e),
+                    onDelete: () => onDelete(e),
+                  ),
+                  if (e != entries.last) ...[
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(height: 1),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class _HealthRecordRow extends StatelessWidget {
+  final HealthRecord record;
+
+  /// Null on the collapsed preview row, which has no actions.
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  const _HealthRecordRow({required this.record, this.onEdit, this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0xFFDC143C).withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.health_and_safety,
+              size: 17, color: Color(0xFFDC143C)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                DateFormat('MMM d, yyyy').format(record.date),
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                record.notes,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7A3B1E)),
+              ),
+            ],
+          ),
+        ),
+        if (onEdit != null)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
+            tooltip: 'Edit note',
+            icon: const Icon(Icons.edit_outlined,
+                size: 18, color: Color(0xFFAA7755)),
+            onPressed: onEdit,
+          ),
+        if (onDelete != null)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
+            tooltip: 'Delete note',
+            icon: const Icon(Icons.delete_outline,
+                size: 18, color: Colors.redAccent),
+            onPressed: onDelete,
+          ),
+      ],
+    );
+  }
+}
+
 class _GrowthRecordsCard extends StatelessWidget {
   final List<GrowthEntry> entries;
 
@@ -1109,96 +1645,6 @@ class _GrowthRecordRow extends StatelessWidget {
                   ),
                 ),
               ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Recent activity ──────────────────────────────────────────────────────
-
-class _RecentActivityCard extends StatelessWidget {
-  final List<ActivityLogModel> activities;
-
-  const _RecentActivityCard({
-    required this.activities,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      child: activities.isEmpty
-          ? const _EmptyRow(
-              text: 'No recent activity for this pet yet.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Scrollable activity area
-                SizedBox(
-                  height: 220,
-                  child: ListView.separated(
-                    padding: EdgeInsets.zero,
-                    itemCount: activities.length,
-                    separatorBuilder: (_, __) => const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Divider(height: 1),
-                    ),
-                    itemBuilder: (_, index) =>
-                        _ActivityRow(a: activities[index]),
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
-}
-
-class _ActivityRow extends StatelessWidget {
-  final ActivityLogModel a;
-
-  const _ActivityRow({required this.a});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: a.iconColor.withValues(alpha: 0.15),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            a.icon,
-            size: 17,
-            color: a.iconColor,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                a.description,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                DateFormat('MMM d, h:mm a').format(a.timestamp),
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFFAA7755),
-                ),
-              ),
             ],
           ),
         ),

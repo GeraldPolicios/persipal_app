@@ -1,9 +1,17 @@
 // screens/quiz_screen.dart
 import 'package:flutter/material.dart';
-import '../services/activity_log_service.dart';
+import 'package:provider/provider.dart';
+import '../models/lesson_content_model.dart';
+import '../providers/app_provider.dart';
+import '../services/reward_service.dart';
 
 class QuizScreen extends StatefulWidget {
-  const QuizScreen({super.key});
+  /// The lesson topic this quiz belongs to (QZ-4), or null for the
+  /// general/mixed quiz reachable from the Learn screen's own quiz button —
+  /// that entry point is unchanged.
+  final String? topic;
+
+  const QuizScreen({super.key, this.topic});
 
   @override
   State<QuizScreen> createState() => _QuizScreenState();
@@ -15,13 +23,14 @@ class _QuizScreenState extends State<QuizScreen> {
   int? _selected;
   bool _answered = false;
 
-  // Records the user's chosen answer index for every question (null = not
-  // yet answered), so the results screen can show a review of what was
-  // missed. Reset alongside the other quiz state on retry.
-  final List<int?> _answersGiven = List.filled(_questions.length, null);
+  // Reward points earned by the just-finished attempt (null until known).
+  int? _pointsEarned;
 
-  static const _questions = [
+  // The original 5, each now tagged with the topic it belongs to — reused
+  // as-is (not rewritten) for that topic's quiz, plus the general quiz.
+  static const _legacyQuestions = [
     {
+      'topic': 'feeding',
       'q': 'What is the best food for Persian cats?',
       'a': ['Milk', 'High-quality cat food', 'Chocolate'],
       'correct': 1,
@@ -29,6 +38,7 @@ class _QuizScreenState extends State<QuizScreen> {
           'High-quality cat food (wet or dry) provides the balanced nutrition Persians need. Milk and chocolate are harmful.',
     },
     {
+      'topic': 'grooming',
       'q': 'How often should you brush a Persian\'s coat?',
       'a': ['Once a week', 'Never', 'Daily'],
       'correct': 2,
@@ -36,6 +46,7 @@ class _QuizScreenState extends State<QuizScreen> {
           'Persians have long, thick coats that tangle easily. Daily brushing for 10–20 minutes prevents mats and hairballs.',
     },
     {
+      'topic': 'behavior',
       'q': 'Which sign best shows that a cat is happy?',
       'a': ['Hissing loudly', 'Purring softly', 'Hiding under the bed'],
       'correct': 1,
@@ -43,6 +54,7 @@ class _QuizScreenState extends State<QuizScreen> {
           'Purring is the clearest sign of contentment. Hissing signals fear or aggression; hiding may indicate stress.',
     },
     {
+      'topic': 'grooming',
       'q': 'How often should you bathe a Persian cat?',
       'a': ['Every day', 'Every 3–4 weeks', 'Once a year'],
       'correct': 1,
@@ -50,6 +62,7 @@ class _QuizScreenState extends State<QuizScreen> {
           'Every 3–4 weeks is the recommended frequency. Too frequent bathing dries out their skin; too rare leads to matting.',
     },
     {
+      'topic': 'vitamins',
       'q': 'Which vitamin is important for a Persian\'s coat health?',
       'a': ['Vitamin C', 'Omega-3 fatty acids', 'Calcium'],
       'correct': 1,
@@ -57,6 +70,47 @@ class _QuizScreenState extends State<QuizScreen> {
           'Omega-3 fatty acids support a shiny, healthy coat and reduce shedding. Always use vet-approved supplements.',
     },
   ];
+
+  static const _topicTitles = {
+    'feeding': 'Feeding Quiz 🍽️',
+    'grooming': 'Grooming Quiz 🧼',
+    'behavior': 'Behavior Quiz 🧠',
+    'vitamins': 'Vitamins Quiz 💊',
+    'health': 'Health Quiz 🏥',
+    'environment': 'Environment Quiz 🌿',
+  };
+
+  /// This topic's legacy question(s) plus the question grounded in that
+  /// lesson's own content (quizScenarioQuestionsFor) — never fabricated.
+  /// Null topic (the Learn screen's general quiz button) keeps the original
+  /// 5-question mixed quiz unchanged.
+  late final List<Map<String, Object>> _questions = _buildQuestions();
+
+  List<Map<String, Object>> _buildQuestions() {
+    final topic = widget.topic;
+    if (topic == null) {
+      return [for (final q in _legacyQuestions) Map<String, Object>.from(q)];
+    }
+    final list = <Map<String, Object>>[
+      for (final q in _legacyQuestions)
+        if (q['topic'] == topic) Map<String, Object>.from(q),
+    ];
+    for (final sq in quizScenarioQuestionsFor(topic)) {
+      list.add({
+        'q': sq.question,
+        'a': sq.options,
+        'correct': sq.correctIndex,
+        'explanation': sq.explanation,
+      });
+    }
+    return list;
+  }
+
+  // Records the user's chosen answer index for every question (null = not
+  // yet answered), so the results screen can show a review of what was
+  // missed. Reset alongside the other quiz state on retry.
+  late final List<int?> _answersGiven =
+      List.filled(_questions.length, null);
 
   void _answer(int idx) {
     if (_answered) return;
@@ -76,14 +130,26 @@ class _QuizScreenState extends State<QuizScreen> {
         _answered = false;
       });
     } else {
-      // Log quiz result
-      ActivityLogService.instance.logQuiz(_score, _questions.length);
+      // Persist the result (Hive + cloud sync; also writes the "Completed
+      // quiz" Activity History entry) and award reward points.
+      _finishQuiz();
       setState(() => _current = _questions.length); // trigger results view
     }
   }
 
+  Future<void> _finishQuiz() async {
+    final topic = widget.topic ?? 'general';
+    final app = context.read<AppProvider>();
+    await app.saveQuizResult(_score, _questions.length, topic: topic);
+    final pts = await RewardService.instance.awardQuiz(_score, topic: topic);
+    if (mounted) setState(() => _pointsEarned = pts);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Every lesson's quiz is immediately reachable — no completion-gating
+    // guard here, matching the rest of the lesson system (see
+    // LessonDetailScreen/LearnScreen).
     final isDone = _current >= _questions.length;
 
     return Scaffold(
@@ -123,8 +189,13 @@ class _QuizScreenState extends State<QuizScreen> {
                 icon: const Icon(Icons.arrow_back_ios_new, size: 20),
                 onPressed: () => Navigator.pop(context),
               ),
-              const Text('🧠  Quiz',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Flexible(
+                child: Text(_topicTitles[widget.topic] ?? '🧠  Quiz',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 8),
               const Spacer(),
               Text(
                 '${_current + 1} / ${_questions.length}',
@@ -243,8 +314,33 @@ class _QuizScreenState extends State<QuizScreen> {
             );
           }),
 
-          // Explanation
-          if (_answered)
+          // Explanation — an explicit text headline (not just the answer
+          // tile's color/icon) states whether the pick was correct, so
+          // feedback never relies on color alone.
+          if (_answered) ...[
+            Row(
+              children: [
+                Icon(
+                  _selected == correct ? Icons.check_circle : Icons.info,
+                  size: 16,
+                  color: _selected == correct
+                      ? const Color(0xFF32CD32)
+                      : const Color(0xFFFF8C69),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _selected == correct ? 'Correct!' : 'Not quite',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: _selected == correct
+                        ? const Color(0xFF32CD32)
+                        : const Color(0xFF7A3B1E),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               margin: const EdgeInsets.only(top: 4),
@@ -269,6 +365,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 ],
               ),
             ),
+          ],
 
           const Spacer(),
 
@@ -333,6 +430,26 @@ class _QuizScreenState extends State<QuizScreen> {
                 color: Color(0xFFAA7755),
                 fontStyle: FontStyle.italic),
           ),
+          if (_pointsEarned != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFB347).withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                _pointsEarned! > 0
+                    ? '⭐ +$_pointsEarned reward points earned!'
+                    : '⭐ No new points — beat your best score to earn more.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFAA5533)),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
 
           // Score ring
@@ -389,6 +506,7 @@ class _QuizScreenState extends State<QuizScreen> {
             onPressed: () {
               setState(() {
                 _score = 0;
+                _pointsEarned = null;
                 _current = 0;
                 _selected = null;
                 _answered = false;

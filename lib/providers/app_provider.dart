@@ -15,9 +15,13 @@ import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/session_manager.dart';
 import '../services/activity_log_service.dart';
+import '../services/lesson_progress_service.dart';
 import '../services/pet_photo_service.dart';
+import '../services/reward_service.dart';
+import '../services/virtual_achievement_service.dart';
 import 'pet_profile_provider.dart';
 import 'reminder_provider.dart';
+import 'virtual_pet_provider.dart';
 
 class AppProvider extends ChangeNotifier {
   final _local = LocalStorageService.instance;
@@ -226,7 +230,17 @@ class AppProvider extends ChangeNotifier {
       _selectedPet = _pets.first;
     }
 
-    // FIX: refresh logs after merge
+    // Activity History: restore this account's cloud logs into local storage
+    // (union by id — existing local records are never duplicated or
+    // replaced), so history cleared locally at sign-out comes back on login.
+    final localLogIds = {for (final l in await _local.fetchLogs()) l.id};
+    for (final cl in cloud.logs) {
+      if (!localLogIds.contains(cl.id)) {
+        await _local.addLog(cl);
+        localLogIds.add(cl.id);
+      }
+    }
+    await _activityLog.reload();
     _logs = await _local.fetchLogs();
 
     notifyListeners();
@@ -298,11 +312,12 @@ class AppProvider extends ChangeNotifier {
   /// (e.g. the device happens to be offline right now) — then clears all
   /// local working data.
   ///
-  /// [reminderProvider] is passed in because, unlike PetProfileProvider,
-  /// ReminderProvider isn't a singleton reachable by this provider on its
-  /// own — the caller (a widget) already has it via Provider.
+  /// [reminderProvider]/[virtualPetProvider] are passed in because, unlike
+  /// PetProfileProvider, neither is a singleton reachable by this provider
+  /// on its own — the caller (a widget) already has both via Provider.
   Future<void> signOutAndClearLocalData(
     ReminderProvider reminderProvider,
+    VirtualPetProvider virtualPetProvider,
   ) async {
     if (_auth.isAuthenticated && _connectivity.isOnline) {
       try {
@@ -310,6 +325,7 @@ class AppProvider extends ChangeNotifier {
           _sync.flushPendingOps(this),
           PetProfileProvider.instance.flushPendingOpsIfPossible(),
           reminderProvider.flushPendingOpsIfPossible(),
+          virtualPetProvider.flushPendingOpsIfPossible(),
         ]).timeout(const Duration(seconds: 5));
       } catch (_) {
         // Offline, timed out, or a transient Firestore error — this is
@@ -318,7 +334,17 @@ class AppProvider extends ChangeNotifier {
     }
 
     await _auth.signOut();
-    await _clearAllProviderLocalData(reminderProvider);
+    // keepPetPhotos: true — unlike everything else cleared here, pet photos
+    // have no cloud copy to restore from (see PetPhotoService's header
+    // comment), so a plain sign-out must leave the files in place for this
+    // same account to find again next time it signs in on this device.
+    // Nothing exposes them to a different account in the meantime, since
+    // that account's own pets never share these IDs.
+    await _clearAllProviderLocalData(
+      reminderProvider,
+      virtualPetProvider,
+      keepPetPhotos: true,
+    );
   }
 
   /// Used after the account and its cloud data have already been
@@ -326,16 +352,40 @@ class AppProvider extends ChangeNotifier {
   /// flush, so this skips straight to clearing local data.
   Future<void> clearAllLocalDataAfterAccountDeletion(
     ReminderProvider reminderProvider,
+    VirtualPetProvider virtualPetProvider,
   ) =>
-      _clearAllProviderLocalData(reminderProvider);
+      _clearAllProviderLocalData(reminderProvider, virtualPetProvider);
 
+  /// Clears every local store used at an account boundary (sign-out or
+  /// account deletion). Each step runs independently —
+  /// if one store's clear throws, the rest still run rather than leaving
+  /// the device in a half-cleared state with some of the previous account's
+  /// data still exposed. Any failure is surfaced via [debugPrint] only;
+  /// this makes cleanup more resilient, it doesn't make it transactional
+  /// (Hive/Firestore offer no cross-store transaction here).
   Future<void> _clearAllProviderLocalData(
     ReminderProvider reminderProvider,
-  ) async {
-    await clearAllLocalData();
-    await PetProfileProvider.instance.clearAllLocalData();
-    await reminderProvider.clearAllLocalData();
-    await PetPhotoService.instance.clearAll();
+    VirtualPetProvider virtualPetProvider, {
+    bool keepPetPhotos = false,
+  }) async {
+    final steps = <String, Future<void> Function()>{
+      'local data': clearAllLocalData,
+      'pet profiles': () => PetProfileProvider.instance.clearAllLocalData(),
+      'reminders': () => reminderProvider.clearAllLocalData(),
+      'virtual pet': () => virtualPetProvider.clearAllLocalData(),
+      if (!keepPetPhotos) 'pet photos': () => PetPhotoService.instance.clearAll(),
+    };
+    for (final entry in steps.entries) {
+      try {
+        await entry.value();
+      } catch (e) {
+        debugPrint('AppProvider: failed to clear ${entry.key}: $e');
+      }
+    }
+    // In-memory-only resets never throw — no try/catch needed.
+    LessonProgressService.instance.resetInMemory();
+    RewardService.instance.resetInMemory();
+    VirtualAchievementService.instance.resetInMemory();
   }
 
   // ── Pet CRUD ──────────────────────────────────────────────────────────────
@@ -528,12 +578,14 @@ class AppProvider extends ChangeNotifier {
 
   // ── Quiz ──────────────────────────────────────────────────────────────────
 
-  Future<void> saveQuizResult(int score, int total) async {
+  Future<void> saveQuizResult(int score, int total,
+      {String topic = 'general'}) async {
     final result = QuizResult(
       id: _uuid.v4(),
       score: score,
       total: total,
       completedAt: DateTime.now(),
+      topic: topic,
     );
     _quizzes.insert(0, result);
     await _local.saveQuizResult(result);
@@ -557,16 +609,13 @@ class AppProvider extends ChangeNotifier {
   Future<void> clearAllLocalData() async {
     await _local.clearAll();
     await _activityLog.clearAll();
+    _logs.clear();
     _pets.clear();
     _reminders.clear();
     _quizzes.clear();
-    _logs.clear(); // FIX: also clear the in-memory logs list
     _selectedPet = null;
     notifyListeners();
   }
-
-  /// Alias used by SettingsScreen.
-  Future<void> clearLocalData() => clearAllLocalData();
 
   Future<Map<String, dynamic>> exportLocalData() => _local.exportAll();
 

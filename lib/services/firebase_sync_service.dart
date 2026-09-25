@@ -309,15 +309,30 @@ class FirebaseSyncService extends ChangeNotifier {
   Future<void> deleteAllCloudData() async {
     if (!_auth.isAuthenticated) return;
     final uid = _auth.userId;
-    final cols = ['pets', 'logs', 'reminders', 'settings', 'quizzes'];
+    // Every subcollection the app writes under users/{uid} — Firestore does
+    // not cascade-delete subcollections when the parent document is deleted,
+    // so anything missing here would be left behind after account deletion.
+    final cols = [
+      'pets',
+      'logs',
+      'reminders',
+      'settings',
+      'quizzes',
+      'full_pet_profiles',
+      'reminder_items',
+      'virtual_pet',
+    ];
     for (final name in cols) {
       final snap =
           await _db.collection('users').doc(uid).collection(name).get();
-      final batch = _db.batch();
-      for (final doc in snap.docs) {
-        batch.delete(doc.reference);
+      // A Firestore batch is limited to 500 writes — delete in chunks.
+      for (var i = 0; i < snap.docs.length; i += 400) {
+        final batch = _db.batch();
+        for (final doc in snap.docs.skip(i).take(400)) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
       }
-      await batch.commit();
     }
     await _db.collection('users').doc(uid).delete();
   }

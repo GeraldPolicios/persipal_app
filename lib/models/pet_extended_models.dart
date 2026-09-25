@@ -404,7 +404,46 @@ const kDefaultAchievements = [
   ),
 ];
 
+// ─── HealthRecord — a health/checkup note (PET-8) ─────────────────────────
+// Deliberately minimal: a date + free-text notes, the same shape as a real
+// vet's checkup note. The owner can edit (same id, in place) or delete a note
+// from the Health & Care dashboard; a note is a dated historical record, not a
+// reminder, so it never behaves like a pending item.
+
+class HealthRecord {
+  final String id;
+  final DateTime date;
+  final String notes;
+
+  const HealthRecord({
+    required this.id,
+    required this.date,
+    required this.notes,
+  });
+
+  HealthRecord copyWith({DateTime? date, String? notes}) => HealthRecord(
+        id: id,
+        date: date ?? this.date,
+        notes: notes ?? this.notes,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'date': date.toIso8601String(),
+        'notes': notes,
+      };
+
+  factory HealthRecord.fromMap(Map<String, dynamic> m) => HealthRecord(
+        id: m['id'] as String,
+        date: DateTime.tryParse(m['date'] as String? ?? '') ?? DateTime.now(),
+        notes: m['notes'] as String? ?? '',
+      );
+}
+
 // ─── FullPetProfile — all fields shown on Pet Details Screen ─────────────────
+
+/// PersiPal is for Persian cats only — every real-pet profile is a Persian.
+const String kPersianBreed = 'Persian';
 
 class FullPetProfile {
   final String id; // matches PetModel.id
@@ -419,6 +458,7 @@ class FullPetProfile {
   final String notes;
   final int avatarColorValue;
   final List<GrowthEntry> growthEntries;
+  final List<HealthRecord> healthRecords;
   final List<VaccinationRecord> vaccinations;
   final List<PetAchievement> achievements;
   final int feedCount;
@@ -450,6 +490,7 @@ class FullPetProfile {
     this.notes = '',
     this.avatarColorValue = 0xFFFFB3BA,
     this.growthEntries = const [],
+    this.healthRecords = const [],
     this.vaccinations = const [],
     this.achievements = const [],
     this.feedCount = 0,
@@ -469,6 +510,10 @@ class FullPetProfile {
   /// storing the same 'MMMM d, yyyy' string it always has.
   DateTime? get birthDate => parsePetBirthday(birthday);
 
+  /// Current age computed from [birthday] ('' if unknown/invalid/future).
+  /// The free-text [age] field is legacy and no longer displayed.
+  String get ageLabel => petAgeLabel(birthday);
+
   FullPetProfile copyWith({
     String? name,
     String? breed,
@@ -481,6 +526,7 @@ class FullPetProfile {
     String? notes,
     int? avatarColorValue,
     List<GrowthEntry>? growthEntries,
+    List<HealthRecord>? healthRecords,
     List<VaccinationRecord>? vaccinations,
     List<PetAchievement>? achievements,
     int? feedCount,
@@ -503,6 +549,7 @@ class FullPetProfile {
         notes: notes ?? this.notes,
         avatarColorValue: avatarColorValue ?? this.avatarColorValue,
         growthEntries: growthEntries ?? this.growthEntries,
+        healthRecords: healthRecords ?? this.healthRecords,
         vaccinations: vaccinations ?? this.vaccinations,
         achievements: achievements ?? this.achievements,
         feedCount: feedCount ?? this.feedCount,
@@ -528,6 +575,7 @@ class FullPetProfile {
         'notes': notes,
         'avatarColorValue': avatarColorValue,
         'growthEntries': growthEntries.map((e) => e.toMap()).toList(),
+        'healthRecords': healthRecords.map((h) => h.toMap()).toList(),
         'vaccinations': vaccinations.map((v) => v.toMap()).toList(),
         'achievements': achievements.map((a) => a.toMap()).toList(),
         'feedCount': feedCount,
@@ -566,6 +614,10 @@ class FullPetProfile {
       growthEntries: (m['growthEntries'] as List<dynamic>? ?? [])
           .cast<Map<String, dynamic>>()
           .map(GrowthEntry.fromMap)
+          .toList(),
+      healthRecords: (m['healthRecords'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>()
+          .map(HealthRecord.fromMap)
           .toList(),
       vaccinations: (m['vaccinations'] as List<dynamic>? ?? [])
           .cast<Map<String, dynamic>>()

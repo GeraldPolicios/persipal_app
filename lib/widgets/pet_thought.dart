@@ -12,7 +12,7 @@ class PetThought extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final cloud = SizedBox(
       width: 72,
       height: 62,
       child: Stack(
@@ -76,6 +76,42 @@ class PetThought extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    if (text == null) return cloud;
+
+    // Short "why" explanation — reuses the same small rounded-chip look
+    // already used by FeedThought/PlayThought, just compact enough to sit
+    // under the existing cloud bubble without a new popup/dialog.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        cloud,
+        Container(
+          constraints: const BoxConstraints(maxWidth: 130),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              BoxShadow(
+                blurRadius: 6,
+                color: Colors.black.withValues(alpha: 0.12),
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            text!,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF7A3B1E),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/models.dart';
+import '../models/virtual_pet_state.dart';
 import 'local_storage_service.dart';
 import 'firebase_sync_service.dart';
 import 'auth_service.dart';
@@ -143,6 +144,20 @@ class ActivityLogService extends ChangeNotifier {
         petId: petId,
       );
 
+  /// The user manually reverted a completed reminder back to pending (the
+  /// Done tab's "Reset" action) — distinct from [logReminderEdited] so
+  /// Activity History shows plainly that this was a completion undone, not
+  /// a title/date/pet edit.
+  Future<void> logReminderReset(
+    String title, {
+    String petId = '',
+  }) =>
+      log(
+        type: ActionType.reminder,
+        description: 'Reset reminder to pending — $title',
+        petId: petId,
+      );
+
   Future<void> logProfileAdded(String name) => log(
         type: ActionType.profile,
         description: 'Added profile — $name',
@@ -253,6 +268,58 @@ class ActivityLogService extends ChangeNotifier {
         type: ActionType.login,
         description: 'Guest progress merged into account',
       );
+
+  Future<void> logGrowthAdded(String petName, double weightKg, String notes,
+          {String petId = ''}) =>
+      log(
+        type: ActionType.growth,
+        description: notes.trim().isEmpty
+            ? 'Recorded weight — $petName: ${weightKg}kg'
+            : 'Recorded weight — $petName: ${weightKg}kg ($notes)',
+        petId: petId,
+        petName: petName,
+      );
+
+  Future<void> logHealthRecord(String petName, String notes,
+          {String petId = ''}) =>
+      log(
+        type: ActionType.health,
+        description: 'Health/checkup note — $petName: $notes',
+        petId: petId,
+        petName: petName,
+      );
+
+  // ── Virtual-pet actions ─────────────────────────────────────────────────
+  // Forwarded from main.dart on each VirtualPetProvider change (the same
+  // observer pattern already used by RewardService/VirtualSoundService — see
+  // their header comments). Labeled "Virtual play" so these are never
+  // mistaken for real-pet care in Activity History/search/trends/export.
+  // Gameplay itself (game_screen.dart, feed/groom/play_screen.dart,
+  // VirtualPetProvider, CatAnimation) is untouched by this.
+
+  int? _lastVirtualFeed, _lastVirtualGroom, _lastVirtualPlay;
+
+  void onVirtualPetChanged(VirtualPetState pet) {
+    final lf = _lastVirtualFeed, lg = _lastVirtualGroom, lp = _lastVirtualPlay;
+    _lastVirtualFeed = pet.simFeedCount;
+    _lastVirtualGroom = pet.simGroomCount;
+    _lastVirtualPlay = pet.simPlayCount;
+    // First call after (re)load is a baseline, not an action — otherwise a
+    // cloud restore or app start would be logged as if the user just acted.
+    if (lf == null || lg == null || lp == null) return;
+
+    if (pet.simFeedCount == lf + 1) {
+      log(type: ActionType.feed, description: '🎮 Virtual play — fed ${pet.catName}');
+    } else if (pet.simGroomCount == lg + 1) {
+      log(
+          type: ActionType.groom,
+          description: '🎮 Virtual play — groomed ${pet.catName}');
+    } else if (pet.simPlayCount == lp + 1) {
+      log(
+          type: ActionType.play,
+          description: '🎮 Virtual play — played with ${pet.catName}');
+    }
+  }
 
   // ── Clear ─────────────────────────────────────────────────────────────────
 

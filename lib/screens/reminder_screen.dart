@@ -6,11 +6,11 @@
 //    pet chip so it's obvious whose reminder it is.
 //  • Recurring reminders (daily / weekly / monthly) — feeding, grooming,
 //    litter changes, etc. auto-reschedule themselves when marked done.
-//  • Snooze (+1 hour / +1 day / +1 week) on any pending reminder — no need
-//    to delete and recreate one just because today got busy.
 //  • Vaccine-linked reminders (created from the Vaccinations screen) open
 //    the shared "mark dose given" flow instead of a plain checkbox, so the
 //    health record and the reminder never drift out of sync.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -20,6 +20,8 @@ import 'package:persipal_app/models/reminder_item_model.dart';
 import '../providers/pet_profile_provider.dart';
 import '../models/pet_extended_models.dart';
 import '../widgets/vaccination_complete_dialog.dart';
+import '../widgets/date_filter_control.dart';
+import 'completed_history_screen.dart';
 
 // ─── Type Config ─────────────────────────────────────────────────────────────
 
@@ -27,6 +29,7 @@ const _kTypes = [
   {'label': 'Feeding', 'emoji': '🍗', 'color': Color(0xFFFF8C69)},
   {'label': 'Grooming', 'emoji': '✂️', 'color': Color(0xFF7B68EE)},
   {'label': 'Vitamins', 'emoji': '💊', 'color': Color(0xFF32CD32)},
+  {'label': 'Medication', 'emoji': '💉', 'color': Color(0xFFE9573F)},
   {'label': 'Exercise', 'emoji': '🎾', 'color': Color(0xFF20B2AA)},
   {'label': 'Vet Visit', 'emoji': '🏥', 'color': Color(0xFFDC143C)},
   {'label': 'Litter Box', 'emoji': '🧹', 'color': Color(0xFF9370DB)},
@@ -50,7 +53,16 @@ String _recurrenceLabel(String value) =>
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 class ReminderScreen extends StatefulWidget {
-  const ReminderScreen({super.key});
+  /// Set when this screen was opened from a notification tap (see
+  /// NotificationService.onReminderNotificationTap / main.dart) — the exact
+  /// reminder occurrence that generated it. On open: the pet filter
+  /// switches to its pet (if any, so it's never hidden by an unrelated
+  /// filter), the correct tab (Upcoming vs. Done) is selected from its
+  /// current state, and its card is highlighted — "open the exact reminder"
+  /// rather than just "open the Reminder Screen in general".
+  final String? openReminderId;
+
+  const ReminderScreen({super.key, this.openReminderId});
 
   @override
   State<ReminderScreen> createState() => _ReminderScreenState();
@@ -62,21 +74,77 @@ class _ReminderScreenState extends State<ReminderScreen>
   late TabController _tab;
   String? _filterPetId; // null = All Pets
 
+  // Done-tab date filter — filters by completedAt (when the reminder was
+  // actually marked done), never scheduledAt (when it was originally due).
+  // Mirrors Activity History / Growth Tracker's own filter exactly (see
+  // widgets/date_filter_control.dart) other than living per-screen instead
+  // of persisting, same as those two screens.
+  DateFilterSelection _doneDateFilter = const DateFilterSelection.allDates();
+
+  // Notification-tap targeting (see [ReminderScreen.openReminderId]).
+  String? _highlightReminderId;
+  Timer? _highlightTimer;
+  final Map<String, GlobalKey> _cardKeys = {};
+
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
     _petProvider.addListener(_refresh);
+    final targetId = widget.openReminderId;
+    if (targetId != null) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _openTargetReminder(targetId));
+    }
   }
 
   @override
   void dispose() {
     _tab.dispose();
+    _highlightTimer?.cancel();
     _petProvider.removeListener(_refresh);
     super.dispose();
   }
 
   void _refresh() => setState(() {});
+
+  /// Focuses the screen on the exact reminder a notification tap pointed
+  /// at: switches to its pet's filter and the tab matching its current
+  /// isDone state, then highlights (and best-effort scrolls to) its card.
+  /// A reminder id that no longer exists (e.g. deleted since the
+  /// notification fired) is simply not found — the screen still opens
+  /// normally rather than erroring or recreating anything.
+  void _openTargetReminder(String id) {
+    if (!mounted) return;
+    final item = context.read<ReminderProvider>().getById(id);
+    if (item == null) return;
+
+    setState(() {
+      _filterPetId = item.petId;
+      _highlightReminderId = id;
+    });
+    _tab.index = item.isDone ? 1 : 0;
+
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _highlightReminderId = null);
+    });
+
+    // Best-effort scroll-into-view: the card's GlobalKey only gets a
+    // BuildContext once ListView.builder actually lays it out, which may
+    // not have happened on this very first frame yet.
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      final cardContext = _cardKeys[id]?.currentContext;
+      if (cardContext != null && cardContext.mounted) {
+        Scrollable.ensureVisible(
+          cardContext,
+          duration: const Duration(milliseconds: 300),
+          alignment: 0.2,
+        );
+      }
+    });
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -90,9 +158,30 @@ class _ReminderScreenState extends State<ReminderScreen>
       _filtered(all).where((r) => !r.isDone).toList()
         ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
-  List<ReminderItem> _doneFrom(List<ReminderItem> all) =>
-      _filtered(all).where((r) => r.isDone).toList()
-        ..sort((a, b) => b.scheduledAt.compareTo(a.scheduledAt));
+  /// Completed reminders, filtered by [_doneDateFilter] against
+  /// [ReminderItem.completedAt] — NEVER scheduledAt (a reminder scheduled
+  /// Sept 1 but completed Sept 5 must show up when filtering Done by Sept
+  /// 5, not Sept 1). A pre-existing record saved before completedAt existed
+  /// falls back to scheduledAt only for its own sort/filter position, so it
+  /// isn't dropped from "All Dates" or silently misplaced — see
+  /// ReminderItem.completedAt's doc comment for why that gap can exist.
+  List<ReminderItem> _doneFrom(List<ReminderItem> all) {
+    final range = dateRangeForSelection(_doneDateFilter);
+    final items = _filtered(all).where((r) => r.isDone).where((r) {
+      if (range == null) return true;
+      final at = r.completedAt ?? r.scheduledAt;
+      return !at.isBefore(range.$1) && at.isBefore(range.$2);
+    }).toList();
+    items.sort((a, b) =>
+        (b.completedAt ?? b.scheduledAt).compareTo(a.completedAt ?? a.scheduledAt));
+    return items;
+  }
+
+  /// The pet whose Completed History the Done tab can open: the selected
+  /// pet chip, or the only pet when there is just one. Null for "All Pets"
+  /// with several pets (history is per pet, never combined).
+  String? get _historyPetId =>
+      _filterPetId ?? (_pets.length == 1 ? _pets.first.id : null);
 
   FullPetProfile? _petFor(String? petId) =>
       petId == null ? null : _petProvider.getById(petId);
@@ -134,8 +223,24 @@ class _ReminderScreenState extends State<ReminderScreen>
       return;
     }
 
+    // Same rule for every plain (non-vaccine) reminder: never allow
+    // marking it done before its own scheduled date/time actually
+    // arrives — completing a reminder early is not "done", it just hides
+    // it before the thing it reminds about could have happened yet.
+    if (!item.isDue) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            '${item.title} isn\'t due until ${DateFormat('MMM d, h:mm a').format(item.scheduledAt)}.'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.grey.shade700,
+        duration: const Duration(seconds: 2),
+      ));
+      return;
+    }
+
     final reminders = context.read<ReminderProvider>();
     await reminders.completeReminderOccurrence(item.id);
+    if (!mounted) return;
 
     if (item.recurrence != 'none') {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -146,17 +251,6 @@ class _ReminderScreenState extends State<ReminderScreen>
         duration: const Duration(seconds: 2),
       ));
     }
-  }
-
-  void _snooze(ReminderItem item, Duration by) {
-    context
-        .read<ReminderProvider>()
-        .updateReminder(item.copyWith(scheduledAt: item.scheduledAt.add(by)));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Snoozed "${item.title}".'),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-    ));
   }
 
   // ── Add / Edit Dialog ────────────────────────────────────────────────────
@@ -667,7 +761,56 @@ class _ReminderScreenState extends State<ReminderScreen>
                     controller: _tab,
                     children: [
                       _buildList(pending, done: false),
-                      _buildList(done, done: true),
+                      Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                            child: DateFilterButton(
+                              selection: _doneDateFilter,
+                              accentColor: const Color(0xFF32CD32),
+                              onTap: () async {
+                                final picked = await showDateFilterSheet(
+                                  context,
+                                  current: _doneDateFilter,
+                                  accentColor: const Color(0xFF32CD32),
+                                );
+                                if (picked != null) {
+                                  setState(() => _doneDateFilter = picked);
+                                }
+                              },
+                            ),
+                          ),
+                          // Completed History is per pet: offered when the
+                          // list is already about one pet (a pet chip is
+                          // selected, or there is only one pet).
+                          if (_historyPetId != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: const Color(0xFF32CD32),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  icon: const Icon(Icons.history, size: 18),
+                                  label: const Text('Completed History',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700)),
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => CompletedHistoryScreen(
+                                          petId: _historyPetId!),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Expanded(child: _buildList(done, done: true)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -724,6 +867,8 @@ class _ReminderScreenState extends State<ReminderScreen>
 
   Widget _buildList(List<ReminderItem> items, {required bool done}) {
     if (items.isEmpty) {
+      final filterActive =
+          done && _doneDateFilter.kind != DateFilterKind.allDates;
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -738,7 +883,12 @@ class _ReminderScreenState extends State<ReminderScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              done ? 'No completed reminders yet.' : 'No upcoming reminders!',
+              filterActive
+                  ? 'No completed reminders in this date range.'
+                  : (done
+                      ? 'No completed reminders yet.'
+                      : 'No upcoming reminders!'),
+              textAlign: TextAlign.center,
               style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -763,30 +913,47 @@ class _ReminderScreenState extends State<ReminderScreen>
   Widget _reminderCard(ReminderItem item) {
     final cfg = _typeConfig(item.type);
     final color = cfg['color'] as Color;
-    final isOverdue = !item.isDone && item.scheduledAt.isBefore(DateTime.now());
+    // Single source of truth (ReminderItem.isOverdue) instead of
+    // re-deriving the same condition here — keeps this card and any other
+    // consumer of "is this overdue" from ever being able to drift apart.
+    final isOverdue = item.isOverdue;
     final pet = _petFor(item.petId);
     final isVaccineLinked = item.linkedVaccinationId != null;
-    // A vaccine-linked reminder mirrors its dose's scheduled DateTime — it
-    // must not be markable given before that exact time arrives.
-    final isVaccineNotYetDue =
-        isVaccineLinked && item.scheduledAt.isAfter(DateTime.now());
+    // No reminder — vaccine-linked or plain — is markable done before its
+    // own scheduled date/time actually arrives (mirrors _handleMarkDone's
+    // own guard, which rejects a premature tap regardless of whether the
+    // button is somehow still reachable).
+    final isNotYetDue = !item.isDue;
+    final isHighlighted = item.id == _highlightReminderId;
+    final cardKey = _cardKeys.putIfAbsent(item.id, () => GlobalKey());
 
     return Container(
+      key: cardKey,
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: item.isDone
             ? Colors.white.withOpacity(0.55)
             : Colors.white.withOpacity(0.88),
         borderRadius: BorderRadius.circular(16),
-        border: isOverdue
-            ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5)
-            : null,
+        border: isHighlighted
+            ? Border.all(color: const Color(0xFFFFC107), width: 2.5)
+            : (isOverdue
+                ? Border.all(
+                    color: Colors.redAccent.withOpacity(0.5), width: 1.5)
+                : null),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+          if (isHighlighted)
+            BoxShadow(
+              color: const Color(0xFFFFC107).withOpacity(0.35),
+              blurRadius: 14,
+              spreadRadius: 1,
+            )
+          else
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
         ],
       ),
       child: Padding(
@@ -909,8 +1076,9 @@ class _ReminderScreenState extends State<ReminderScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (!item.isDone) ...[
-                  // Mark done — hidden for a vaccine dose that isn't due yet
-                  if (!isVaccineNotYetDue)
+                  // Mark done — hidden for any reminder that isn't due yet,
+                  // vaccine-linked or not (see isNotYetDue's doc comment).
+                  if (!isNotYetDue)
                     _iconAction(
                       isVaccineLinked
                           ? Icons.vaccines
@@ -919,34 +1087,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                       'Done',
                       () => _handleMarkDone(item),
                     ),
-                  if (!isVaccineNotYetDue) const SizedBox(height: 4),
-                  // Snooze
-                  PopupMenuButton<Duration>(
-                    tooltip: 'Snooze',
-                    padding: EdgeInsets.zero,
-                    icon: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.snooze,
-                          size: 18, color: Colors.orange),
-                    ),
-                    onSelected: (d) => _snooze(item, d),
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                          value: Duration(hours: 1),
-                          child: Text('Snooze 1 hour')),
-                      PopupMenuItem(
-                          value: Duration(days: 1),
-                          child: Text('Snooze 1 day')),
-                      PopupMenuItem(
-                          value: Duration(days: 7),
-                          child: Text('Snooze 1 week')),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
+                  if (!isNotYetDue) const SizedBox(height: 4),
                   // Edit
                   if (!isVaccineLinked)
                     _iconAction(
@@ -956,19 +1097,93 @@ class _ReminderScreenState extends State<ReminderScreen>
                       () => _showDialog(editing: item),
                     ),
                   if (!isVaccineLinked) const SizedBox(height: 4),
-                ],
-                // Delete
-                if (!isVaccineLinked)
+                  // Delete — only ever available for a still-pending
+                  // reminder. A completed occurrence is historical and
+                  // must never be user-deletable through this screen.
+                  if (!isVaccineLinked)
+                    _iconAction(
+                      Icons.delete_outline,
+                      Colors.redAccent,
+                      'Del',
+                      () => _confirmDelete(item),
+                    ),
+                ] else if (!isVaccineLinked)
+                  // Reset — lets the user undo a completion themselves
+                  // (e.g. it was marked done by mistake). Not offered for
+                  // a vaccine-linked reminder: completing one of those also
+                  // updates a separate vaccination record, so only the
+                  // Vaccinations screen can safely undo it — see
+                  // ReminderProvider.resetReminderToPending's doc comment.
                   _iconAction(
-                    Icons.delete_outline,
-                    Colors.redAccent,
-                    'Del',
-                    () => _confirmDelete(item),
-                  ),
+                    Icons.replay,
+                    const Color(0xFFFF8C69),
+                    'Reset',
+                    () => _handleReset(item),
+                  )
+                else
+                  _historicalBadge(),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Reverts a completed (non-vaccine-linked) reminder back to pending —
+  /// confirmed first since it's a meaningful state change (moves it out of
+  /// Done, resumes its notification).
+  Future<void> _handleReset(ReminderItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: const Color(0xFFFFF5EE),
+        title: const Text('Reset to Pending?',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(
+            '"${item.title}" will move back to Upcoming/Overdue and its reminder notification will resume.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF8C69),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await context.read<ReminderProvider>().resetReminderToPending(item.id);
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('"${item.title}" reset to pending.'),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFFFF8C69),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
+  /// Shown in place of the action icons for a completed vaccine-linked
+  /// reminder — a non-interactive cue that the record is historical/
+  /// view-only there (Reset isn't offered for those — see
+  /// ReminderProvider.resetReminderToPending's doc comment).
+  Widget _historicalBadge() {
+    return const Tooltip(
+      message: 'Completed — view only',
+      child: Padding(
+        padding: EdgeInsets.all(6),
+        child: Icon(Icons.lock_outline, size: 18, color: Colors.grey),
       ),
     );
   }

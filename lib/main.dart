@@ -10,6 +10,9 @@ import 'providers/reminder_provider.dart';
 import 'providers/pet_profile_provider.dart';
 import 'services/activity_log_service.dart';
 import 'services/activity_service.dart';
+import 'services/lesson_progress_service.dart';
+import 'services/reward_service.dart';
+import 'services/virtual_sound_service.dart';
 import 'services/virtual_achievement_service.dart';
 import 'services/pet_photo_service.dart';
 import 'services/auth_service.dart';
@@ -19,7 +22,14 @@ import 'services/local_storage_service.dart';
 import 'services/session_manager.dart';
 import 'services/notification_service.dart';
 import 'screens/splash_screen.dart';
+import 'screens/reminder_screen.dart';
 import 'models/dirty_state.dart';
+
+/// Attached to MaterialApp below. Lets a notification tap open the exact
+/// Reminder Screen it points at from anywhere — no matter what screen is
+/// currently showing — without NotificationService importing navigation/
+/// screen code directly (see NotificationService.onReminderNotificationTap).
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +56,10 @@ Future<void> main() async {
 
   // 6b. Activity service — the real, user-facing activity feed
   await ActivityService.instance.init();
+
+  // 6b2. Lesson progress — which Learn Cat Care topics are completed
+  await LessonProgressService.instance.init();
+  await RewardService.instance.init();
 
   // 6c. Virtual Cat achievement tracking — loads from Hive
   await VirtualAchievementService.instance.init();
@@ -74,6 +88,31 @@ Future<void> main() async {
   NotificationService.instance.consumeStartupAction();
 
   runApp(PersipalApp(reminderProvider: reminderProvider));
+
+  // Wire live notification-tap navigation now that runApp() has scheduled
+  // the first frame — rootNavigatorKey only attaches to a mounted Navigator
+  // once that frame actually builds, which is why this couldn't be set any
+  // earlier (in particular, not before the consumeStartupAction() call
+  // above, which may itself synchronously process a cold-start tap).
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    NotificationService.onReminderNotificationTap = (reminderId) {
+      rootNavigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => ReminderScreen(openReminderId: reminderId),
+        ),
+      );
+    };
+
+    // Flush whatever a plain tap stashed before a live Navigator existed —
+    // either the cold-start tap consumeStartupAction() may have just
+    // processed above, or one that arrived in the brief window between
+    // runApp() and this callback.
+    final pendingReminderId =
+        NotificationService.instance.consumePendingReminderNavigation();
+    if (pendingReminderId != null) {
+      NotificationService.onReminderNotificationTap!(pendingReminderId);
+    }
+  });
 }
 
 class PersipalApp extends StatelessWidget {
@@ -97,6 +136,14 @@ class PersipalApp extends StatelessWidget {
           // VirtualPetProvider (frozen) needing any achievement awareness.
           vp.addListener(() {
             VirtualAchievementService.instance.onVirtualPetChanged(vp.pet);
+            // Sound effects + daily-capped reward points for virtual-cat
+            // actions — both observe the same public counters, and only
+            // once the saved cat has loaded (so start-up isn't an "action").
+            if (!vp.loading) {
+              VirtualSoundService.instance.onVirtualPetChanged(vp.pet);
+              RewardService.instance.onVirtualPetChanged(vp.pet);
+              ActivityLogService.instance.onVirtualPetChanged(vp.pet);
+            }
           });
           return vp;
         }),
@@ -105,6 +152,8 @@ class PersipalApp extends StatelessWidget {
             : ChangeNotifierProvider(create: (_) => ReminderProvider()..init()),
         ChangeNotifierProvider.value(value: ActivityLogService.instance),
         ChangeNotifierProvider.value(value: ActivityService.instance),
+        ChangeNotifierProvider.value(value: LessonProgressService.instance),
+        ChangeNotifierProvider.value(value: RewardService.instance),
         ChangeNotifierProvider.value(value: AuthService.instance),
         ChangeNotifierProvider.value(value: SessionManager.instance),
         ChangeNotifierProvider.value(value: ConnectivityService.instance),
@@ -112,6 +161,7 @@ class PersipalApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: DirtyState.instance),
       ],
       child: MaterialApp(
+        navigatorKey: rootNavigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'PERSIPAL',
         theme: ThemeData(

@@ -655,16 +655,26 @@ class _VaccinationScreenState extends State<VaccinationScreen>
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
       itemCount: list.length,
-      itemBuilder: (_, i) => _VaccineCard(
-        record: list[i],
-        onEdit: () => _showDialog(existing: list[i]),
-        onDelete: () => _confirmDelete(list[i]),
-        onMarkGiven: () => showVaccinationCompleteDialog(
-          context,
-          petId: widget.petId,
-          record: list[i],
-        ),
-      ),
+      itemBuilder: (_, i) {
+        final record = list[i];
+        // A completed (given) record is historical and must not be
+        // editable/deletable through this screen — only a still-upcoming
+        // (planned) record's Edit/Delete are offered. "Mark Given" is
+        // intentionally untouched: it's the existing, unrelated next-dose
+        // tracking flow, not a way to modify the completed record itself.
+        final isHistorical = !record.isPlanned;
+
+        return _VaccineCard(
+          record: record,
+          onEdit: isHistorical ? null : () => _showDialog(existing: record),
+          onDelete: isHistorical ? null : () => _confirmDelete(record),
+          onMarkGiven: () => showVaccinationCompleteDialog(
+            context,
+            petId: widget.petId,
+            record: record,
+          ),
+        );
+      },
     );
   }
 
@@ -762,8 +772,11 @@ String _dueLabel(DateTime next) {
 
 class _VaccineCard extends StatelessWidget {
   final VaccinationRecord record;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+
+  /// Null for a completed (given) record — historical, view-only. Only a
+  /// still-upcoming (planned) record offers Edit/Delete.
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
   final VoidCallback onMarkGiven;
 
   const _VaccineCard({
@@ -988,16 +1001,19 @@ class _VaccineCard extends StatelessWidget {
                     const Color(0xFF32CD32),
                     onMarkGiven,
                   ),
-                _actionBtn(
-                  Icons.edit_outlined,
-                  const Color(0xFF4682B4),
-                  onEdit,
-                ),
-                _actionBtn(
-                  Icons.delete_outline,
-                  Colors.redAccent,
-                  onDelete,
-                ),
+                if (onEdit != null)
+                  _actionBtn(
+                    Icons.edit_outlined,
+                    const Color(0xFF4682B4),
+                    onEdit!,
+                  ),
+                if (onDelete != null)
+                  _actionBtn(
+                    Icons.delete_outline,
+                    Colors.redAccent,
+                    onDelete!,
+                  ),
+                if (onEdit == null && onDelete == null) _historicalBadge(),
               ],
             ),
           ],
@@ -1005,6 +1021,17 @@ class _VaccineCard extends StatelessWidget {
       ),
     );
   }
+
+  /// Shown instead of Edit/Delete for a completed (given) record — a
+  /// non-interactive cue that it's historical/view-only vaccination
+  /// history, never a way to modify it.
+  Widget _historicalBadge() => const Tooltip(
+        message: 'Completed — view only',
+        child: Padding(
+          padding: EdgeInsets.all(6),
+          child: Icon(Icons.lock_outline, size: 16, color: Colors.grey),
+        ),
+      );
 
   Widget _pillBtn(
           String label, IconData icon, Color color, VoidCallback onTap) =>

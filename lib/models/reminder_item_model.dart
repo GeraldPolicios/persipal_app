@@ -20,6 +20,15 @@ class ReminderItem {
   final String? linkedVaccinationId; // set if auto-created from a vaccine dose
   final String recurrence; // 'none' | 'daily' | 'weekly' | 'monthly'
 
+  /// When this occurrence was marked done, or null while it's still
+  /// pending. Set once, at the moment of completion (see
+  /// ReminderProvider.markReminderDone) and never touched again — a
+  /// completed reminder is immutable (see ReminderProvider.updateReminder's
+  /// isDone guard), so this timestamp is permanent history. Nullable/
+  /// backward-compatible: records saved before this field existed simply
+  /// parse as null (see fromMap) rather than failing to load.
+  final DateTime? completedAt;
+
   const ReminderItem({
     required this.id,
     required this.title,
@@ -29,9 +38,20 @@ class ReminderItem {
     this.petId,
     this.linkedVaccinationId,
     this.recurrence = 'none',
+    this.completedAt,
   });
 
   bool get isOverdue => !isDone && scheduledAt.isBefore(DateTime.now());
+
+  /// True once this reminder's own [scheduledAt] has actually arrived
+  /// (at or after it — includes the overdue case, not just the exact
+  /// moment). The single source of truth for "is this allowed to be
+  /// marked done right now" — completing something before it's due isn't
+  /// "done," it just hides a reminder before the thing it's for could
+  /// have happened yet. Used by both ReminderScreen (to hide the Done
+  /// button) and ReminderProvider (to refuse the completion itself, so
+  /// the rule holds regardless of entry point).
+  bool get isDue => !scheduledAt.isAfter(DateTime.now());
 
   /// Returns a new ReminderItem with the given fields replaced.
   /// Pass `petId: null` / `linkedVaccinationId: null` explicitly to CLEAR
@@ -44,6 +64,7 @@ class ReminderItem {
     Object? petId = _unset,
     Object? linkedVaccinationId = _unset,
     String? recurrence,
+    Object? completedAt = _unset,
   }) =>
       ReminderItem(
         id: id,
@@ -56,6 +77,9 @@ class ReminderItem {
             ? this.linkedVaccinationId
             : linkedVaccinationId as String?,
         recurrence: recurrence ?? this.recurrence,
+        completedAt: identical(completedAt, _unset)
+            ? this.completedAt
+            : completedAt as DateTime?,
       );
 
   Map<String, dynamic> toMap() => {
@@ -67,6 +91,7 @@ class ReminderItem {
         'petId': petId,
         'linkedVaccinationId': linkedVaccinationId,
         'recurrence': recurrence,
+        'completedAt': completedAt?.toIso8601String(),
       };
 
   factory ReminderItem.fromMap(Map<String, dynamic> m) => ReminderItem(
@@ -79,5 +104,8 @@ class ReminderItem {
         petId: m['petId'] as String?,
         linkedVaccinationId: m['linkedVaccinationId'] as String?,
         recurrence: m['recurrence'] as String? ?? 'none',
+        completedAt: m['completedAt'] == null
+            ? null
+            : DateTime.tryParse(m['completedAt'] as String),
       );
 }

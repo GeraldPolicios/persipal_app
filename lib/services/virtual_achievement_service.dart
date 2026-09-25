@@ -54,6 +54,22 @@ class VirtualAchievementService extends ChangeNotifier {
   int get unlockedCount => _achievements.where((a) => a.unlocked).length;
   int get totalCount => _achievements.length;
 
+  /// Forgets all in-memory virtual-achievement state. The persisted copy
+  /// lives in LocalStorageService's own box, which clearAll() now also wipes
+  /// (see its own comment) — this keeps the in-memory copy from outliving
+  /// it, so the next guest/account on this device never sees a departed
+  /// account's virtual-cat badges. Does not touch gameplay/VirtualPetState.
+  void resetInMemory() {
+    _achievements = List.of(kDefaultVirtualAchievements);
+    _feedDays = {};
+    _groomDays = {};
+    _playDays = {};
+    _lastFeedCount = 0;
+    _lastGroomCount = 0;
+    _lastPlayCount = 0;
+    notifyListeners();
+  }
+
   // ── Init ─────────────────────────────────────────────────────────────────
 
   Future<void> init() async {

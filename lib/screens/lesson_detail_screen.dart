@@ -1,21 +1,90 @@
 // screens/lesson_detail_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/lesson_content_model.dart';
 import '../models/lesson_reference_model.dart';
 import '../services/activity_log_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/lesson_progress_service.dart';
+import '../services/reward_service.dart';
+import '../widgets/highlighted_text.dart';
+import 'quiz_screen.dart';
 
 class LessonDetailScreen extends StatefulWidget {
   final String type;
 
-  const LessonDetailScreen({super.key, required this.type});
+  /// Set when opened from a search result (see LearnScreen): which section
+  /// — an index into `lessonSectionsFor(type)` — to scroll to and
+  /// highlight on open, or null for a normal open (e.g. from the Learn
+  /// screen's lesson grid, or a title/description-only search match with
+  /// no specific section to point at).
+  final int? openSectionIndex;
+
+  /// The search term that led here, if any — used to highlight matching
+  /// text within the opened lesson's own content (not just in the search
+  /// results list), so the match is visible in place once the lesson
+  /// opens. Purely cosmetic: never filters or hides any section.
+  final String? searchQuery;
+
+  const LessonDetailScreen({
+    super.key,
+    required this.type,
+    this.openSectionIndex,
+    this.searchQuery,
+  });
 
   @override
   State<LessonDetailScreen> createState() => _LessonDetailScreenState();
 }
 
 class _LessonDetailScreenState extends State<LessonDetailScreen> {
-  bool _completed = false;
+  // Seeded from persisted progress, not hardcoded — reopening an already
+  // completed lesson shows it as completed/review-only from the start.
+  late bool _completed = LessonProgressService.instance.isCompleted(widget.type);
+
+  // Search-result navigation (see [LessonDetailScreen.openSectionIndex]).
+  final Map<int, GlobalKey> _sectionKeys = {};
+  int? _highlightSectionIndex;
+  Timer? _highlightTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    final target = widget.openSectionIndex;
+    if (target != null) {
+      _highlightSectionIndex = target;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSection(target));
+      _highlightTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _highlightSectionIndex = null);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _highlightTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Best-effort scroll-into-view for the section a search result pointed
+  /// at, bringing it near the top of the viewport — the section's
+  /// GlobalKey only gets a BuildContext once the ListView actually lays it
+  /// out, which may not have happened on the very first frame yet.
+  void _scrollToSection(int index) {
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      final ctx = _sectionKeys[index]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          alignment: 0.08,
+        );
+      }
+    });
+  }
 
   List<LessonReference> _references() => kLessonReferences[widget.type] ?? const [];
 
@@ -45,17 +114,29 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     }
   }
 
+  /// The single, explicit completion point for this lesson — unchanged in
+  /// spirit from before (an explicit user action, not "opened the screen"
+  /// or "scrolled to the bottom"). Guarded so reviewing an already-
+  /// completed lesson never re-persists or re-logs a duplicate "completed
+  /// lesson" Activity History entry.
   void _markComplete() {
     if (_completed) return;
     setState(() => _completed = true);
-    ActivityLogService.instance.logLessonComplete(_title());
+    LessonProgressService.instance.markCompleted(widget.type);
+    RewardService.instance
+        .awardOnce('lesson:${widget.type}', RewardService.lessonCompletePoints);
+    ActivityLogService.instance.logLessonComplete(lessonTitle(widget.type));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             const Icon(Icons.check_circle, color: Colors.white, size: 18),
             const SizedBox(width: 8),
-            Text('${_title()} marked as complete!'),
+            Expanded(
+              child: Text(
+                  '${lessonTitle(widget.type)} marked as complete! +${RewardService.lessonCompletePoints} points',
+                  overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
         backgroundColor: const Color(0xFF32CD32),
@@ -67,6 +148,9 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Every lesson is immediately accessible — PersiPal's lessons are
+    // reference information a user may need right away, so there is no
+    // locking guard here (or anywhere else in the lesson system) to check.
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
       body: Stack(
@@ -92,14 +176,17 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                       ),
                       Expanded(
                         child: Text(
-                          _title(),
+                          lessonTitle(widget.type),
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      if (_completed)
+                      if (_completed) ...[
+                        const SizedBox(width: 6),
                         const Icon(Icons.check_circle,
                             color: Color(0xFF32CD32), size: 22),
+                      ],
                     ],
                   ),
                 ),
@@ -117,7 +204,7 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
-                          _description(),
+                          lessonDescription(widget.type),
                           style: const TextStyle(
                             fontSize: 13,
                             fontStyle: FontStyle.italic,
@@ -127,8 +214,15 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                         ),
                       ),
 
-                      // Content cards
-                      ..._content(),
+                      // Interactive content sections — each wrapped with a
+                      // GlobalKey so a search result can scroll straight to
+                      // the exact section it matched (see initState /
+                      // _scrollToSection), and passed the active search
+                      // query (if any) so the matching text is highlighted
+                      // in place, not just in the search results list.
+                      for (final entry
+                          in lessonSectionsFor(widget.type).indexed)
+                        _renderSection(entry.$2, entry.$1),
 
                       // References / Sources
                       if (_references().isNotEmpty) ...[
@@ -183,6 +277,34 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                           ),
                         ),
                       ),
+
+                      const SizedBox(height: 10),
+
+                      // This lesson's own quiz (QZ-4) — same shared
+                      // QuizScreen, now scoped to this topic.
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF7B68EE),
+                            side: const BorderSide(color: Color(0xFF7B68EE)),
+                            padding: const EdgeInsets.all(14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => QuizScreen(topic: widget.type)),
+                          ),
+                          icon: const Icon(Icons.quiz, size: 18),
+                          label: const Text(
+                            'Test Your Knowledge',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -194,216 +316,28 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     );
   }
 
-  // ── Content routers ───────────────────────────────────────────────────────
+  // ── Section rendering ─────────────────────────────────────────────────────
 
-  List<Widget> _content() {
-    switch (widget.type) {
-      case 'feeding':
-        return _feeding();
-      case 'grooming':
-        return _grooming();
-      case 'behavior':
-        return _behavior();
-      case 'vitamins':
-        return _vitamins();
-      case 'health':
-        return _health();
-      case 'environment':
-        return _environment();
-      default:
-        return [const Text('No data available')];
-    }
-  }
-
-  List<Widget> _feeding() => const [
-        DetailBox(
-          title: '🥩 What They Should Eat',
-          description:
-              'Proper nutrition is important for growth, energy, and maintaining a healthy Persian cat.',
-          content:
-              '• Chicken, turkey, fish, lamb\n• High-quality dry kibble\n• Wet food for hydration\n• Cooked plain meat only',
-        ),
-        DetailBox(
-          title: '🕒 Feeding Schedule',
-          description:
-              'Feeding schedule helps maintain healthy weight and proper digestion.',
-          content:
-              '• Kittens: 3–4 meals/day\n• Adults: 2 meals/day\n• Seniors: 2–3 small meals',
-        ),
-        DetailBox(
-          title: '🚫 Foods to Avoid',
-          description:
-              'Some human foods are toxic and dangerous for Persian cats.',
-          content:
-              '• Chocolate\n• Onion & garlic\n• Milk\n• Spicy or oily food',
-        ),
-        DetailBox(
-          title: '⚠️ Important Note',
-          description:
-              'Overfeeding can lead to obesity and health complications.',
-          content:
-              '• Control portions\n• Prevent obesity\n• Support heart and joint health',
-        ),
-      ];
-
-  List<Widget> _grooming() => const [
-        DetailBox(
-          title: '🪮 Daily Brushing',
-          description:
-              'Daily brushing keeps your Persian cat\'s long fur clean and tangle-free.',
-          content:
-              '• Brush 10–20 minutes daily\n• Prevents tangles and hairballs\n• Use slicker brush + comb',
-        ),
-        DetailBox(
-          title: '🛁 Bathing Care',
-          description:
-              'Regular bathing helps maintain coat hygiene and skin health.',
-          content:
-              '• Every 3–4 weeks\n• Use cat-safe shampoo\n• Dry completely after bath',
-        ),
-        DetailBox(
-          title: '👁 Eye & Ear Care',
-          description: 'Proper cleaning prevents infections and irritation.',
-          content:
-              '• Clean eyes daily\n• Weekly ear cleaning\n• Use soft cotton and warm water',
-        ),
-        DetailBox(
-          title: '✂️ Nail Care',
-          description:
-              'Trimming nails prevents injuries and keeps paws healthy.',
-          content: '• Trim every 2–3 weeks\n• Prevent scratching injuries',
-        ),
-      ];
-
-  List<Widget> _behavior() => const [
-        DetailBox(
-          title: '😺 Personality',
-          description:
-              'Persian cats are calm, gentle, and love peaceful environments.',
-          content:
-              '• Calm and gentle\n• Prefers quiet environments\n• Affectionate but independent\n• Loves routine',
-        ),
-        DetailBox(
-          title: '🏠 Social Behavior',
-          description:
-              'They interact differently depending on people and surroundings.',
-          content:
-              '• Friendly with family\n• Shy with strangers\n• Prefers calm interaction',
-        ),
-        DetailBox(
-          title: '🎮 Activity Level',
-          description:
-              'They are low-energy cats and prefer light play activities.',
-          content:
-              '• Low energy breed\n• Enjoys soft toys\n• Short play sessions',
-        ),
-        DetailBox(
-          title: '⚠️ Emotional Sensitivity',
-          description: 'They are sensitive to stress and loud environments.',
-          content: '• Stressed in loud spaces\n• May hide when overwhelmed',
-        ),
-      ];
-
-  List<Widget> _vitamins() => const [
-        DetailBox(
-          title: '🧴 Supplements',
-          description:
-              'Vitamins help improve coat health, immunity, and overall wellness.',
-          content:
-              '• Omega-3 for coat health\n• Biotin for fur strength\n• Taurine for heart & eyes\n• Multivitamins (vet approved)',
-        ),
-        DetailBox(
-          title: '⚠️ Safety Warning',
-          description: 'Improper vitamin use can harm your cat\'s health.',
-          content: '• Never use human vitamins\n• Always consult a vet first',
-        ),
-      ];
-
-  List<Widget> _health() => const [
-        DetailBox(
-          title: '🩺 Common Issues',
-          description:
-              'Persian cats may develop certain health problems due to genetics.',
-          content:
-              '• Breathing problems\n• Eye infections\n• Dental disease\n• Kidney issues\n• Hairball buildup',
-        ),
-        DetailBox(
-          title: '🏥 Vet Care',
-          description:
-              'Regular veterinary visits help prevent serious health issues.',
-          content:
-              '• Annual check-ups\n• Vaccinations\n• Dental cleaning if needed',
-        ),
-        DetailBox(
-          title: '🪥 Prevention',
-          description: 'Good daily care helps prevent most health problems.',
-          content: '• Regular grooming\n• Healthy diet\n• Dental care routine',
-        ),
-      ];
-
-  List<Widget> _environment() => const [
-        DetailBox(
-          title: '🏠 Home Setup',
-          description:
-              'A safe indoor environment keeps Persian cats comfortable and protected.',
-          content: '• Indoor living recommended\n• Safe and quiet environment',
-        ),
-        DetailBox(
-          title: '🌡 Temperature',
-          description:
-              'Temperature control is important for their comfort and health.',
-          content: '• Cool and comfortable space\n• Avoid heat and humidity',
-        ),
-        DetailBox(
-          title: '🧸 Enrichment',
-          description:
-              'Mental stimulation helps keep your cat active and happy.',
-          content: '• Soft toys\n• Scratching posts\n• Window viewing spots',
-        ),
-        DetailBox(
-          title: '🚽 Litter Box',
-          description:
-              'Clean litter boxes help maintain hygiene and prevent stress.',
-          content: '• Clean daily\n• Place in quiet area',
-        ),
-      ];
-
-  String _title() {
-    switch (widget.type) {
-      case 'feeding':
-        return 'Feeding Guide 🍽️';
-      case 'grooming':
-        return 'Grooming Guide 🧼';
-      case 'behavior':
-        return 'Behavior Guide 🧠';
-      case 'vitamins':
-        return 'Vitamins Guide 💊';
-      case 'health':
-        return 'Health Guide 🏥';
-      case 'environment':
-        return 'Environment Guide 🌿';
-      default:
-        return 'Lesson';
-    }
-  }
-
-  String _description() {
-    switch (widget.type) {
-      case 'feeding':
-        return 'Learn how to properly feed Persian cats with a balanced diet for healthy growth and strong immunity.';
-      case 'grooming':
-        return 'Learn proper grooming routines to maintain a clean, healthy, and beautiful Persian cat coat.';
-      case 'behavior':
-        return 'Understand Persian cat personality, behavior patterns, and how they interact with humans and environment.';
-      case 'vitamins':
-        return 'Learn about safe vitamins and supplements that support immunity, fur health, and overall wellness.';
-      case 'health':
-        return 'Discover common health issues in Persian cats and how to prevent them through proper care and monitoring.';
-      case 'environment':
-        return 'Learn how to create a safe, comfortable, and stress-free home environment for your Persian cat.';
-      default:
-        return '';
-    }
+  Widget _renderSection(LessonSection section, int index) {
+    final key = _sectionKeys.putIfAbsent(index, () => GlobalKey());
+    final query = widget.searchQuery ?? '';
+    final highlighted = index == _highlightSectionIndex;
+    return Container(
+      key: key,
+      decoration: highlighted
+          ? BoxDecoration(
+              border: Border.all(color: const Color(0xFFFFC107), width: 2.5),
+              borderRadius: BorderRadius.circular(16),
+            )
+          : null,
+      margin: highlighted ? const EdgeInsets.only(bottom: 4) : null,
+      child: switch (section) {
+        InfoSection s => _InfoCard(section: s, query: query),
+        TapRevealSection s => _TapRevealCard(section: s, query: query),
+        TipSection s => _TipCard(section: s, query: query),
+        ScenarioSection s => _ScenarioCard(section: s, query: query),
+      },
+    );
   }
 }
 
@@ -469,56 +403,392 @@ class _ReferenceTile extends StatelessWidget {
   }
 }
 
-// ── Expandable card ───────────────────────────────────────────────────────────
+// ── Info card — essential content, always visible (never hidden behind a
+// tap) ───────────────────────────────────────────────────────────────────
 
-class DetailBox extends StatelessWidget {
-  final String title;
-  final String description;
-  final String content;
-
-  const DetailBox({
-    super.key,
-    required this.title,
-    required this.description,
-    required this.content,
-  });
+class _InfoCard extends StatelessWidget {
+  final InfoSection section;
+  final String query;
+  const _InfoCard({required this.section, this.query = ''});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Colors.white.withValues(alpha: 0.88),
-      elevation: 0,
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        childrenPadding: EdgeInsets.zero,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero, side: BorderSide.none),
-        collapsedShape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero, side: BorderSide.none),
-        title: Text(title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          HighlightedText(
+            text: section.title,
+            query: query,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          HighlightedText(
+            text: section.body,
+            query: query,
+            style: const TextStyle(fontSize: 13, height: 1.6),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Tap-to-reveal card ──────────────────────────────────────────────────────
+
+class _TapRevealCard extends StatefulWidget {
+  final TapRevealSection section;
+  final String query;
+  const _TapRevealCard({required this.section, this.query = ''});
+
+  @override
+  State<_TapRevealCard> createState() => _TapRevealCardState();
+}
+
+class _TapRevealCardState extends State<_TapRevealCard> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFF20B2AA);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.3)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() => _revealed = !_revealed),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.touch_app, size: 16, color: accent),
+                  const SizedBox(width: 6),
+                  const Expanded(
+                    child: Text(
+                      'TAP TO LEARN',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.0,
+                          color: accent),
+                    ),
+                  ),
+                  Icon(
+                    _revealed
+                        ? Icons.expand_less
+                        : Icons.expand_more,
+                    size: 20,
+                    color: accent,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              HighlightedText(
+                text: widget.section.prompt,
+                query: widget.query,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF4A2C1A)),
+              ),
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 220),
+                crossFadeState: _revealed
+                    ? CrossFadeState.showSecond
+                    : CrossFadeState.showFirst,
+                firstChild: const SizedBox(width: double.infinity),
+                secondChild: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: HighlightedText(
+                    text: widget.section.reveal,
+                    query: widget.query,
+                    style: const TextStyle(fontSize: 13, height: 1.6),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Practical care tip ──────────────────────────────────────────────────────
+
+class _TipCard extends StatelessWidget {
+  final TipSection section;
+  final String query;
+  const _TipCard({required this.section, this.query = ''});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF8C69).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border:
+            Border.all(color: const Color(0xFFFF8C69).withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('💡', style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 10),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  description,
-                  style: const TextStyle(
-                      fontStyle: FontStyle.italic,
-                      fontSize: 12,
-                      color: Color(0xFFAA7755)),
+                const Text(
+                  'CARE TIP',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.0,
+                      color: Color(0xFFAA5533)),
                 ),
-                const SizedBox(height: 8),
-                Text(content,
-                    style: const TextStyle(fontSize: 13, height: 1.6)),
+                const SizedBox(height: 4),
+                HighlightedText(
+                  text: section.tip,
+                  query: query,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
+                      color: Color(0xFF7A3B1E)),
+                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Scenario question ───────────────────────────────────────────────────────
+
+class _ScenarioCard extends StatefulWidget {
+  final ScenarioSection section;
+  final String query;
+  const _ScenarioCard({required this.section, this.query = ''});
+
+  @override
+  State<_ScenarioCard> createState() => _ScenarioCardState();
+}
+
+class _ScenarioCardState extends State<_ScenarioCard> {
+  int? _selected;
+  bool _answered = false;
+
+  void _select(int index) {
+    // Once answered, prevent accidental repeated changes — matches the
+    // existing QuizScreen's own guard.
+    if (_answered) return;
+    setState(() {
+      _selected = index;
+      _answered = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.section;
+    final isCorrect = _selected == s.correctIndex;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SCENARIO',
+            style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.0,
+                color: Color(0xFF7B68EE)),
+          ),
+          const SizedBox(height: 6),
+          HighlightedText(
+            text: s.scenario,
+            query: widget.query,
+            style: const TextStyle(
+                fontSize: 14, fontWeight: FontWeight.bold, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < s.options.length; i++)
+            _OptionTile(
+              text: s.options[i],
+              query: widget.query,
+              index: i,
+              selected: _selected,
+              answered: _answered,
+              correctIndex: s.correctIndex,
+              onTap: () => _select(i),
+            ),
+          if (_answered) ...[
+            const SizedBox(height: 4),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isCorrect
+                    ? const Color(0xFF32CD32).withValues(alpha: 0.12)
+                    : const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isCorrect
+                      ? const Color(0xFF32CD32).withValues(alpha: 0.4)
+                      : const Color(0xFFFF8C69).withValues(alpha: 0.35),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isCorrect ? Icons.check_circle : Icons.info_outline,
+                        size: 16,
+                        color: isCorrect
+                            ? const Color(0xFF32CD32)
+                            : const Color(0xFFFF8C69),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        isCorrect ? 'Correct!' : 'Not quite',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isCorrect
+                              ? const Color(0xFF32CD32)
+                              : const Color(0xFF7A3B1E),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    isCorrect ? s.correctExplanation : s.incorrectExplanation,
+                    style: const TextStyle(
+                        fontSize: 12, color: Color(0xFF7A3B1E), height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionTile extends StatelessWidget {
+  final String text;
+  final String query;
+  final int index;
+  final int? selected;
+  final bool answered;
+  final int correctIndex;
+  final VoidCallback onTap;
+
+  const _OptionTile({
+    required this.text,
+    this.query = '',
+    required this.index,
+    required this.selected,
+    required this.answered,
+    required this.correctIndex,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg = Colors.white.withValues(alpha: 0.7);
+    Color border = const Color(0xFFFF8C69).withValues(alpha: 0.2);
+    Widget? trailing;
+
+    if (answered) {
+      if (index == correctIndex) {
+        bg = const Color(0xFF32CD32).withValues(alpha: 0.15);
+        border = const Color(0xFF32CD32);
+        trailing = const Icon(Icons.check_circle,
+            color: Color(0xFF32CD32), size: 20);
+      } else if (index == selected) {
+        bg = Colors.redAccent.withValues(alpha: 0.12);
+        border = Colors.redAccent;
+        trailing =
+            const Icon(Icons.cancel, color: Colors.redAccent, size: 20);
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: border),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: HighlightedText(
+                  text: text,
+                  query: query,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing,
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

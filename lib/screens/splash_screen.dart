@@ -32,7 +32,20 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _slide;
 
   int _catFrame = 0;
-  final int totalFrames = 141;
+
+  // Splash-only performance fix: the original sequence had 141 full-size
+  // PNG frames (~72MB) all decoded into memory at once for a splash shown
+  // for well under 3 seconds — only a fraction of them were ever actually
+  // seen. This keeps every 4th frame (36 total), evenly sampled across the
+  // full original animation so the same motion/visual identity is
+  // preserved, just at a lower temporal resolution. Does not touch any
+  // virtual-cat asset folder — only assets/images/splash_cat/.
+  static const List<int> _frameNumbers = [
+    1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73,
+    77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137,
+    141,
+  ];
+  int get totalFrames => _frameNumbers.length;
   Timer? _catTimer;
 
   final List<Widget> _catImages = [];
@@ -64,9 +77,9 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _loadCatFrames() async {
-    for (int i = 1; i <= totalFrames; i++) {
+    for (final n in _frameNumbers) {
       final asset = await rootBundle.load(
-        'assets/images/splash_cat/frame_${i.toString().padLeft(4, '0')}.png',
+        'assets/images/splash_cat/frame_${n.toString().padLeft(4, '0')}.png',
       );
 
       _catImages.add(

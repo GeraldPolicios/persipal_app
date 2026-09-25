@@ -9,6 +9,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../providers/pet_profile_provider.dart';
+import '../services/lesson_progress_service.dart';
+import '../services/reward_service.dart';
 import '../services/virtual_achievement_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/shared_widgets.dart';
@@ -25,6 +27,8 @@ class AchievementsHubScreen extends StatefulWidget {
 class _AchievementsHubScreenState extends State<AchievementsHubScreen> {
   final _pets = PetProfileProvider.instance;
   final _virtual = VirtualAchievementService.instance;
+  final _rewards = RewardService.instance;
+  final _lessons = LessonProgressService.instance;
 
   @override
   void initState() {
@@ -32,13 +36,53 @@ class _AchievementsHubScreenState extends State<AchievementsHubScreen> {
     unawaited(_pets.init());
     _pets.addListener(_refresh);
     _virtual.addListener(_refresh);
+    _rewards.addListener(_refresh);
+    _lessons.addListener(_refresh);
   }
 
   @override
   void dispose() {
     _pets.removeListener(_refresh);
     _virtual.removeListener(_refresh);
+    _rewards.removeListener(_refresh);
+    _lessons.removeListener(_refresh);
     super.dispose();
+  }
+
+  // Every lesson is immediately accessible (see LessonProgressService), so
+  // there's nothing left to "unlock early" here — this card is a plain
+  // points summary now, not a purchase flow.
+  Widget _rewardsCard() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('⭐', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('${_rewards.points} reward points',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Earn points from lessons (+10), quizzes, completed care '
+            'reminders (+3), weigh-ins (+2) and caring for your virtual cat '
+            '(+1, up to 5 a day).',
+            style: TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
   }
 
   void _refresh() => setState(() {});
@@ -74,9 +118,15 @@ class _AchievementsHubScreenState extends State<AchievementsHubScreen> {
                     ),
                   ),
                 ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: _rewardsCard(),
+                  ),
+                ),
                 const SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
+                    padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
                     child: Text('VIRTUAL CAT',
                         style: TextStyle(
                             fontSize: 11,

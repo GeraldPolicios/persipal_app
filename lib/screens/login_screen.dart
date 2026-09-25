@@ -16,9 +16,12 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/session_manager.dart';
 import '../services/activity_log_service.dart';
+import '../services/lesson_progress_service.dart';
+import '../services/reward_service.dart';
 import '../providers/app_provider.dart';
 import '../providers/pet_profile_provider.dart';
 import '../providers/reminder_provider.dart';
+import '../providers/virtual_pet_provider.dart';
 import 'home_screen.dart';
 import 'verify_email_screen.dart';
 
@@ -264,12 +267,17 @@ class _LoginScreenState extends State<LoginScreen>
 
     final app = context.read<AppProvider>();
     final reminders = context.read<ReminderProvider>();
+    final virtualPet = context.read<VirtualPetProvider>();
 
     return app.pets.isNotEmpty ||
         app.reminders.isNotEmpty ||
         app.quizzes.isNotEmpty ||
         PetProfileProvider.instance.profiles.isNotEmpty ||
-        reminders.reminders.isNotEmpty;
+        reminders.reminders.isNotEmpty ||
+        // The virtual cat has been named — i.e. the guest has actually
+        // started playing with it — so its progress must not be silently
+        // discarded on sign-in either.
+        virtualPet.pet.isNamed;
   }
 
   void _showMergeDialog() {
@@ -308,12 +316,23 @@ class _LoginScreenState extends State<LoginScreen>
               if (!mounted) return;
               final provider = context.read<AppProvider>();
               final reminderProvider = context.read<ReminderProvider>();
+              final virtualPetProvider = context.read<VirtualPetProvider>();
               await provider.replaceLocalWithCloud();
               // init() is idempotent — guarantees the Hive box is open
               // even if the user never visited a pet-profile screen yet.
               await PetProfileProvider.instance.init();
               await PetProfileProvider.instance.replaceLocalWithCloud();
               await reminderProvider.replaceLocalWithCloud();
+              await virtualPetProvider.replaceLocalWithCloud();
+              // Lesson progress/reward points have no per-domain
+              // replaceLocalWithCloud() of their own — discard the guest's
+              // local copy first so it can never survive alongside (or get
+              // merged into) the account's real cloud progress, then pull
+              // the account's actual state down into that now-empty local
+              // copy.
+              await LessonProgressService.instance.discardLocal();
+              await RewardService.instance.discardLocal();
+              await RewardService.instance.syncProgress();
               await SessionManager.instance.clearGuestId();
               _goHome();
             },
@@ -332,10 +351,17 @@ class _LoginScreenState extends State<LoginScreen>
               if (!mounted) return;
               final provider = context.read<AppProvider>();
               final reminderProvider = context.read<ReminderProvider>();
+              final virtualPetProvider = context.read<VirtualPetProvider>();
               await provider.mergeGuestDataWithCloud();
               await PetProfileProvider.instance.init();
               await PetProfileProvider.instance.pushGuestDataToCloud();
               await reminderProvider.pushGuestDataToCloud();
+              await virtualPetProvider.pushGuestDataToCloud();
+              // Lesson progress/reward points: syncProgress() itself already
+              // performs a merge (max-of-local-and-cloud per key, union of
+              // claims/completed lessons) — exactly "Merge Progress"
+              // semantics, so the guest's local progress is pushed up here.
+              await RewardService.instance.syncProgress();
               await SessionManager.instance.clearGuestId();
               _goHome();
             },

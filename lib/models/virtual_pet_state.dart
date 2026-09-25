@@ -31,6 +31,14 @@ class VirtualPetState {
 
   final DateTime createdAt;
 
+  /// Last time this state was actually changed by a real action (feed/
+  /// groom/play/reconcile/setName) or by decay — NOT bumped merely by
+  /// reading the state. Used exactly like FullPetProfile.updatedAt: the
+  /// timestamp cloud sync compares to decide which side (local vs cloud)
+  /// is newer, so a stale document never silently overwrites fresher
+  /// progress.
+  final DateTime updatedAt;
+
   // ── Simulation-only counters/streaks ──────────────────────────────────────
   // These back the virtual-game achievements (feedStreak/groomStreak/
   // playStreak) that will be wired up in a later phase. They are never used
@@ -54,6 +62,7 @@ class VirtualPetState {
     this.energy = 80,
     required this.lastTickAt,
     required this.createdAt,
+    required this.updatedAt,
     this.simFeedCount = 0,
     this.simGroomCount = 0,
     this.simPlayCount = 0,
@@ -66,7 +75,7 @@ class VirtualPetState {
   /// Brand-new virtual pet, used the very first time the app runs.
   factory VirtualPetState.initial() {
     final now = DateTime.now();
-    return VirtualPetState(lastTickAt: now, createdAt: now);
+    return VirtualPetState(lastTickAt: now, createdAt: now, updatedAt: now);
   }
 
   VirtualPetState clamp() => copyWith(
@@ -84,6 +93,7 @@ class VirtualPetState {
     int? energy,
     DateTime? lastTickAt,
     DateTime? createdAt,
+    DateTime? updatedAt,
     int? simFeedCount,
     int? simGroomCount,
     int? simPlayCount,
@@ -98,6 +108,13 @@ class VirtualPetState {
         energy: energy ?? this.energy,
         lastTickAt: lastTickAt ?? this.lastTickAt,
         createdAt: createdAt ?? this.createdAt,
+        // Deliberately NOT auto-defaulted to DateTime.now() (unlike
+        // FullPetProfile.updatedAt) — clamp() and fromMap() both chain
+        // through copyWith without passing this, and fromMap() must
+        // preserve a loaded record's real timestamp for cloud-sync
+        // comparisons to stay correct. Callers making a real change pass
+        // this explicitly.
+        updatedAt: updatedAt ?? this.updatedAt,
         simFeedCount: simFeedCount ?? this.simFeedCount,
         simGroomCount: simGroomCount ?? this.simGroomCount,
         simPlayCount: simPlayCount ?? this.simPlayCount,
@@ -115,6 +132,7 @@ class VirtualPetState {
         'energy': energy,
         'lastTickAt': lastTickAt.toIso8601String(),
         'createdAt': createdAt.toIso8601String(),
+        'updatedAt': updatedAt.toIso8601String(),
         'simFeedCount': simFeedCount,
         'simGroomCount': simGroomCount,
         'simPlayCount': simPlayCount,
@@ -132,6 +150,14 @@ class VirtualPetState {
       energy: (m['energy'] as num?)?.toInt() ?? 80,
       lastTickAt: DateTime.tryParse(m['lastTickAt'] as String? ?? '') ?? now,
       createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? now,
+      // Old records saved before this field existed have no 'updatedAt' —
+      // fall back to their own lastTickAt (the closest existing proxy for
+      // "last real change") rather than `now`, so an old, stale record
+      // doesn't masquerade as freshly updated the first time it's loaded
+      // after this upgrade.
+      updatedAt: DateTime.tryParse(m['updatedAt'] as String? ?? '') ??
+          DateTime.tryParse(m['lastTickAt'] as String? ?? '') ??
+          now,
       simFeedCount: (m['simFeedCount'] as num?)?.toInt() ?? 0,
       simGroomCount: (m['simGroomCount'] as num?)?.toInt() ?? 0,
       simPlayCount: (m['simPlayCount'] as num?)?.toInt() ?? 0,

@@ -72,6 +72,13 @@ class _GameScreenState extends State<GameScreen> {
 
   bool _showThought = false;
   String _thoughtEmoji = "🍗";
+  String? _thoughtText;
+
+  // Immediate tactile feedback on tap-down/up — a subtle squash of the
+  // cat's render area, independent of (and quicker than) the Flame sprite
+  // reaction below. Same scale-on-tap-down/spring-back pattern already
+  // used by BounceButton elsewhere in the app.
+  bool _isTapping = false;
 
   // ────────────────────────────────────────────────────────────────────────
   // Init
@@ -84,6 +91,16 @@ class _GameScreenState extends State<GameScreen> {
     super.initState();
 
     catGame = CatAnimation();
+
+    // Flame's onLoad() finishes asynchronously (after this first build),
+    // so the very first setMood() call below can be a no-op if the cat
+    // isn't ready yet. Force exactly one extra rebuild once it is, so a
+    // real starting mood (e.g. the cat is already dirty) is never left
+    // stuck showing sleep/idle until some unrelated rebuild happens to
+    // come along later.
+    catGame.catReady.then((_) {
+      if (mounted) setState(() {});
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -166,7 +183,7 @@ class _GameScreenState extends State<GameScreen> {
   void _onCatTap() {
     if (!mounted) return;
 
-    catGame.wakeUp();
+    catGame.reactToTap();
 
     final vp = context.read<VirtualPetProvider>();
 
@@ -241,6 +258,12 @@ class _GameScreenState extends State<GameScreen> {
         _isAngry = true;
         _isBeingPetted = false;
         _showHeart = false;
+        // Angry previously had no on-screen explanation at all — reuses
+        // the same thought-bubble mechanism already used for hungry/
+        // dirty/neglected instead of a new popup.
+        _thoughtEmoji = "😾";
+        _thoughtText = "That's enough — I need a break!";
+        _showThought = true;
       });
 
       vp.reconcile(
@@ -255,6 +278,8 @@ class _GameScreenState extends State<GameScreen> {
           setState(() {
             _isAngry = false;
             _petCount = 0;
+            _showThought = false;
+            _thoughtText = null;
           });
         },
       );
@@ -409,12 +434,20 @@ class _GameScreenState extends State<GameScreen> {
   // HELPERS
   // ────────────────────────────────────────────────────────────────────────
 
+  // Overall Condition — reuses this exact averaging approach (already
+  // authored, previously unused) rather than inventing a new health
+  // system: happiness/cleanliness/energy plus inverted hunger (fullness),
+  // averaged, same 60/30 thresholds as before. Energy is the one input
+  // this didn't already account for, added per the documentation's
+  // "overall condition" requirement.
   String _getEmotion(
     int hunger,
     int happiness,
     int cleanliness,
+    int energy,
   ) {
-    final avg = (happiness + cleanliness + (100 - hunger)) ~/ 3;
+    final avg =
+        (happiness + cleanliness + energy + (100 - hunger)) ~/ 4;
 
     if (avg >= 60) return 'happy';
     if (avg >= 30) return 'normal';
@@ -453,6 +486,7 @@ class _GameScreenState extends State<GameScreen> {
     final cleanliness = vp.cleanliness;
 
     String? emoji;
+    String? text;
 
     final neglected = hunger >= 90 && happiness <= 20 && cleanliness <= 20;
 
@@ -461,21 +495,27 @@ class _GameScreenState extends State<GameScreen> {
     if (neglected) {
       if (hunger >= cleanliness && hunger >= happiness) {
         emoji = "🍗";
+        text = "Really hungry — feed me!";
       } else if (cleanliness <= happiness) {
         emoji = "🧼";
+        text = "So dirty — clean me!";
       } else {
         emoji = "❤️";
+        text = "Feeling lonely — play with me!";
       }
     } else if (hunger >= 70) {
       emoji = "🍗";
+      text = "Getting hungry — time to eat!";
     } else if (dirty) {
       emoji = "🧼";
+      text = "Feeling grubby — let's groom!";
     }
 
     if (emoji == null) return;
 
     setState(() {
       _thoughtEmoji = emoji!;
+      _thoughtText = text;
       _showThought = true;
     });
 
@@ -486,6 +526,7 @@ class _GameScreenState extends State<GameScreen> {
 
         setState(() {
           _showThought = false;
+          _thoughtText = null;
         });
       },
     );
@@ -512,6 +553,69 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     return Colors.redAccent;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // OVERALL CONDITION BADGE
+  // ────────────────────────────────────────────────────────────────────────
+
+  Widget _conditionBadge(String emotion) {
+    late final String label;
+    late final String emoji;
+    late final Color color;
+
+    switch (emotion) {
+      case 'happy':
+        label = 'Doing Great';
+        emoji = '😻';
+        color = const Color(0xFF32CD32);
+        break;
+
+      case 'normal':
+        label = 'Doing Okay';
+        emoji = '😺';
+        color = const Color(0xFFFFA500);
+        break;
+
+      default:
+        label = 'Needs Care';
+        emoji = '😿';
+        color = Colors.redAccent;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 6),
+          const Text(
+            'Overall Condition',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+              color: Color(0xFFAA7755),
+            ),
+          ),
+          const Spacer(),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -562,6 +666,20 @@ class _GameScreenState extends State<GameScreen> {
       isAngry: _isAngry,
       isDirty: isDirty,
       isNeglected: isNeglected,
+    );
+
+    // Reflect the cat's current real condition on the actual Flame
+    // character. Safe to call every build — setMood() is a no-op unless
+    // the effective mood actually changed, and never interrupts an
+    // in-progress wake-up or tap reaction.
+    catGame.setMood(brain.animation);
+
+    // Overall Condition — see _getEmotion()'s doc comment.
+    final overallCondition = _getEmotion(
+      vp.hunger,
+      vp.happiness,
+      vp.cleanliness,
+      vp.energy,
     );
 
     return Scaffold(
@@ -663,6 +781,32 @@ class _GameScreenState extends State<GameScreen> {
                         ),
                         child: GestureDetector(
                           onTap: _onCatTap,
+                          onTapDown: (_) {
+                            if (!mounted) return;
+
+                            setState(() {
+                              _isTapping = true;
+                            });
+                          },
+                          onTapUp: (_) {
+                            Future.delayed(
+                              const Duration(milliseconds: 90),
+                              () {
+                                if (!mounted) return;
+
+                                setState(() {
+                                  _isTapping = false;
+                                });
+                              },
+                            );
+                          },
+                          onTapCancel: () {
+                            if (!mounted) return;
+
+                            setState(() {
+                              _isTapping = false;
+                            });
+                          },
                           onPanStart: (_) {
                             if (!mounted) return;
 
@@ -693,11 +837,18 @@ class _GameScreenState extends State<GameScreen> {
 
                                 Align(
                                   alignment: Alignment.bottomCenter,
-                                  child: SizedBox(
-                                    width: 180,
-                                    height: 170,
-                                    child: GameWidget<CatAnimation>(
-                                      game: catGame,
+                                  child: AnimatedScale(
+                                    scale: _isTapping ? 0.94 : 1.0,
+                                    duration: const Duration(
+                                      milliseconds: 120,
+                                    ),
+                                    curve: Curves.easeOut,
+                                    child: SizedBox(
+                                      width: 180,
+                                      height: 170,
+                                      child: GameWidget<CatAnimation>(
+                                        game: catGame,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -712,6 +863,7 @@ class _GameScreenState extends State<GameScreen> {
                                     right: -5,
                                     child: PetThought(
                                       emoji: _thoughtEmoji,
+                                      text: _thoughtText,
                                     ),
                                   ),
 
@@ -784,6 +936,8 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                     child: Column(
                       children: [
+                        _conditionBadge(overallCondition),
+                        const SizedBox(height: 10),
                         _statRow(
                           '🍗',
                           'Hunger',
@@ -804,6 +958,12 @@ class _GameScreenState extends State<GameScreen> {
                           'Cleanliness',
                           vp.cleanliness,
                           _statColor(vp.cleanliness),
+                        ),
+                        _statRow(
+                          '⚡',
+                          'Energy',
+                          vp.energy,
+                          _statColor(vp.energy),
                           isLast: true,
                         ),
                       ],

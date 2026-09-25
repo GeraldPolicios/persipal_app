@@ -10,6 +10,8 @@
 //    nearest vaccine due for THIS cat, pulled live from Care Reminders —
 //    so parents don't have to hop between screens to know what's coming up.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -56,6 +58,13 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
     final file = await pickPetPhotoFromGallery(context);
     if (file != null) {
       await PetPhotoService.instance.setPhoto(widget.petId, file);
+    }
+  }
+
+  Future<void> _changeCoverPhoto() async {
+    final file = await pickPetPhotoFromGallery(context);
+    if (file != null) {
+      await PetPhotoService.instance.setCoverPhoto(widget.petId, file);
     }
   }
 
@@ -152,7 +161,10 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                             pet: pet,
                             photoPath:
                                 PetPhotoService.instance.pathFor(pet.id),
+                            coverPhotoPath: PetPhotoService.instance
+                                .coverPathFor(pet.id),
                             onTapPhoto: _changePhoto,
+                            onTapCover: _changeCoverPhoto,
                           ),
                         ),
 
@@ -324,6 +336,9 @@ List<_ChipData> _infoChips(FullPetProfile pet) {
   if (pet.birthday.trim().isNotEmpty) {
     chips.add(_ChipData('🎂', 'Birthday', pet.birthday));
   }
+  if (pet.ageLabel.isNotEmpty) {
+    chips.add(_ChipData('🐾', 'Age', pet.ageLabel));
+  }
   if (pet.furColor.trim().isNotEmpty) {
     chips.add(_ChipData('🎨', 'Fur Color', pet.furColor));
   }
@@ -400,17 +415,22 @@ class _InfoChipsCard extends StatelessWidget {
 class _ProfileHero extends StatelessWidget {
   final FullPetProfile pet;
   final String? photoPath;
+  final String? coverPhotoPath;
   final VoidCallback onTapPhoto;
+  final VoidCallback onTapCover;
 
   const _ProfileHero({
     required this.pet,
     required this.photoPath,
+    required this.coverPhotoPath,
     required this.onTapPhoto,
+    required this.onTapCover,
   });
 
   @override
   Widget build(BuildContext context) {
     final hasPhoto = photoPath != null;
+    final hasCover = coverPhotoPath != null;
     final subtitle = [pet.breed, pet.gender]
         .where((s) => s.trim().isNotEmpty)
         .join(' • ');
@@ -419,11 +439,30 @@ class _ProfileHero extends StatelessWidget {
       width: double.infinity,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [pet.avatarColor, pet.avatarColor.withValues(alpha: 0.55)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        // Falls back to the existing solid gradient exactly as before when
+        // no cover photo has been set — zero visual change for a profile
+        // that only has an avatar photo (or no photo at all).
+        image: hasCover
+            ? DecorationImage(
+                image: FileImage(File(coverPhotoPath!)),
+                fit: BoxFit.cover,
+                colorFilter: ColorFilter.mode(
+                  Colors.black.withValues(alpha: 0.32),
+                  BlendMode.darken,
+                ),
+              )
+            : null,
+        gradient: hasCover
+            ? null
+            : LinearGradient(
+                colors: [
+                  pet.avatarColor,
+                  pet.avatarColor.withValues(alpha: 0.55)
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        color: hasCover ? pet.avatarColor.withValues(alpha: 0.3) : null,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -436,24 +475,61 @@ class _ProfileHero extends StatelessWidget {
       child: Stack(
         children: [
           // Subtle cozy pattern — kept low-opacity so it stays secondary
-          // to the pet's photo and name.
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.08,
-              child: Image.asset('assets/images/paws_bg.png',
-                  fit: BoxFit.cover),
+          // to the pet's photo and name. Skipped once a real cover photo
+          // is set, so it doesn't compete with the user's own image.
+          if (!hasCover)
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.08,
+                child: Image.asset('assets/images/paws_bg.png',
+                    fit: BoxFit.cover),
+              ),
             ),
-          ),
-          // Soft decorative accent shapes.
+          // Soft decorative accent shapes — same reasoning as above.
+          if (!hasCover) ...[
+            Positioned(
+              top: -30,
+              right: -30,
+              child: _softCircle(90, Colors.white.withValues(alpha: 0.18)),
+            ),
+            Positioned(
+              bottom: -40,
+              left: -20,
+              child: _softCircle(110, Colors.white.withValues(alpha: 0.12)),
+            ),
+          ],
+          // Change-cover control — a small pill in the corner rather than
+          // covering the avatar's own edit badge.
           Positioned(
-            top: -30,
-            right: -30,
-            child: _softCircle(90, Colors.white.withValues(alpha: 0.18)),
-          ),
-          Positioned(
-            bottom: -40,
-            left: -20,
-            child: _softCircle(110, Colors.white.withValues(alpha: 0.12)),
+            top: 10,
+            right: 10,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.32),
+              shape: const StadiumBorder(),
+              child: InkWell(
+                customBorder: const StadiumBorder(),
+                onTap: onTapCover,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.image_outlined,
+                          size: 14, color: Colors.white),
+                      const SizedBox(width: 4),
+                      Text(
+                        hasCover ? 'Change Cover' : 'Add Cover',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 18),
@@ -467,40 +543,80 @@ class _ProfileHero extends StatelessWidget {
                   showEditBadge: true,
                   onTap: onTapPhoto,
                 ),
-                if (!hasPhoto)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Tap to add a photo',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black.withValues(alpha: 0.55),
-                      ),
-                    ),
-                  ),
                 const SizedBox(height: 12),
-                Text(
-                  pet.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3A2A1E),
+                // A cover photo can be ANY color a user happens to upload —
+                // unlike the fixed pastel avatarColor gradient below, it
+                // isn't guaranteed to contrast with dark text. Rather than
+                // guessing at the photo's actual colors, the name/subtitle/
+                // hint get their own small opaque scrim (the same technique
+                // the "Change Cover" pill above already uses) plus white
+                // text, so they stay legible against literally any photo —
+                // the no-cover pastel-gradient case is untouched.
+                Container(
+                  padding: hasCover
+                      ? const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8)
+                      : EdgeInsets.zero,
+                  decoration: hasCover
+                      ? BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.38),
+                          borderRadius: BorderRadius.circular(14),
+                        )
+                      : null,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!hasPhoto)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            'Tap to add a photo',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: hasCover
+                                  ? Colors.white.withValues(alpha: 0.9)
+                                  : Colors.black.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ),
+                      Text(
+                        pet.name,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: hasCover
+                              ? Colors.white
+                              : const Color(0xFF3A2A1E),
+                          shadows: hasCover
+                              ? [
+                                  Shadow(
+                                    color:
+                                        Colors.black.withValues(alpha: 0.5),
+                                    blurRadius: 6,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                      ),
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: hasCover
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : Colors.black.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
