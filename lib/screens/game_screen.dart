@@ -1,5 +1,3 @@
-// screens/game_screen.dart
-
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -48,10 +46,6 @@ class _GameScreenState extends State<GameScreen> {
 
   // ────────────────────────────────────────────────────────────────────────
   // Local visual/game interaction state
-  //
-  // IMPORTANT:
-  // Actual persistent stats belong to VirtualPetProvider.
-  // These values are only used for the current visual interaction state.
   // ────────────────────────────────────────────────────────────────────────
 
   int furStage = 0;
@@ -72,13 +66,10 @@ class _GameScreenState extends State<GameScreen> {
 
   bool _showThought = false;
   String _thoughtEmoji = "🍗";
-  String? _thoughtText;
 
-  // Immediate tactile feedback on tap-down/up — a subtle squash of the
-  // cat's render area, independent of (and quicker than) the Flame sprite
-  // reaction below. Same scale-on-tap-down/spring-back pattern already
-  // used by BounceButton elsewhere in the app.
-  bool _isTapping = false;
+  double _swipeStartY = 0;
+  double _swipeStartX = 0;
+  double _swipeCurrentY = 0;
 
   // ────────────────────────────────────────────────────────────────────────
   // Init
@@ -91,16 +82,6 @@ class _GameScreenState extends State<GameScreen> {
     super.initState();
 
     catGame = CatAnimation();
-
-    // Flame's onLoad() finishes asynchronously (after this first build),
-    // so the very first setMood() call below can be a no-op if the cat
-    // isn't ready yet. Force exactly one extra rebuild once it is, so a
-    // real starting mood (e.g. the cat is already dirty) is never left
-    // stuck showing sleep/idle until some unrelated rebuild happens to
-    // come along later.
-    catGame.catReady.then((_) {
-      if (mounted) setState(() {});
-    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -115,7 +96,6 @@ class _GameScreenState extends State<GameScreen> {
       _syncLocalState(vp);
     });
 
-    // Thought bubble timer.
     _thoughtTimer = Timer.periodic(
       const Duration(seconds: 12),
       (_) {
@@ -124,10 +104,6 @@ class _GameScreenState extends State<GameScreen> {
       },
     );
 
-    // Fur progression.
-    //
-    // This is currently visual-only.
-    // It does not modify the actual virtual pet stats.
     _furTimer = Timer.periodic(
       const Duration(hours: 1),
       (_) {
@@ -157,10 +133,12 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   // ────────────────────────────────────────────────────────────────────────
-  // Sync local visual state with provider
+  // Sync local visual state
   // ────────────────────────────────────────────────────────────────────────
 
-  void _syncLocalState(VirtualPetProvider vp) {
+  void _syncLocalState(
+    VirtualPetProvider vp,
+  ) {
     final newDirty = vp.cleanliness <= 30;
 
     final newNeglected =
@@ -173,7 +151,9 @@ class _GameScreenState extends State<GameScreen> {
       });
     }
 
-    DirtyState.instance.setDirty(newDirty);
+    DirtyState.instance.setDirty(
+      newDirty,
+    );
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -183,58 +163,17 @@ class _GameScreenState extends State<GameScreen> {
   void _onCatTap() {
     if (!mounted) return;
 
-    catGame.reactToTap();
-
     final vp = context.read<VirtualPetProvider>();
 
-    final hunger = vp.hunger;
-    final happiness = vp.happiness;
-    final cleanliness = vp.cleanliness;
-
-    // Update dirty / neglected state first.
-    _syncLocalState(vp);
-
-    // Hungry cats don't want pets.
-    if (hunger >= 70) {
-      _showThoughtBubble();
+    if (catGame.isSleeping) {
+      catGame.wakeUp();
       return;
     }
 
-    // Dirty cats don't want pets.
-    if (isDirty || isNeglected) {
-      _showThoughtBubble();
+    if (catGame.isWaking) {
       return;
     }
 
-    // Already angry.
-    if (_isAngry) {
-      _angryTimer?.cancel();
-
-      setState(() {
-        happiness;
-        _isAngry = true;
-      });
-
-      vp.reconcile(
-        happiness: (happiness - 5).clamp(0, 100),
-      );
-
-      _angryTimer = Timer(
-        const Duration(seconds: 2),
-        () {
-          if (!mounted) return;
-
-          setState(() {
-            _isAngry = false;
-            _petCount = 0;
-          });
-        },
-      );
-
-      return;
-    }
-
-    // Count taps.
     _petCount++;
 
     _petResetTimer?.cancel();
@@ -242,44 +181,36 @@ class _GameScreenState extends State<GameScreen> {
     _petResetTimer = Timer(
       const Duration(seconds: 3),
       () {
-        if (!mounted) return;
-
-        setState(() {
-          _petCount = 0;
-        });
+        _petCount = 0;
       },
     );
 
-    // Too many taps = angry.
     if (_petCount >= 4) {
-      _angryTimer?.cancel();
+      _petCount = 0;
+      _petResetTimer?.cancel();
+
+      _isAngry = true;
 
       setState(() {
-        _isAngry = true;
         _isBeingPetted = false;
         _showHeart = false;
-        // Angry previously had no on-screen explanation at all — reuses
-        // the same thought-bubble mechanism already used for hungry/
-        // dirty/neglected instead of a new popup.
-        _thoughtEmoji = "😾";
-        _thoughtText = "That's enough — I need a break!";
-        _showThought = true;
       });
 
+      catGame.doAngry();
+
       vp.reconcile(
-        happiness: (happiness - 3).clamp(0, 100),
+        happiness: (vp.happiness - 3).clamp(0, 100),
       );
 
+      _angryTimer?.cancel();
+
       _angryTimer = Timer(
-        const Duration(seconds: 2),
+        const Duration(milliseconds: 4800),
         () {
           if (!mounted) return;
 
           setState(() {
             _isAngry = false;
-            _petCount = 0;
-            _showThought = false;
-            _thoughtText = null;
           });
         },
       );
@@ -287,14 +218,17 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    // Happy pet.
     setState(() {
       _isBeingPetted = true;
       _showHeart = true;
     });
 
+    if (!catGame.isBusy) {
+      catGame.doHappy();
+    }
+
     vp.reconcile(
-      happiness: (happiness + 2).clamp(0, 100),
+      happiness: (vp.happiness + 2).clamp(0, 100),
     );
 
     Future.delayed(
@@ -351,10 +285,40 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   // ────────────────────────────────────────────────────────────────────────
+  // SWIPE UP
+  // ────────────────────────────────────────────────────────────────────────
+
+  void _onSwipeUp() {
+    if (!mounted) return;
+
+    if (catGame.isSleeping || catGame.isWaking || catGame.isBusy) {
+      return;
+    }
+
+    catGame.doHighFive();
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // SWIPE DOWN
+  // ────────────────────────────────────────────────────────────────────────
+
+  void _onSwipeDown() {
+    if (!mounted) return;
+
+    if (catGame.isSleeping || catGame.isWaking || catGame.isBusy) {
+      return;
+    }
+
+    catGame.sitDown();
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
   // CAT NAME DIALOG
   // ────────────────────────────────────────────────────────────────────────
 
-  void _askCatName(VirtualPetProvider vp) {
+  void _askCatName(
+    VirtualPetProvider vp,
+  ) {
     final ctrl = TextEditingController();
 
     showDialog(
@@ -369,7 +333,9 @@ class _GameScreenState extends State<GameScreen> {
           children: [
             Text(
               '🐱 ',
-              style: TextStyle(fontSize: 22),
+              style: TextStyle(
+                fontSize: 22,
+              ),
             ),
             Text(
               'Name your cat!',
@@ -398,7 +364,9 @@ class _GameScreenState extends State<GameScreen> {
               backgroundColor: const Color(0xFFFF8C69),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(
+                  12,
+                ),
               ),
             ),
             onPressed: () async {
@@ -423,7 +391,9 @@ class _GameScreenState extends State<GameScreen> {
                 Navigator.pop(ctx);
               }
             },
-            child: const Text("Let's Go!"),
+            child: const Text(
+              "Let's Go!",
+            ),
           ),
         ],
       ),
@@ -434,33 +404,56 @@ class _GameScreenState extends State<GameScreen> {
   // HELPERS
   // ────────────────────────────────────────────────────────────────────────
 
-  // Overall Condition — reuses this exact averaging approach (already
-  // authored, previously unused) rather than inventing a new health
-  // system: happiness/cleanliness/energy plus inverted hunger (fullness),
-  // averaged, same 60/30 thresholds as before. Energy is the one input
-  // this didn't already account for, added per the documentation's
-  // "overall condition" requirement.
   String _getEmotion(
     int hunger,
     int happiness,
     int cleanliness,
     int energy,
   ) {
-    final avg =
-        (happiness + cleanliness + energy + (100 - hunger)) ~/ 4;
+    // A critical need takes priority.
+    //
+    // This prevents a cat with one very poor need from being
+    // incorrectly shown as "Doing Great" because the other
+    // stats happen to be high.
+    final critical =
+        hunger >= 90 || happiness <= 20 || cleanliness <= 20 || energy <= 20;
 
-    if (avg >= 60) return 'happy';
-    if (avg >= 30) return 'normal';
+    if (critical) {
+      return 'sad';
+    }
+
+    // Hunger is inverted because a high hunger value
+    // means the cat is more hungry.
+    final avg = (happiness + cleanliness + (100 - hunger) + energy) ~/ 4;
+
+    if (avg >= 60) {
+      return 'happy';
+    }
+
+    if (avg >= 30) {
+      return 'normal';
+    }
+
     return 'sad';
   }
 
-  String _getHair(int cleanliness) {
-    if (cleanliness >= 70) return 'clean';
-    if (cleanliness >= 40) return 'messy';
+  String _getHair(
+    int cleanliness,
+  ) {
+    if (cleanliness >= 70) {
+      return 'clean';
+    }
+
+    if (cleanliness >= 40) {
+      return 'messy';
+    }
+
     return 'very_messy';
   }
 
-  void _checkNeglected(VirtualPetProvider vp) {
+  void _checkNeglected(
+    VirtualPetProvider vp,
+  ) {
     final dirty = vp.cleanliness <= 30;
 
     final neglected =
@@ -473,8 +466,14 @@ class _GameScreenState extends State<GameScreen> {
       });
     }
 
-    DirtyState.instance.setDirty(dirty);
+    DirtyState.instance.setDirty(
+      dirty,
+    );
   }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // THOUGHT BUBBLE
+  // ────────────────────────────────────────────────────────────────────────
 
   void _showThoughtBubble() {
     if (!mounted) return;
@@ -484,9 +483,9 @@ class _GameScreenState extends State<GameScreen> {
     final hunger = vp.hunger;
     final happiness = vp.happiness;
     final cleanliness = vp.cleanliness;
+    final energy = vp.energy;
 
     String? emoji;
-    String? text;
 
     final neglected = hunger >= 90 && happiness <= 20 && cleanliness <= 20;
 
@@ -495,27 +494,25 @@ class _GameScreenState extends State<GameScreen> {
     if (neglected) {
       if (hunger >= cleanliness && hunger >= happiness) {
         emoji = "🍗";
-        text = "Really hungry — feed me!";
       } else if (cleanliness <= happiness) {
         emoji = "🧼";
-        text = "So dirty — clean me!";
       } else {
         emoji = "❤️";
-        text = "Feeling lonely — play with me!";
       }
     } else if (hunger >= 70) {
       emoji = "🍗";
-      text = "Getting hungry — time to eat!";
     } else if (dirty) {
       emoji = "🧼";
-      text = "Feeling grubby — let's groom!";
+    } else if (energy <= 20) {
+      emoji = "😴";
     }
 
-    if (emoji == null) return;
+    if (emoji == null) {
+      return;
+    }
 
     setState(() {
       _thoughtEmoji = emoji!;
-      _thoughtText = text;
       _showThought = true;
     });
 
@@ -526,15 +523,22 @@ class _GameScreenState extends State<GameScreen> {
 
         setState(() {
           _showThought = false;
-          _thoughtText = null;
         });
       },
     );
   }
 
-  String _getHearts(int happiness) {
-    if (happiness > 80) return '❤️ ❤️ ❤️';
-    if (happiness > 50) return '❤️ ❤️ 🤍';
+  String _getHearts(
+    int happiness,
+  ) {
+    if (happiness > 80) {
+      return '❤️ ❤️ ❤️';
+    }
+
+    if (happiness > 50) {
+      return '❤️ ❤️ 🤍';
+    }
+
     return '❤️ 🤍 🤍';
   }
 
@@ -556,10 +560,12 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   // ────────────────────────────────────────────────────────────────────────
-  // OVERALL CONDITION BADGE
+  // OVERALL CONDITION
   // ────────────────────────────────────────────────────────────────────────
 
-  Widget _conditionBadge(String emotion) {
+  Widget _conditionBadge(
+    String emotion,
+  ) {
     late final String label;
     late final String emoji;
     late final Color color;
@@ -585,15 +591,25 @@ class _GameScreenState extends State<GameScreen> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+      padding: const EdgeInsets.symmetric(
+        vertical: 8,
+        horizontal: 10,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(
+          color: color.withValues(alpha: 0.3),
+        ),
       ),
       child: Row(
         children: [
-          Text(emoji, style: const TextStyle(fontSize: 16)),
+          Text(
+            emoji,
+            style: const TextStyle(
+              fontSize: 16,
+            ),
+          ),
           const SizedBox(width: 6),
           const Text(
             'Overall Condition',
@@ -623,7 +639,9 @@ class _GameScreenState extends State<GameScreen> {
   // ────────────────────────────────────────────────────────────────────────
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     final vp = context.watch<VirtualPetProvider>();
 
     if (vp.loading) {
@@ -635,7 +653,6 @@ class _GameScreenState extends State<GameScreen> {
       );
     }
 
-    // Sync visual state with provider.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
@@ -658,6 +675,13 @@ class _GameScreenState extends State<GameScreen> {
       catName = providerCatName;
     }
 
+    final emotion = _getEmotion(
+      vp.hunger,
+      vp.happiness,
+      vp.cleanliness,
+      vp.energy,
+    );
+
     final brain = PetBrain(
       hunger: vp.hunger,
       happiness: vp.happiness,
@@ -668,28 +692,10 @@ class _GameScreenState extends State<GameScreen> {
       isNeglected: isNeglected,
     );
 
-    // Reflect the cat's current real condition on the actual Flame
-    // character. Safe to call every build — setMood() is a no-op unless
-    // the effective mood actually changed, and never interrupts an
-    // in-progress wake-up or tap reaction.
-    catGame.setMood(brain.animation);
-
-    // Overall Condition — see _getEmotion()'s doc comment.
-    final overallCondition = _getEmotion(
-      vp.hunger,
-      vp.happiness,
-      vp.cleanliness,
-      vp.energy,
-    );
-
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
       body: Stack(
         children: [
-          // ────────────────────────────────────────────────────────────────
-          // Background
-          // ────────────────────────────────────────────────────────────────
-
           Positioned.fill(
             child: Opacity(
               opacity: 0.12,
@@ -699,13 +705,12 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
           ),
-
           SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ──────────────────────────────────────────────────────────
-                // Top bar
+                // TOP BAR
                 // ──────────────────────────────────────────────────────────
 
                 Padding(
@@ -723,7 +728,9 @@ class _GameScreenState extends State<GameScreen> {
                           size: 20,
                         ),
                         onPressed: () {
-                          Navigator.pop(context);
+                          Navigator.pop(
+                            context,
+                          );
                         },
                       ),
                       const Icon(
@@ -731,7 +738,9 @@ class _GameScreenState extends State<GameScreen> {
                         color: Color(0xFFFF8C69),
                         size: 22,
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(
+                        width: 6,
+                      ),
                       Expanded(
                         child: Text(
                           '$catName\'s World',
@@ -742,7 +751,9 @@ class _GameScreenState extends State<GameScreen> {
                         ),
                       ),
                       Text(
-                        _getHearts(vp.happiness),
+                        _getHearts(
+                          vp.happiness,
+                        ),
                         style: const TextStyle(
                           fontSize: 16,
                         ),
@@ -752,7 +763,7 @@ class _GameScreenState extends State<GameScreen> {
                 ),
 
                 // ──────────────────────────────────────────────────────────
-                // Cat scene
+                // CAT SCENE
                 // ──────────────────────────────────────────────────────────
 
                 Padding(
@@ -765,7 +776,9 @@ class _GameScreenState extends State<GameScreen> {
                   child: Container(
                     height: 180,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(
+                        20,
+                      ),
                       image: const DecorationImage(
                         image: AssetImage(
                           'assets/images/cat_room/cat_bg_room_ver2.png',
@@ -780,45 +793,59 @@ class _GameScreenState extends State<GameScreen> {
                           bottom: 10,
                         ),
                         child: GestureDetector(
-                          onTap: _onCatTap,
-                          onTapDown: (_) {
-                            if (!mounted) return;
-
-                            setState(() {
-                              _isTapping = true;
-                            });
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _onCatTap();
                           },
-                          onTapUp: (_) {
-                            Future.delayed(
-                              const Duration(milliseconds: 90),
-                              () {
-                                if (!mounted) return;
+                          onPanStart: (details) {
+                            if (!mounted) {
+                              return;
+                            }
 
-                                setState(() {
-                                  _isTapping = false;
-                                });
-                              },
-                            );
-                          },
-                          onTapCancel: () {
-                            if (!mounted) return;
+                            _swipeStartX = details.localPosition.dx;
 
-                            setState(() {
-                              _isTapping = false;
-                            });
-                          },
-                          onPanStart: (_) {
-                            if (!mounted) return;
+                            _swipeStartY = details.localPosition.dy;
+
+                            _swipeCurrentY = details.localPosition.dy;
 
                             setState(() {
                               _isBeingPetted = true;
                             });
                           },
-                          onPanUpdate: (_) {
-                            _onPetting();
+                          onPanUpdate: (details) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            _swipeCurrentY = details.localPosition.dy;
+
+                            final verticalDistance =
+                                _swipeStartY - _swipeCurrentY;
+
+                            final horizontalDistance =
+                                (_swipeStartX - details.localPosition.dx).abs();
+
+                            if (verticalDistance.abs() > 40 &&
+                                verticalDistance.abs() > horizontalDistance) {
+                              setState(() {
+                                _isBeingPetted = false;
+                              });
+                            } else {
+                              _onPetting();
+                            }
                           },
-                          onPanEnd: (_) {
-                            if (!mounted) return;
+                          onPanEnd: (details) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            final swipeDistance = _swipeStartY - _swipeCurrentY;
+
+                            if (swipeDistance > 60) {
+                              _onSwipeUp();
+                            } else if (swipeDistance < -60) {
+                              _onSwipeDown();
+                            }
 
                             setState(() {
                               _isBeingPetted = false;
@@ -831,46 +858,26 @@ class _GameScreenState extends State<GameScreen> {
                               clipBehavior: Clip.none,
                               alignment: Alignment.bottomCenter,
                               children: [
-                                // ────────────────────────────────────────
-                                // CAT
-                                // ────────────────────────────────────────
-
                                 Align(
                                   alignment: Alignment.bottomCenter,
-                                  child: AnimatedScale(
-                                    scale: _isTapping ? 0.94 : 1.0,
-                                    duration: const Duration(
-                                      milliseconds: 120,
-                                    ),
-                                    curve: Curves.easeOut,
-                                    child: SizedBox(
-                                      width: 180,
-                                      height: 170,
+                                  child: SizedBox(
+                                    width: 180,
+                                    height: 170,
+                                    child: IgnorePointer(
                                       child: GameWidget<CatAnimation>(
                                         game: catGame,
                                       ),
                                     ),
                                   ),
                                 ),
-
-                                // ────────────────────────────────────────
-                                // THOUGHT BUBBLE
-                                // ────────────────────────────────────────
-
                                 if (_showThought)
                                   Positioned(
                                     top: 28,
                                     right: -5,
                                     child: PetThought(
                                       emoji: _thoughtEmoji,
-                                      text: _thoughtText,
                                     ),
                                   ),
-
-                                // ────────────────────────────────────────
-                                // HEART
-                                // ────────────────────────────────────────
-
                                 if (_showHeart)
                                   Positioned(
                                     bottom: 78,
@@ -916,7 +923,7 @@ class _GameScreenState extends State<GameScreen> {
                 ),
 
                 // ──────────────────────────────────────────────────────────
-                // Stat bars
+                // STATS
                 // ──────────────────────────────────────────────────────────
 
                 Padding(
@@ -927,17 +934,25 @@ class _GameScreenState extends State<GameScreen> {
                     0,
                   ),
                   child: Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(
+                      14,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(
                         alpha: 0.8,
                       ),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(
+                        16,
+                      ),
                     ),
                     child: Column(
                       children: [
-                        _conditionBadge(overallCondition),
-                        const SizedBox(height: 10),
+                        _conditionBadge(
+                          emotion,
+                        ),
+                        const SizedBox(
+                          height: 10,
+                        ),
                         _statRow(
                           '🍗',
                           'Hunger',
@@ -951,19 +966,25 @@ class _GameScreenState extends State<GameScreen> {
                           '😺',
                           'Happiness',
                           vp.happiness,
-                          _statColor(vp.happiness),
+                          _statColor(
+                            vp.happiness,
+                          ),
                         ),
                         _statRow(
                           '🧼',
                           'Cleanliness',
                           vp.cleanliness,
-                          _statColor(vp.cleanliness),
+                          _statColor(
+                            vp.cleanliness,
+                          ),
                         ),
                         _statRow(
                           '⚡',
                           'Energy',
                           vp.energy,
-                          _statColor(vp.energy),
+                          _statColor(
+                            vp.energy,
+                          ),
                           isLast: true,
                         ),
                       ],
@@ -971,11 +992,9 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 12),
-
-                // ──────────────────────────────────────────────────────────
-                // Action label
-                // ──────────────────────────────────────────────────────────
+                const SizedBox(
+                  height: 12,
+                ),
 
                 const Padding(
                   padding: EdgeInsets.symmetric(
@@ -992,11 +1011,9 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 8),
-
-                // ──────────────────────────────────────────────────────────
-                // Action grid
-                // ──────────────────────────────────────────────────────────
+                const SizedBox(
+                  height: 8,
+                ),
 
                 Expanded(
                   child: Padding(
@@ -1015,30 +1032,39 @@ class _GameScreenState extends State<GameScreen> {
                         _actionCard(
                           '🍗',
                           'Feed',
-                          const Color(0xFFFF8C69),
+                          const Color(
+                            0xFFFF8C69,
+                          ),
                           () => _onFeed(vp),
                         ),
                         _actionCard(
                           '✂️',
                           'Groom',
-                          const Color(0xFF7B68EE),
+                          const Color(
+                            0xFF7B68EE,
+                          ),
                           () => _onGroom(vp),
                         ),
                         _actionCard(
                           '🎾',
                           'Play',
-                          const Color(0xFF20B2AA),
+                          const Color(
+                            0xFF20B2AA,
+                          ),
                           () => _onPlay(vp),
                         ),
                         _actionCard(
                           '❤️',
                           'Status',
-                          const Color(0xFFDC143C),
+                          const Color(
+                            0xFFDC143C,
+                          ),
                           () => _onStatus(
                             catName,
                             vp.hunger,
                             vp.happiness,
                             vp.cleanliness,
+                            vp.energy,
                           ),
                         ),
                       ],
@@ -1076,7 +1102,9 @@ class _GameScreenState extends State<GameScreen> {
               fontSize: 14,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(
+            width: 6,
+          ),
           SizedBox(
             width: 72,
             child: Text(
@@ -1089,16 +1117,24 @@ class _GameScreenState extends State<GameScreen> {
           ),
           Expanded(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(
+                6,
+              ),
               child: LinearProgressIndicator(
                 value: value / 100,
                 minHeight: 8,
-                backgroundColor: color.withValues(alpha: 0.15),
-                valueColor: AlwaysStoppedAnimation<Color>(color),
+                backgroundColor: color.withValues(
+                  alpha: 0.15,
+                ),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  color,
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(
+            width: 8,
+          ),
           SizedBox(
             width: 32,
             child: Text(
@@ -1129,10 +1165,16 @@ class _GameScreenState extends State<GameScreen> {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(16),
+          color: color.withValues(
+            alpha: 0.15,
+          ),
+          borderRadius: BorderRadius.circular(
+            16,
+          ),
           border: Border.all(
-            color: color.withValues(alpha: 0.3),
+            color: color.withValues(
+              alpha: 0.3,
+            ),
           ),
         ),
         child: Column(
@@ -1144,7 +1186,9 @@ class _GameScreenState extends State<GameScreen> {
                 fontSize: 28,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(
+              height: 4,
+            ),
             Text(
               label,
               style: TextStyle(
@@ -1167,7 +1211,9 @@ class _GameScreenState extends State<GameScreen> {
     VirtualPetProvider vp,
   ) async {
     int lastHunger = vp.hunger;
+
     int lastHappiness = vp.happiness;
+
     int lastCleanliness = vp.cleanliness;
 
     await Navigator.push<Map<String, int>>(
@@ -1253,6 +1299,9 @@ class _GameScreenState extends State<GameScreen> {
               vp.play(
                 happinessDelta: 20,
                 hungerDelta: 10,
+
+                // Playing uses energy.
+                energyDelta: -10,
               );
 
               _checkNeglected(vp);
@@ -1272,7 +1321,15 @@ class _GameScreenState extends State<GameScreen> {
     int hunger,
     int happiness,
     int cleanliness,
+    int energy,
   ) {
+    final emotion = _getEmotion(
+      hunger,
+      happiness,
+      cleanliness,
+      energy,
+    );
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFFFFF5EE),
@@ -1304,7 +1361,15 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(
+              height: 16,
+            ),
+            _conditionBadge(
+              emotion,
+            ),
+            const SizedBox(
+              height: 14,
+            ),
             _statRow(
               '🍗',
               'Hunger',
@@ -1318,16 +1383,30 @@ class _GameScreenState extends State<GameScreen> {
               '😺',
               'Happiness',
               happiness,
-              _statColor(happiness),
+              _statColor(
+                happiness,
+              ),
             ),
             _statRow(
               '🧼',
               'Cleanliness',
               cleanliness,
-              _statColor(cleanliness),
+              _statColor(
+                cleanliness,
+              ),
+            ),
+            _statRow(
+              '⚡',
+              'Energy',
+              energy,
+              _statColor(
+                energy,
+              ),
               isLast: true,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(
+              height: 16,
+            ),
             Text(
               '$catName is your virtual Persian cat. '
               'Take care of it daily!',

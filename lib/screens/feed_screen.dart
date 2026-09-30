@@ -1,10 +1,11 @@
-// screens/feed_screen.dart
 import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flame/game.dart';
 import '../services/activity_service.dart';
 import '../widgets/feed_pet.dart';
 import '../widgets/feed_thought.dart';
+import '../game/feed.dart';
 
 class FeedScreen extends StatefulWidget {
   final int hunger;
@@ -29,6 +30,8 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   final _service = ActivityService.instance;
   final _random = Random();
+
+  late final FeedGame _feedGame;
 
   late int hunger;
   late int happiness;
@@ -55,9 +58,12 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   void initState() {
     super.initState();
+
     hunger = widget.hunger;
     happiness = widget.happiness;
     cleanliness = widget.cleanliness;
+
+    _feedGame = FeedGame();
   }
 
   Future<void> _startEating(String food) async {
@@ -65,6 +71,7 @@ class _FeedScreenState extends State<FeedScreen> {
     if (_foodInBowl != null || _isEating) {
       return;
     }
+
     if (widget.isDirty) {
       setState(() {
         _feedbackEmoji = "🧼";
@@ -96,15 +103,16 @@ class _FeedScreenState extends State<FeedScreen> {
 
     if (!mounted) return;
 
-    // Cat starts eating
+    // Cat starts eating or drinking
     setState(() {
       _isEating = true;
     });
 
-    // Length of your eating animation
-    await Future.delayed(
-      const Duration(seconds: 5),
-    );
+    if (food == 'Milk' || food == 'Water') {
+      await _feedGame.playDrinking();
+    } else {
+      await _feedGame.playEating();
+    }
 
     if (!mounted) return;
 
@@ -152,18 +160,11 @@ class _FeedScreenState extends State<FeedScreen> {
           break;
 
         case 'Milk':
-          // Per the Feeding Guide lesson ("🚫 Foods to Avoid" already lists
-          // Milk alongside chocolate/onion & garlic/spicy or oily food —
-          // see lesson_detail_screen.dart), milk is an inappropriate choice
-          // for a Persian cat: real cats are commonly lactose intolerant.
-          // The cat still "eats" it (small hunger relief), but reacts
-          // negatively rather than happily, and the message names the
-          // reason so the choice teaches something instead of just
-          // penalizing silently.
-          hunger = (hunger - 5).clamp(0, 100);
-          happiness = (happiness - 10).clamp(0, 100);
-          feedback = 'Tummy ache from milk!';
-          _feedbackEmoji = '🤢';
+          hunger = (hunger - 10).clamp(0, 100);
+          happiness = (happiness + 15).clamp(0, 100);
+          cleanliness = (cleanliness + 5).clamp(0, 100);
+          feedback = 'Milk time!';
+          _feedbackEmoji = '🥛';
           break;
 
         case 'Water':
@@ -222,25 +223,25 @@ class _FeedScreenState extends State<FeedScreen> {
   String _getBowlImage(String food) {
     switch (food) {
       case 'Dry Food':
-        return 'assets/images/states/dry_bowl.png';
+        return 'assets/images/bowl/dry.png';
 
       case 'Wet Food':
-        return 'assets/images/states/wet_bowl.png';
+        return 'assets/images/bowl/wet.png';
 
       case 'Treat':
-        return 'assets/images/states/treat_bowl.png';
+        return 'assets/images/bowl/treat.png';
 
       case 'Fish':
-        return 'assets/images/states/fish_bowl.png';
+        return 'assets/images/bowl/fish.png';
 
       case 'Water':
-        return 'assets/images/states/water_bowl.png';
+        return 'assets/images/bowl/water.png';
 
       case 'Milk':
-        return 'assets/images/states/milk_bowl.png';
+        return 'assets/images/bowl/milk.png';
 
       default:
-        return 'assets/images/states/bowl.png';
+        return 'assets/images/bowl/bowl.png';
     }
   }
 
@@ -251,18 +252,29 @@ class _FeedScreenState extends State<FeedScreen> {
         color: item['color'] as Color,
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(2, 4)),
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 6,
+            offset: Offset(2, 4),
+          ),
         ],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(item['emoji'] as String, style: const TextStyle(fontSize: 28)),
+          Text(
+            item['emoji'] as String,
+            style: const TextStyle(fontSize: 28),
+          ),
           const SizedBox(height: 5),
-          Text(item['name'] as String,
-              textAlign: TextAlign.center,
-              style:
-                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(
+            item['name'] as String,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -270,7 +282,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   Widget _draggable(Map<String, dynamic> item) {
     // Disable dragging while food is already in the bowl
-    // or while the cat is eating.
+    // or while the cat is eating or drinking.
     if (_foodInBowl != null || _isEating) {
       return Opacity(
         opacity: 0.45,
@@ -296,6 +308,12 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   @override
+  void dispose() {
+    _feedGame.pauseEngine();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
@@ -304,8 +322,10 @@ class _FeedScreenState extends State<FeedScreen> {
           Positioned.fill(
             child: Opacity(
               opacity: 0.12,
-              child:
-                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
+              child: Image.asset(
+                'assets/images/paws_bg.png',
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           SafeArea(
@@ -317,7 +337,10 @@ class _FeedScreenState extends State<FeedScreen> {
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                        icon: const Icon(
+                          Icons.arrow_back_ios_new,
+                          size: 20,
+                        ),
                         onPressed: () => Navigator.pop(context, {
                           'hunger': hunger,
                           'happiness': happiness,
@@ -328,7 +351,9 @@ class _FeedScreenState extends State<FeedScreen> {
                         child: Text(
                           '🍗  Feed Your Cat',
                           style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold),
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -336,13 +361,16 @@ class _FeedScreenState extends State<FeedScreen> {
                 ),
 
                 const SizedBox(height: 4),
+
                 const Text(
                   'Drag food to your cat to feed it!',
                   style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFFAA7755),
-                      fontStyle: FontStyle.italic),
+                    fontSize: 12,
+                    color: Color(0xFFAA7755),
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
+
                 const SizedBox(height: 8),
 
                 // Drop zone
@@ -351,7 +379,7 @@ class _FeedScreenState extends State<FeedScreen> {
                     DragTarget<String>(
                       onWillAcceptWithDetails: (_) {
                         // Do not allow another food while the cat is already
-                        // waiting for food or eating.
+                        // waiting for food or eating or drinking.
                         if (_foodInBowl != null || _isEating) {
                           return false;
                         }
@@ -368,83 +396,72 @@ class _FeedScreenState extends State<FeedScreen> {
                         _startEating(details.data);
                       },
                       builder: (_, __, ___) => AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: 210,
-                          margin: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: _hovering
-                                  ? const Color(0xFFFF8C69)
-                                  : Colors.transparent,
-                              width: _hovering ? 3 : 0,
-                            ),
-                            boxShadow: _hovering
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFFFF8C69)
-                                          .withValues(alpha: 0.35),
-                                      blurRadius: 16,
-                                    )
-                                  ]
-                                : null,
-                            image: const DecorationImage(
-                              image: AssetImage(
-                                  'assets/images/cat_room/feed_cat_room.png'),
-                              fit: BoxFit.cover,
-                            ),
+                        duration: const Duration(milliseconds: 200),
+                        height: 210,
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: _hovering
+                                ? const Color(0xFFFF8C69)
+                                : Colors.transparent,
+                            width: _hovering ? 3 : 0,
                           ),
-                          child: Stack(
-                            children: [
-                              // CAT
-                              Positioned(
-                                left: 0,
-                                right: 0,
-                                bottom: 6,
-                                child: Center(
-                                  child: SizedBox(
-                                    width: 180,
-                                    height: 170,
-                                    child: Stack(
-                                      clipBehavior: Clip.none,
-                                      alignment: Alignment.bottomCenter,
-                                      children: [
-                                        // Cat
-                                        Positioned(
-                                          bottom: 12,
-                                          child: FeedPet(
-                                            isEating: _isEating,
-                                            isDirty: widget.isDirty,
-                                            isBadFood: _foodInBowl == 'Milk',
-                                            height: 105,
-                                          ),
-                                        ),
-                                        // Bowl - positioned in front of the cat
-                                        Positioned(
-                                          left: 82,
-                                          bottom: 0,
-                                          child: SizedBox(
-                                            width: 62,
-                                            height: 48,
-                                            child: Image.asset(
-                                              _foodInBowl == null
-                                                  ? 'assets/images/states/bowl.png'
-                                                  : _getBowlImage(_foodInBowl!),
-                                              fit: BoxFit.contain,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                          boxShadow: _hovering
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(0xFFFF8C69)
+                                        .withValues(alpha: 0.35),
+                                    blurRadius: 16,
+                                  ),
+                                ]
+                              : null,
+                          image: const DecorationImage(
+                            image: AssetImage(
+                              'assets/images/cat_room/feed_cat_room.png',
+                            ),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        child: Stack(
+                          children: [
+                            // CAT
+                            Positioned(
+                              bottom: 18,
+                              left: 0,
+                              right: 0,
+                              child: SizedBox(
+                                height: 135,
+                                child: GameWidget(
+                                  game: _feedGame,
+                                ),
+                              ),
+                            ),
+
+                            // Bowl - directly in front of the cat
+                            Positioned(
+                              bottom: -6,
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: SizedBox(
+                                  width: _foodInBowl == null ? 82 : 72,
+                                  height: _foodInBowl == null ? 64 : 56,
+                                  child: Image.asset(
+                                    _foodInBowl == null
+                                        ? 'assets/images/bowl/bowl.png'
+                                        : _getBowlImage(_foodInBowl!),
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
                               ),
-                            ],
-                          )),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
 
                     // Feedback text
-                    // Clean feeding feedback
                     if (_showFeedEffect && _feedbackText.isNotEmpty)
                       Positioned(
                         bottom: 118,
@@ -458,7 +475,7 @@ class _FeedScreenState extends State<FeedScreen> {
                         ),
                       ),
                   ],
-                ), // <-- CLOSE INNER STACK
+                ),
 
                 const SizedBox(height: 12),
 
@@ -476,6 +493,7 @@ class _FeedScreenState extends State<FeedScreen> {
                     itemBuilder: (_, i) => _draggable(_foods[i]),
                   ),
                 ),
+
                 const SizedBox(height: 8),
               ],
             ),

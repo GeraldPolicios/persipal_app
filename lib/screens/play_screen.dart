@@ -1,10 +1,10 @@
-// screens/play_screen.dart
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flame/game.dart';
 import '../services/activity_service.dart';
 import '../widgets/play_pet.dart';
 import '../widgets/play_thought.dart';
 import '../models/dirty_state.dart';
+import '../game/play.dart';
 
 class PlayScreen extends StatefulWidget {
   final Function(String) onAction;
@@ -22,7 +22,8 @@ class PlayScreen extends StatefulWidget {
 
 class _PlayScreenState extends State<PlayScreen> {
   final _service = ActivityService.instance;
-  final _random = Random();
+
+  late final PlayGame _playGame;
 
   bool _hovering = false;
 
@@ -38,6 +39,14 @@ class _PlayScreenState extends State<PlayScreen> {
     {'emoji': '🔴', 'name': 'Laser Dot', 'color': Color(0xFFFFEBEE)},
     {'emoji': '🧶', 'name': 'Yarn Ball', 'color': Color(0xFFFFF3E0)},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Flame game for the PlayScreen
+    _playGame = PlayGame();
+  }
 
   Future<void> _play(String toy) async {
     if (_isPlaying) return;
@@ -68,6 +77,7 @@ class _PlayScreenState extends State<PlayScreen> {
       _feedbackEmoji = feedback['emoji']!;
       _feedbackText = feedback['text']!;
     });
+
     widget.onAction('play');
 
     _service.logActivity(
@@ -75,31 +85,24 @@ class _PlayScreenState extends State<PlayScreen> {
       iconColor: const Color(0xFF20B2AA),
       title: 'Played with cat — $toy',
     );
-
-    // Wait for the animation
-    int frames = 301;
-
+    // Use Flame animation from play.dart
     switch (toy) {
       case 'Tennis Ball':
-        frames = 301;
-        break;
-
-      case 'Yarn Ball':
-        frames = 302;
-        break;
-
-      case 'Laser Dot':
-        frames = 302;
+        await _playGame.playTennis();
         break;
 
       case 'Feather':
-        frames = 302;
+        await _playGame.playFeather();
+        break;
+
+      case 'Laser Dot':
+        await _playGame.playLaser();
+        break;
+
+      case 'Yarn Ball':
+        await _playGame.playYarn();
         break;
     }
-
-    await Future.delayed(
-      Duration(milliseconds: ((frames / 60) * 1000).round()),
-    );
 
     if (!mounted) return;
 
@@ -158,18 +161,29 @@ class _PlayScreenState extends State<PlayScreen> {
         color: item['color'] as Color,
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(2, 4)),
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 6,
+            offset: Offset(2, 4),
+          ),
         ],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(item['emoji'] as String, style: const TextStyle(fontSize: 30)),
+          Text(
+            item['emoji'] as String,
+            style: const TextStyle(fontSize: 30),
+          ),
           const SizedBox(height: 5),
-          Text(item['name'] as String,
-              textAlign: TextAlign.center,
-              style:
-                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+          Text(
+            item['name'] as String,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -187,12 +201,23 @@ class _PlayScreenState extends State<PlayScreen> {
       data: item['name'] as String,
       feedback: Material(
         color: Colors.transparent,
-        child:
-            Text(item['emoji'] as String, style: const TextStyle(fontSize: 50)),
+        child: Text(
+          item['emoji'] as String,
+          style: const TextStyle(fontSize: 50),
+        ),
       ),
-      childWhenDragging: Opacity(opacity: 0.3, child: _toyCard(item)),
+      childWhenDragging: Opacity(
+        opacity: 0.3,
+        child: _toyCard(item),
+      ),
       child: _toyCard(item),
     );
+  }
+
+  @override
+  void dispose() {
+    _playGame.pauseEngine();
+    super.dispose();
   }
 
   @override
@@ -204,8 +229,10 @@ class _PlayScreenState extends State<PlayScreen> {
           Positioned.fill(
             child: Opacity(
               opacity: 0.12,
-              child:
-                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
+              child: Image.asset(
+                'assets/images/paws_bg.png',
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           SafeArea(
@@ -217,14 +244,19 @@ class _PlayScreenState extends State<PlayScreen> {
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                        icon: const Icon(
+                          Icons.arrow_back_ios_new,
+                          size: 20,
+                        ),
                         onPressed: () => Navigator.pop(context),
                       ),
                       const Expanded(
                         child: Text(
                           '🎾  Play With Your Cat',
                           style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold),
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -232,13 +264,16 @@ class _PlayScreenState extends State<PlayScreen> {
                 ),
 
                 const SizedBox(height: 4),
+
                 const Text(
                   'Drag a toy to your cat to play!',
                   style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFFAA7755),
-                      fontStyle: FontStyle.italic),
+                    fontSize: 12,
+                    color: Color(0xFFAA7755),
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
+
                 const SizedBox(height: 10),
 
                 // Drop zone
@@ -249,7 +284,9 @@ class _PlayScreenState extends State<PlayScreen> {
                         setState(() => _hovering = true);
                         return true;
                       },
-                      onLeave: (_) => setState(() => _hovering = false),
+                      onLeave: (_) {
+                        setState(() => _hovering = false);
+                      },
                       onAcceptWithDetails: (details) {
                         setState(() => _hovering = false);
                         _play(details.data);
@@ -272,31 +309,20 @@ class _PlayScreenState extends State<PlayScreen> {
                                     color: const Color(0xFF20B2AA)
                                         .withValues(alpha: 0.35),
                                     blurRadius: 16,
-                                  )
+                                  ),
                                 ]
                               : null,
                           image: const DecorationImage(
                             image: AssetImage(
-                                'assets/images/cat_room/play_cat_room.png'),
+                              'assets/images/cat_room/play_cat_room.png',
+                            ),
                             fit: BoxFit.cover,
                           ),
                         ),
-                        child: Align(
-                          alignment: Alignment.bottomCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: AnimatedBuilder(
-                              animation: DirtyState.instance,
-                              builder: (context, child) {
-                                return PlayPet(
-                                  toy: _currentToy,
-                                  isPlaying: _isPlaying,
-                                  isDirty: DirtyState.instance.isDirty,
-                                  height: 110,
-                                );
-                              },
-                            ),
-                          ),
+
+                        // Flame PlayGame
+                        child: GameWidget(
+                          game: _playGame,
                         ),
                       ),
                     ),
@@ -308,10 +334,11 @@ class _PlayScreenState extends State<PlayScreen> {
                         left: 0,
                         right: 0,
                         child: Center(
-                            child: PlayThought(
-                          emoji: _feedbackEmoji,
-                          text: _feedbackText,
-                        )),
+                          child: PlayThought(
+                            emoji: _feedbackEmoji,
+                            text: _feedbackText,
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -332,6 +359,7 @@ class _PlayScreenState extends State<PlayScreen> {
                     itemBuilder: (_, i) => _draggable(_toys[i]),
                   ),
                 ),
+
                 const SizedBox(height: 10),
               ],
             ),

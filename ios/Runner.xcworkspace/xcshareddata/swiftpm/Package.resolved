@@ -1,5 +1,4 @@
 {
-  "originHash" : "fb42630be9926184fccd977c3400370373eb25bc6edf06caa2167505a54e7551",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -15,8 +14,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/google/app-check.git",
       "state" : {
-        "revision" : "3e33dd27dd4c69bd81c7c81fe61d8ccf58846902",
-        "version" : "11.3.1"
+        "revision" : "97f7d74dd0e8f3d0fe5fc75cc8957aa73bdc948a",
+        "version" : "11.3.2"
       }
     },
     {
@@ -164,5 +163,5 @@
       }
     }
   ],
-  "version" : 3
+  "version" : 2
 }
