@@ -344,13 +344,7 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
     final completedCare = history.all;
 
     // ── Growth — existing model only, no new growth logic. ─────────────────
-    GrowthEntry? latestGrowth;
-    for (final entry in pet.growthEntries) {
-      if (latestGrowth == null ||
-          entry.recordedAt.isAfter(latestGrowth.recordedAt)) {
-        latestGrowth = entry;
-      }
-    }
+    final latestGrowth = pet.latestGrowthEntry;
 
     // Compact "recorded period" summary for the collapsed preview only —
     // derived from the same pet.growthEntries already read above, no new

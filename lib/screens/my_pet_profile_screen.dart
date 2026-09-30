@@ -345,9 +345,7 @@ List<_ChipData> _infoChips(FullPetProfile pet) {
   if (pet.adoptionDate.trim().isNotEmpty) {
     chips.add(_ChipData('🏠', 'Adopted', pet.adoptionDate));
   }
-  final latestWeight = pet.growthEntries.isNotEmpty
-      ? pet.growthEntries.last.weightKg
-      : double.tryParse(pet.weightKg.trim());
+  final latestWeight = pet.currentWeightKg;
   if (latestWeight != null && latestWeight > 0) {
     chips.add(
         _ChipData('⚖️', 'Weight', '${latestWeight.toStringAsFixed(1)} kg'));

@@ -37,6 +37,7 @@ import 'reminder_provider.dart';
 
 const String _boxName = 'full_pet_profiles';
 const int _maxProfiles = 10;
+const String _deletedProfilesKey = '__deleted_profile_ids__';
 
 class PetProfileProvider extends ChangeNotifier {
   PetProfileProvider._();
@@ -51,6 +52,7 @@ class PetProfileProvider extends ChangeNotifier {
   final LocalStorageService _local = LocalStorageService.instance;
 
   List<FullPetProfile> _profiles = [];
+  final Set<String> _deletedProfileIds = <String>{};
 
   bool _loading = false;
 
@@ -123,7 +125,14 @@ class PetProfileProvider extends ChangeNotifier {
     try {
       final loaded = <FullPetProfile>[];
 
-      for (final raw in _box.values) {
+      _deletedProfileIds
+        ..clear()
+        ..addAll(_readDeletedProfileIds());
+
+      for (final key in _box.keys) {
+        if (key == _deletedProfilesKey) continue;
+        final raw = _box.get(key);
+        if (raw == null) continue;
         try {
           final decoded = jsonDecode(raw) as Map<String, dynamic>;
 
@@ -146,6 +155,31 @@ class PetProfileProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+  }
+
+  Set<String> _readDeletedProfileIds() {
+    final raw = _box.get(_deletedProfilesKey);
+    if (raw == null) return <String>{};
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return decoded.whereType<String>().toSet();
+    } catch (_) {
+      // A malformed tombstone must not prevent valid pet profiles from
+      // loading. It is replaced on the next deletion.
+    }
+    return <String>{};
+  }
+
+  Future<void> _saveDeletedProfileIds() async {
+    if (_deletedProfileIds.isEmpty) {
+      await _box.delete(_deletedProfilesKey);
+      return;
+    }
+    await _box.put(
+      _deletedProfilesKey,
+      jsonEncode(_deletedProfileIds.toList()),
+    );
   }
 
   Future<void> _saveToHive(
@@ -308,6 +342,12 @@ class PetProfileProvider extends ChangeNotifier {
         try {
           final cloudProfile = FullPetProfile.fromMap(doc.data());
 
+          if (_deletedProfileIds.contains(cloudProfile.id)) {
+            // A local deletion wins over a stale cloud document, including
+            // after sign-out while the delete is still waiting to sync.
+            continue;
+          }
+
           final localProfile = localMap[cloudProfile.id];
 
           if (localProfile == null ||
@@ -407,7 +447,10 @@ class PetProfileProvider extends ChangeNotifier {
       return;
     }
 
+    final synchronizedWeight =
+        updated.latestGrowthEntry?.weightKg.toString() ?? updated.weightKg;
     final saved = updated.copyWith(
+      weightKg: synchronizedWeight,
       achievements: await _checkProfileComplete(updated),
       updatedAt: DateTime.now(),
     );
@@ -447,6 +490,9 @@ class PetProfileProvider extends ChangeNotifier {
     _profiles.removeAt(index);
 
     notifyListeners();
+
+    _deletedProfileIds.add(id);
+    await _saveDeletedProfileIds();
 
     await _deleteFromHive(id);
 
@@ -634,6 +680,7 @@ class PetProfileProvider extends ChangeNotifier {
     await updateDetails(
       profile.copyWith(
         growthEntries: entries,
+        weightKg: entries.isEmpty ? '' : profile.weightKg,
       ),
     );
   }
@@ -655,6 +702,7 @@ class PetProfileProvider extends ChangeNotifier {
     await updateDetails(
       profile.copyWith(
         growthEntries: entries,
+        weightKg: entries.isEmpty ? '' : profile.weightKg,
       ),
     );
   }
@@ -1323,7 +1371,7 @@ class PetProfileProvider extends ChangeNotifier {
     FullPetProfile profile,
   ) {
     final isComplete = profile.birthday.trim().isNotEmpty &&
-        profile.weightKg.trim().isNotEmpty &&
+        (profile.currentWeightKg ?? 0) > 0 &&
         profile.furColor.trim().isNotEmpty &&
         profile.adoptionDate.trim().isNotEmpty;
 
@@ -1503,13 +1551,19 @@ class PetProfileProvider extends ChangeNotifier {
   /// or account deletion) so the next guest/account on this device never
   /// sees the departed account's pet profiles. Does NOT touch Firestore —
   /// the account's cloud data is untouched by this.
-  Future<void> clearAllLocalData() async {
+  Future<void> clearAllLocalData({bool clearDeletionTombstones = false}) async {
     // init() is idempotent — guarantees the Hive box is actually open
     // even if this provider was never used this session (e.g. a user who
     // signed in but never visited a pet-profile screen before signing
     // out again). A no-op if already initialized.
     await init();
-    await _box.clear();
+    final profileKeys =
+        _box.keys.where((key) => key != _deletedProfilesKey).toList();
+    await Future.wait(profileKeys.map(_box.delete));
+    if (clearDeletionTombstones) {
+      _deletedProfileIds.clear();
+      await _saveDeletedProfileIds();
+    }
     _profiles = [];
     notifyListeners();
   }

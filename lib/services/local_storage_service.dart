@@ -344,7 +344,7 @@ class LocalStorageService {
 
   // ── Nuclear option ────────────────────────────────────────────────────────
 
-  Future<void> clearAll() async {
+  Future<void> clearAll({bool keepPetPhotos = false}) async {
     await Future.wait([
       _pets.clear(),
       _logs.clear(),
@@ -356,7 +356,7 @@ class LocalStorageService {
       _virtualPet.clear(),
       _virtualAchievements.clear(),
       _activityEntries.clear(),
-      _petPhotos.clear(),
+      if (!keepPetPhotos) _petPhotos.clear(),
     ]);
   }
 }

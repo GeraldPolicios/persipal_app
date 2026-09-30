@@ -354,7 +354,11 @@ class AppProvider extends ChangeNotifier {
     ReminderProvider reminderProvider,
     VirtualPetProvider virtualPetProvider,
   ) =>
-      _clearAllProviderLocalData(reminderProvider, virtualPetProvider);
+      _clearAllProviderLocalData(
+        reminderProvider,
+        virtualPetProvider,
+        clearDeletionTombstones: true,
+      );
 
   /// Clears every local store used at an account boundary (sign-out or
   /// account deletion). Each step runs independently —
@@ -367,10 +371,13 @@ class AppProvider extends ChangeNotifier {
     ReminderProvider reminderProvider,
     VirtualPetProvider virtualPetProvider, {
     bool keepPetPhotos = false,
+    bool clearDeletionTombstones = false,
   }) async {
     final steps = <String, Future<void> Function()>{
-      'local data': clearAllLocalData,
-      'pet profiles': () => PetProfileProvider.instance.clearAllLocalData(),
+      'local data': () => clearAllLocalData(keepPetPhotos: keepPetPhotos),
+      'pet profiles': () => PetProfileProvider.instance.clearAllLocalData(
+            clearDeletionTombstones: clearDeletionTombstones,
+          ),
       'reminders': () => reminderProvider.clearAllLocalData(),
       'virtual pet': () => virtualPetProvider.clearAllLocalData(),
       if (!keepPetPhotos) 'pet photos': () => PetPhotoService.instance.clearAll(),
@@ -606,8 +613,8 @@ class AppProvider extends ChangeNotifier {
 
   // ── Data management ───────────────────────────────────────────────────────
 
-  Future<void> clearAllLocalData() async {
-    await _local.clearAll();
+  Future<void> clearAllLocalData({bool keepPetPhotos = false}) async {
+    await _local.clearAll(keepPetPhotos: keepPetPhotos);
     await _activityLog.clearAll();
     _logs.clear();
     _pets.clear();

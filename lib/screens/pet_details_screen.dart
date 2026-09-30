@@ -80,7 +80,9 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
     if (p == null) return;
     _name = TextEditingController(text: p.name);
     _breed = TextEditingController(text: p.breed);
-    _weight = TextEditingController(text: p.weightKg);
+    _weight = TextEditingController(
+      text: p.currentWeightKg?.toString() ?? p.weightKg,
+    );
     _furColor = TextEditingController(text: p.furColor);
     _birthday = TextEditingController(text: p.birthday);
     _adoptionDate = TextEditingController(text: p.adoptionDate);
@@ -94,12 +96,29 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
   Future<void> _save() async {
     final pet = _pet;
     if (pet == null) return;
+
+    final rawWeight = _weight.text.trim();
+    final enteredWeight = double.tryParse(rawWeight);
+    if (rawWeight.isNotEmpty &&
+        (enteredWeight == null ||
+            !enteredWeight.isFinite ||
+            enteredWeight <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid weight.')),
+      );
+      return;
+    }
+
+    final shouldAddWeightEntry = enteredWeight != null &&
+        (pet.growthEntries.isEmpty || pet.currentWeightKg != enteredWeight);
     setState(() => _saving = true);
     await _provider.updateDetails(pet.copyWith(
       name: _name.text.trim(),
       breed: pet.breed,
       age: pet.age, // legacy free-text field, kept as stored
-      weightKg: _weight.text.trim(),
+      // Growth history owns the current weight. For pets without history,
+      // preserve the legacy value until the new entry below is saved.
+      weightKg: pet.weightKg,
       furColor: _furColor.text.trim(),
       birthday: _birthday.text.trim(),
       adoptionDate: _adoptionDate.text.trim(),
@@ -107,6 +126,16 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
       gender: _gender,
       avatarColorValue: _avatarColorValue,
     ));
+    if (shouldAddWeightEntry) {
+      await _provider.addGrowthEntry(
+        pet.id,
+        GrowthEntry(
+          id: _provider.generateId(),
+          weightKg: enteredWeight,
+          recordedAt: DateTime.now(),
+        ),
+      );
+    }
     setState(() {
       _saving = false;
       _editing = false;

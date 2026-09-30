@@ -14,6 +14,25 @@ import '../utils/pet_age.dart';
 // "explicitly passed null" (needed to CLEAR nextSchedule / linkedReminderId).
 const Object _unset = Object();
 
+double? _parseWeight(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value.trim());
+  return null;
+}
+
+GrowthEntry? _latestGrowthEntry(List<GrowthEntry> entries) {
+  GrowthEntry? latest;
+  for (final entry in entries) {
+    // Keep the first entry when timestamps tie. This matches the existing
+    // Growth Tracker/dashboard behavior and preserves list order as the tie
+    // breaker.
+    if (latest == null || entry.recordedAt.isAfter(latest.recordedAt)) {
+      latest = entry;
+    }
+  }
+  return latest;
+}
+
 // ─── GrowthEntry ──────────────────────────────────────────────────────────────
 
 class GrowthEntry {
@@ -50,7 +69,7 @@ class GrowthEntry {
 
   factory GrowthEntry.fromMap(Map<String, dynamic> m) => GrowthEntry(
         id: m['id'] as String,
-        weightKg: (m['weightKg'] as num?)?.toDouble() ?? 0,
+        weightKg: _parseWeight(m['weightKg']) ?? 0,
         notes: m['notes'] as String? ?? '',
         recordedAt: DateTime.tryParse(m['recordedAt'] as String? ?? '') ??
             DateTime.now(),
@@ -514,6 +533,14 @@ class FullPetProfile {
   /// The free-text [age] field is legacy and no longer displayed.
   String get ageLabel => petAgeLabel(birthday);
 
+  /// The current weight used by all profile surfaces. Growth history is the
+  /// source of truth when it exists; the legacy string remains the fallback
+  /// for older pets that have no GrowthEntry yet.
+  GrowthEntry? get latestGrowthEntry => _latestGrowthEntry(growthEntries);
+
+  double? get currentWeightKg =>
+      latestGrowthEntry?.weightKg ?? _parseWeight(weightKg);
+
   FullPetProfile copyWith({
     String? name,
     String? breed,
@@ -599,22 +626,28 @@ class FullPetProfile {
       return saved.isEmpty ? base : PetAchievement.fromMap(saved, base);
     }).toList();
 
+    final growthEntries = (m['growthEntries'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(GrowthEntry.fromMap)
+        .toList();
+    final latestWeight = _latestGrowthEntry(growthEntries)?.weightKg;
+    final legacyWeight = _parseWeight(m['weightKg']);
+
     return FullPetProfile(
       id: m['id'] as String,
       name: m['name'] as String? ?? '',
       breed: m['breed'] as String? ?? 'Persian',
       age: m['age'] as String? ?? '',
       gender: m['gender'] as String? ?? 'Female',
-      weightKg: m['weightKg'] as String? ?? '',
+      // Normalize the legacy field while reading older Hive/cloud records so
+      // future saves keep both representations consistent.
+      weightKg: (latestWeight ?? legacyWeight)?.toString() ?? '',
       furColor: m['furColor'] as String? ?? '',
       birthday: m['birthday'] as String? ?? '',
       adoptionDate: m['adoptionDate'] as String? ?? '',
       notes: m['notes'] as String? ?? '',
       avatarColorValue: (m['avatarColorValue'] as num?)?.toInt() ?? 0xFFFFB3BA,
-      growthEntries: (m['growthEntries'] as List<dynamic>? ?? [])
-          .cast<Map<String, dynamic>>()
-          .map(GrowthEntry.fromMap)
-          .toList(),
+      growthEntries: growthEntries,
       healthRecords: (m['healthRecords'] as List<dynamic>? ?? [])
           .cast<Map<String, dynamic>>()
           .map(HealthRecord.fromMap)

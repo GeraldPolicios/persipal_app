@@ -21,7 +21,22 @@ void main() {
   setUpAll(() async {
     dir = Directory.systemTemp.createTempSync('persipal_photo_test');
     Hive.init(dir.path);
-    await Hive.openBox<String>('ls_pet_photos');
+    for (final boxName in [
+      'ls_pets',
+      'ls_logs',
+      'ls_reminders',
+      'ls_reminder_items',
+      'ls_settings',
+      'ls_quizzes',
+      'ls_pending_sync',
+      'ls_virtual_pet',
+      'ls_activity_entries',
+      'ls_virtual_achievements',
+      'ls_pet_photos',
+      'ls_daily_advice',
+    ]) {
+      await Hive.openBox<String>(boxName);
+    }
   });
 
   tearDownAll(() async {
@@ -83,5 +98,19 @@ void main() {
       expect(covers['catA'], '/a/coverA.jpg');
       expect(covers.containsKey('catB'), isFalse);
     });
+  });
+
+  test('sign-out cleanup can preserve both photo maps', () async {
+    await local.savePetPhotoPaths({'cat1': '/a/avatar1.jpg'});
+    await local.savePetCoverPhotoPaths({'cat1': '/a/cover1.jpg'});
+
+    await local.clearAll(keepPetPhotos: true);
+
+    expect(await local.fetchPetPhotoPaths(), {'cat1': '/a/avatar1.jpg'});
+    expect(await local.fetchPetCoverPhotoPaths(), {'cat1': '/a/cover1.jpg'});
+
+    await local.clearAll();
+    expect(await local.fetchPetPhotoPaths(), isEmpty);
+    expect(await local.fetchPetCoverPhotoPaths(), isEmpty);
   });
 }

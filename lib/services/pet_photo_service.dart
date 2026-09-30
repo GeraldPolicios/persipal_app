@@ -59,9 +59,20 @@ class PetPhotoService extends ChangeNotifier {
     final dir = await getApplicationDocumentsDirectory();
     final rawExt = source.path.contains('.') ? source.path.split('.').last : 'jpg';
     final ext = rawExt.length <= 5 ? rawExt.toLowerCase() : 'jpg';
-    final dest = File('${dir.path}/pet_photo_$petId.$ext');
+    final dest = File(
+        '${dir.path}/pet_photo_${petId}_${DateTime.now().microsecondsSinceEpoch}.$ext');
 
     final old = _paths[petId];
+    await source.copy(dest.path);
+    try {
+      final nextPaths = {..._paths, petId: dest.path};
+      await _local.savePetPhotoPaths(nextPaths);
+      _paths = nextPaths;
+    } catch (_) {
+      if (dest.existsSync()) await dest.delete();
+      rethrow;
+    }
+
     if (old != null && old != dest.path && File(old).existsSync()) {
       try {
         await File(old).delete();
@@ -69,11 +80,6 @@ class PetPhotoService extends ChangeNotifier {
         // Best-effort cleanup — a stray old file isn't worth failing over.
       }
     }
-
-    await source.copy(dest.path);
-
-    _paths = {..._paths, petId: dest.path};
-    await _local.savePetPhotoPaths(_paths);
     notifyListeners();
   }
 
@@ -89,9 +95,20 @@ class PetPhotoService extends ChangeNotifier {
     final dir = await getApplicationDocumentsDirectory();
     final rawExt = source.path.contains('.') ? source.path.split('.').last : 'jpg';
     final ext = rawExt.length <= 5 ? rawExt.toLowerCase() : 'jpg';
-    final dest = File('${dir.path}/pet_cover_$petId.$ext');
+    final dest = File(
+        '${dir.path}/pet_cover_${petId}_${DateTime.now().microsecondsSinceEpoch}.$ext');
 
     final old = _coverPaths[petId];
+    await source.copy(dest.path);
+    try {
+      final nextPaths = {..._coverPaths, petId: dest.path};
+      await _local.savePetCoverPhotoPaths(nextPaths);
+      _coverPaths = nextPaths;
+    } catch (_) {
+      if (dest.existsSync()) await dest.delete();
+      rethrow;
+    }
+
     if (old != null && old != dest.path && File(old).existsSync()) {
       try {
         await File(old).delete();
@@ -99,11 +116,6 @@ class PetPhotoService extends ChangeNotifier {
         // Best-effort cleanup — a stray old file isn't worth failing over.
       }
     }
-
-    await source.copy(dest.path);
-
-    _coverPaths = {..._coverPaths, petId: dest.path};
-    await _local.savePetCoverPhotoPaths(_coverPaths);
     notifyListeners();
   }
 

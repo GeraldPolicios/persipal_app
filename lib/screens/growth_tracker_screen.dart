@@ -390,12 +390,7 @@ class _GrowthTrackerScreenState extends State<GrowthTrackerScreen> {
     // Determine the latest entry by recordedAt explicitly — entries is
     // usually sorted ascending, but editing an entry's date doesn't
     // re-sort the list, so we don't rely on entries.last.
-    var latest = entries.first;
-    for (final e in entries) {
-      if (e.recordedAt.isAfter(latest.recordedAt)) {
-        latest = e;
-      }
-    }
+    final latest = pet.latestGrowthEntry!;
 
     final result = classifyCatWeight(
       weightKg: latest.weightKg,
