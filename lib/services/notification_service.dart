@@ -104,6 +104,19 @@ class NotificationService {
   static const _markDoneActionId = 'mark_done';
   static const _careCategoryId = 'persipal_care_category';
 
+  // Virtual-pet needs use their own channel and IDs so they never
+  // interfere with real-pet care reminders.
+  static const _petNeedChannelId = 'persipal_virtual_pet';
+  static const _petNeedChannelName = 'Virtual Pet Needs';
+  static const _petNeedChannelDesc =
+      'Hunger, cleanliness, play, and neglected-pet alerts';
+
+  static const int virtualPetHungerNotificationId = 210000001;
+  static const int virtualPetCleanlinessNotificationId = 210000002;
+  static const int virtualPetNeglectedNotificationId = 210000003;
+  static const int virtualPetPlayNotificationId = 210000004;
+  static const int virtualPetCombinedCareNotificationId = 210000005;
+
   // ── Persistent-reminder tuning ───────────────────────────────────────────
   // A care reminder that isn't marked done keeps re-notifying every
   // [reminderOverdueRepeatInterval] for as long as it stays overdue — an
@@ -526,11 +539,108 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin>();
       final active = await android?.getActiveNotifications();
       if (active == null) return null;
-      return {for (final a in active) if (a.id != null) a.id!};
+      return {
+        for (final a in active)
+          if (a.id != null) a.id!
+      };
     } catch (_) {
       return null;
     }
   }
+
+  // ── Virtual-pet need notifications ───────────────────────────────────────
+
+  Future<void> showVirtualPetNeed({
+    required int notificationId,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    if (!_initialized) await init();
+
+    await _plugin.cancel(notificationId);
+
+    await _plugin.show(
+      notificationId,
+      title,
+      body,
+      _petNeedDetails(),
+      payload: payload,
+    );
+  }
+
+  Future<void> scheduleVirtualPetNeed({
+    required int notificationId,
+    required String title,
+    required String body,
+    required DateTime scheduledDate,
+    String? payload,
+  }) async {
+    if (!_initialized) await init();
+
+    if (!scheduledDate.isAfter(DateTime.now())) {
+      await showVirtualPetNeed(
+        notificationId: notificationId,
+        title: title,
+        body: body,
+        payload: payload,
+      );
+      return;
+    }
+
+    Future<void> schedule(AndroidScheduleMode mode) => _plugin.zonedSchedule(
+          notificationId,
+          title,
+          body,
+          _toTZ(scheduledDate),
+          _petNeedDetails(),
+          androidScheduleMode: mode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload,
+        );
+
+    try {
+      await schedule(AndroidScheduleMode.alarmClock);
+    } on PlatformException catch (e) {
+      if (e.code != 'exact_alarms_not_permitted') rethrow;
+      await schedule(AndroidScheduleMode.inexactAllowWhileIdle);
+    }
+  }
+
+  Future<void> cancelVirtualPetNeed(int notificationId) async {
+    if (!_initialized) await init();
+    await _plugin.cancel(notificationId);
+  }
+
+  Future<bool> isVirtualPetNeedScheduled(int notificationId) async {
+    if (!_initialized) await init();
+
+    try {
+      final pending = await _plugin.pendingNotificationRequests();
+      return pending.any((item) => item.id == notificationId);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  NotificationDetails _petNeedDetails() => const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _petNeedChannelId,
+          _petNeedChannelName,
+          channelDescription: _petNeedChannelDesc,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+          enableVibration: true,
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      );
 
   // ── Immediate notification (for testing / instant alerts) ─────────────────
 

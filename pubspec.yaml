@@ -1,3 +1,4 @@
+
 name: persipal_app
 description: Persian Cat Care Companion - Virtual pet, learning, and care management app.
 publish_to: 'none'
@@ -23,7 +24,7 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
 
-  # notification
+  # Notification
   flutter_local_notifications: ^17.0.0
   timezone: ^0.9.0
 
@@ -50,6 +51,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
+  firebase_core_platform_interface: 6.0.3
 
 flutter:
   uses-material-design: true
@@ -57,19 +60,20 @@ flutter:
   assets:
     - assets/images/
     - assets/images/bowl/
-    - assets/images/splash_cat/
-    - assets/images/sad_cat/
-    - assets/images/play_cat/
-    - assets/images/play_cat/yarn_cat/
-    - assets/images/play_cat/tennis_ball_cat/
-    - assets/images/play_cat/laser_cat/
-    - assets/images/play_cat/feather_cat/
-    - assets/images/idle_cat/
+    - assets/images/splash/
     - assets/images/idle/
-    - assets/images/happy_cat/
-    - assets/images/eating_cat/
-    - assets/images/cat_room/
-    - assets/images/cat_pet/
+    - assets/images/cat_room/cat_bg_room_ver2.png
+    - assets/images/cat_room/cat_bg_room_ver2noon.png
+    - assets/images/cat_room/cat_bg_room_ver2night.png
+    - assets/images/cat_room/feed_cat_room.png
+    - assets/images/cat_room/feed_cat_roomnoon.png
+    - assets/images/cat_room/feed_cat_roomnight.png
+    - assets/images/cat_room/groom_cat_room.png
+    - assets/images/cat_room/groom_cat_roomnoon.png
+    - assets/images/cat_room/groom_cat_roomnight.png
+    - assets/images/cat_room/play_cat_room.png
+    - assets/images/cat_room/play_cat_roomnoon.png
+    - assets/images/cat_room/play_cat_roomnight.png
     - assets/images/cat_parts/
     - assets/images/cat_parts/sleep/
     - assets/images/cat_parts/wake/
@@ -90,6 +94,38 @@ flutter:
     - assets/images/cat_parts/play/laser/
     - assets/images/cat_parts/play/feather/
     - assets/images/cat_parts/feed/drink/
+    - assets/images/cat_parts/sleepy/
+    - assets/images/cat_parts/rest/
+    - assets/images/cat_parts/sad/
+    - assets/images/cat_parts/groom/fur1/
+    - assets/images/cat_parts/groom/fur2/
+    - assets/images/cat_parts/groom/wet1/
+    - assets/images/cat_parts/groom/wet2/
     - assets/images/items/
-    - assets/sounds/
+    - assets/sounds/bg.mp3
+    - assets/sounds/night.mp3
+    - assets/sounds/click.mp3
+    - assets/sounds/shower.wav
+    - assets/sounds/blower.wav
+    - assets/sounds/brush.wav
+    - assets/sounds/bubbles.wav
+    - assets/sounds/towel.wav
+    - assets/sounds/scissors.wav
+    - assets/sounds/softcat.wav
+    - assets/sounds/sleepcat.wav
+    - assets/sounds/drinkcat.wav
+    - assets/sounds/sadcat.wav
+    - assets/sounds/angrycat.wav
+    - assets/sounds/pettedcat.wav
+    - assets/sounds/hungrycat.wav
+    - assets/sounds/happycat.wav
+    - assets/sounds/eatcat.wav
+    - assets/packs/room/
+    - assets/packs/feed/
+    - assets/packs/groom/
+    - assets/packs/play/
 
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.png"

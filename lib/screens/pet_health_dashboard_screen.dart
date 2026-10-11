@@ -19,15 +19,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../models/pet_extended_models.dart';
-import '../../models/reminder_item_model.dart';
-import '../../providers/pet_profile_provider.dart';
-import '../../providers/reminder_provider.dart';
-import '../../services/completed_care_history.dart';
-import '../../services/pet_photo_service.dart';
-import '../../utils/cat_weight_status.dart';
-import '../../widgets/growth_chart.dart';
-import '../../widgets/pet_photo_avatar.dart';
+import '../models/pet_extended_models.dart';
+import '../models/reminder_item_model.dart';
+import '../providers/pet_profile_provider.dart';
+import '../providers/reminder_provider.dart';
+import '../services/completed_care_history.dart';
+import '../services/pet_photo_service.dart';
+import '../utils/cat_weight_status.dart';
+import '../widgets/growth_chart.dart';
+import '../widgets/pet_photo_avatar.dart';
 import 'completed_history_screen.dart';
 import 'growth_tracker_screen.dart';
 
@@ -86,7 +86,8 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           backgroundColor: const Color(0xFFFFF8F2),
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
@@ -195,8 +196,7 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                         onPressed: () {
                           if (notesCtrl.text.trim().isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Enter a note.')));
+                                const SnackBar(content: Text('Enter a note.')));
                             return;
                           }
                           Navigator.pop(ctx, true);
@@ -326,7 +326,9 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
         .toList()
       ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
-    final overdueVetVisits = vetVisitReminders.where((r) => r.isOverdue).toList()
+    final overdueVetVisits = vetVisitReminders
+        .where((r) => r.isOverdue)
+        .toList()
       ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 
     final nextVetVisit = overdueVetVisits.isNotEmpty
@@ -855,7 +857,8 @@ class _OverallHealthCard extends StatelessWidget {
         : 'All caught up — no overdue care';
     final headlineColor =
         hasOverdue ? Colors.redAccent : const Color(0xFF32CD32);
-    final headlineIcon = hasOverdue ? Icons.warning_amber_rounded : Icons.check_circle;
+    final headlineIcon =
+        hasOverdue ? Icons.warning_amber_rounded : Icons.check_circle;
 
     return _Card(
       child: Column(

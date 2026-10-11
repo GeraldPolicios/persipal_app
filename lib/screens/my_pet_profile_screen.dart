@@ -17,17 +17,17 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:persipal_app/providers/reminder_provider.dart';
 import 'package:persipal_app/models/reminder_item_model.dart';
-import '../../providers/pet_profile_provider.dart';
-import '../../models/pet_extended_models.dart';
-import '../../services/pet_photo_service.dart';
-import '../../widgets/pet_photo_avatar.dart';
+import '../providers/pet_profile_provider.dart';
+import '../models/pet_extended_models.dart';
+import '../services/pet_photo_service.dart';
+import '../widgets/pet_photo_avatar.dart';
 import 'pet_details_screen.dart';
 import 'growth_tracker_screen.dart';
 import 'vaccination_screen.dart';
 import 'achievements_screen.dart';
 import 'reminder_screen.dart';
 import 'pet_health_dashboard_screen.dart';
-import '../../widgets/tap_effects.dart';
+import '../widgets/tap_effects.dart';
 
 class MyPetProfileScreen extends StatefulWidget {
   final String petId;
@@ -159,10 +159,9 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                           child: _ProfileHero(
                             pet: pet,
-                            photoPath:
-                                PetPhotoService.instance.pathFor(pet.id),
-                            coverPhotoPath: PetPhotoService.instance
-                                .coverPathFor(pet.id),
+                            photoPath: PetPhotoService.instance.pathFor(pet.id),
+                            coverPhotoPath:
+                                PetPhotoService.instance.coverPathFor(pet.id),
                             onTapPhoto: _changePhoto,
                             onTapCover: _changeCoverPhoto,
                           ),
@@ -173,8 +172,7 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                         // ── Pet info chips ──────────────────────────────
                         if (_infoChips(pet).isNotEmpty)
                           Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 20),
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
                             child: _InfoChipsCard(chips: _infoChips(pet)),
                           ),
 
@@ -184,8 +182,7 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                         // ── What's Next card ────────────────────────────
                         if (nextReminder != null || nextVaccine != null)
                           Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 20),
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
                             child: _WhatsNextCard(
                               reminder: nextReminder,
                               vaccine: nextVaccine,
@@ -197,8 +194,8 @@ class _MyPetProfileScreenState extends State<MyPetProfileScreen> {
                               onTapVaccines: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) => VaccinationScreen(
-                                        petId: widget.petId)),
+                                    builder: (_) =>
+                                        VaccinationScreen(petId: widget.petId)),
                               ),
                             ),
                           ),
@@ -431,9 +428,8 @@ class _ProfileHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasPhoto = photoPath != null;
     final hasCover = coverPhotoPath != null;
-    final subtitle = [pet.breed, pet.gender]
-        .where((s) => s.trim().isNotEmpty)
-        .join(' • ');
+    final subtitle =
+        [pet.breed, pet.gender].where((s) => s.trim().isNotEmpty).join(' • ');
 
     return Container(
       width: double.infinity,
@@ -481,8 +477,8 @@ class _ProfileHero extends StatelessWidget {
             Positioned.fill(
               child: Opacity(
                 opacity: 0.08,
-                child: Image.asset('assets/images/paws_bg.png',
-                    fit: BoxFit.cover),
+                child:
+                    Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
               ),
             ),
           // Soft decorative accent shapes — same reasoning as above.
@@ -554,8 +550,7 @@ class _ProfileHero extends StatelessWidget {
                 // the no-cover pastel-gradient case is untouched.
                 Container(
                   padding: hasCover
-                      ? const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 8)
+                      ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
                       : EdgeInsets.zero,
                   decoration: hasCover
                       ? BoxDecoration(
@@ -586,14 +581,12 @@ class _ProfileHero extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
-                          color: hasCover
-                              ? Colors.white
-                              : const Color(0xFF3A2A1E),
+                          color:
+                              hasCover ? Colors.white : const Color(0xFF3A2A1E),
                           shadows: hasCover
                               ? [
                                   Shadow(
-                                    color:
-                                        Colors.black.withValues(alpha: 0.5),
+                                    color: Colors.black.withValues(alpha: 0.5),
                                     blurRadius: 6,
                                   ),
                                 ]
@@ -652,11 +645,11 @@ class _WhatsNextCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.90),
+        color: Colors.white.withValues(alpha: 0.90),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2)),
         ],

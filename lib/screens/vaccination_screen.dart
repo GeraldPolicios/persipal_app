@@ -18,9 +18,9 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:provider/provider.dart';
 import 'package:persipal_app/providers/reminder_provider.dart';
-import '../../providers/pet_profile_provider.dart';
-import '../../models/pet_extended_models.dart';
-import '../../widgets/vaccination_complete_dialog.dart';
+import '../providers/pet_profile_provider.dart';
+import '../models/pet_extended_models.dart';
+import '../widgets/vaccination_complete_dialog.dart';
 
 // ─── Quick vaccine templates ────────────────────────────────────────────────
 // Tapping one fills the name field and, if no next-schedule is set yet,
@@ -105,7 +105,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF7B68EE).withOpacity(0.15),
+                        color: const Color(0xFF7B68EE).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(Icons.vaccines,
@@ -141,11 +141,12 @@ class _VaccinationScreenState extends State<VaccinationScreen>
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF7B68EE).withOpacity(0.10),
+                              color: const Color(0xFF7B68EE)
+                                  .withValues(alpha: 0.10),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                  color:
-                                      const Color(0xFF7B68EE).withOpacity(0.3)),
+                                  color: const Color(0xFF7B68EE)
+                                      .withValues(alpha: 0.3)),
                             ),
                             child: Text(label,
                                 style: const TextStyle(
@@ -190,7 +191,8 @@ class _VaccinationScreenState extends State<VaccinationScreen>
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: const Color(0xFF20B2AA).withOpacity(0.3)),
+                            color:
+                                const Color(0xFF20B2AA).withValues(alpha: 0.3)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -287,7 +289,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
                                       color: const Color(0xFF20B2AA)
-                                          .withOpacity(0.3)),
+                                          .withValues(alpha: 0.3)),
                                 ),
                                 child: Row(children: [
                                   const Icon(Icons.access_time,
@@ -618,7 +620,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
   Widget _headerBadge(String text, Color color) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(text,
@@ -629,7 +631,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
   Widget _statChip(String count, String label, Color color) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -640,7 +642,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
           Text(label,
               style: TextStyle(
                   fontSize: 11,
-                  color: color.withOpacity(0.85),
+                  color: color.withValues(alpha: 0.85),
                   fontWeight: FontWeight.w600)),
         ]),
       );
@@ -682,8 +684,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Opacity(
             opacity: 0.35,
-            child:
-                Icon(Icons.vaccines, size: 80, color: Color(0xFF7B68EE)),
+            child: Icon(Icons.vaccines, size: 80, color: Color(0xFF7B68EE)),
           ),
           SizedBox(height: 16),
           Text('No vaccination records yet.',
@@ -708,7 +709,8 @@ class _VaccinationScreenState extends State<VaccinationScreen>
   InputDecoration _fieldDeco(String label, IconData icon, Color color) =>
       InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(fontSize: 12, color: color.withOpacity(0.8)),
+        labelStyle:
+            TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8)),
         prefixIcon: Icon(icon, size: 16, color: color),
         filled: true,
         fillColor: Colors.white,
@@ -719,7 +721,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
             borderSide: BorderSide.none),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: color.withOpacity(0.25)),
+          borderSide: BorderSide(color: color.withValues(alpha: 0.25)),
         ),
       );
 
@@ -738,7 +740,7 @@ class _VaccinationScreenState extends State<VaccinationScreen>
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: color.withOpacity(0.25)),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
           ),
           child: Row(children: [
             Icon(icon, size: 16, color: color),
@@ -801,17 +803,19 @@ class _VaccineCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.90),
+        color: Colors.white.withValues(alpha: 0.90),
         borderRadius: BorderRadius.circular(16),
         border: isOverdue
-            ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5)
+            ? Border.all(
+                color: Colors.redAccent.withValues(alpha: 0.5), width: 1.5)
             : isPlanned
                 ? Border.all(
-                    color: const Color(0xFF20B2AA).withOpacity(0.4), width: 1.5)
+                    color: const Color(0xFF20B2AA).withValues(alpha: 0.4),
+                    width: 1.5)
                 : null,
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2)),
         ],
@@ -827,7 +831,7 @@ class _VaccineCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF7B68EE).withOpacity(0.12),
+                  color: const Color(0xFF7B68EE).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Center(
@@ -874,7 +878,7 @@ class _VaccineCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF20B2AA).withOpacity(0.12),
+                    color: const Color(0xFF20B2AA).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text('Planned',
@@ -888,7 +892,7 @@ class _VaccineCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.12),
+                    color: Colors.redAccent.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text('Overdue',
@@ -907,8 +911,8 @@ class _VaccineCard extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: isOverdue
-                      ? Colors.redAccent.withOpacity(0.08)
-                      : const Color(0xFF7B68EE).withOpacity(0.08),
+                      ? Colors.redAccent.withValues(alpha: 0.08)
+                      : const Color(0xFF7B68EE).withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(children: [
@@ -1040,7 +1044,7 @@ class _VaccineCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
+            color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1059,7 +1063,7 @@ class _VaccineCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.10),
+            color: color.withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, size: 16, color: color),

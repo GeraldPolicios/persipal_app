@@ -26,9 +26,12 @@
 // virtual_pet_state.dart's header comment).
 
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/virtual_achievement_model.dart';
 import '../models/virtual_pet_state.dart';
 import 'activity_log_service.dart';
+import 'auth_service.dart';
+import 'connectivity_service.dart';
 import 'local_storage_service.dart';
 
 class VirtualAchievementService extends ChangeNotifier {
@@ -47,12 +50,29 @@ class VirtualAchievementService extends ChangeNotifier {
   int _lastGroomCount = 0;
   int _lastPlayCount = 0;
 
+  // The 89 added milestones must count actions performed after this tracker
+  // was introduced, not the pet's historical lifetime counters.
+  int _milestoneFeedBaseline = 0;
+  int _milestoneGroomBaseline = 0;
+  int _milestonePlayBaseline = 0;
+  bool _milestoneBaselineInitialized = false;
+  static const int _milestoneTrackingVersion = 2;
+
   bool _initialized = false;
+  bool _hasObservedPetBaseline = false;
+  bool _syncing = false;
+  bool _syncListenersAttached = false;
 
   List<VirtualAchievement> get achievements => List.unmodifiable(_achievements);
 
   int get unlockedCount => _achievements.where((a) => a.unlocked).length;
   int get totalCount => _achievements.length;
+
+  /// Lifetime achievement score. Only unlocked badges contribute; this is
+  /// intentionally separate from spendable Reward Points and Cat XP.
+  int get achievementPoints => _achievements
+      .where((achievement) => achievement.unlocked)
+      .fold<int>(0, (total, achievement) => total + achievement.coinReward);
 
   /// Forgets all in-memory virtual-achievement state. The persisted copy
   /// lives in LocalStorageService's own box, which clearAll() now also wipes
@@ -67,6 +87,11 @@ class VirtualAchievementService extends ChangeNotifier {
     _lastFeedCount = 0;
     _lastGroomCount = 0;
     _lastPlayCount = 0;
+    _milestoneFeedBaseline = 0;
+    _milestoneGroomBaseline = 0;
+    _milestonePlayBaseline = 0;
+    _milestoneBaselineInitialized = false;
+    _hasObservedPetBaseline = false;
     notifyListeners();
   }
 
@@ -78,37 +103,99 @@ class VirtualAchievementService extends ChangeNotifier {
 
     final saved = await _local.fetchVirtualAchievementState();
     if (saved != null) {
+      _hasObservedPetBaseline = true;
       final rawAchievements = (saved['achievements'] as List<dynamic>? ?? [])
           .cast<Map<String, dynamic>>();
+      final savedMilestoneVersion =
+          (saved['milestoneTrackingVersion'] as num?)?.toInt() ?? 0;
       _achievements = kDefaultVirtualAchievements.map((base) {
         final match = rawAchievements.firstWhere(
           (a) => a['type'] == base.type.name,
           orElse: () => <String, dynamic>{},
         );
-        return match.isEmpty ? base : VirtualAchievement.fromMap(match, base);
+        if (match.isEmpty) return base;
+        final restored = VirtualAchievement.fromMap(match, base);
+        // Earlier tracker versions incorrectly completed many milestones
+        // from the combined total. Re-lock only the 89 added milestones once.
+        if (savedMilestoneVersion < _milestoneTrackingVersion &&
+            base.type.name.startsWith('catMilestone')) {
+          return base;
+        }
+        return restored;
       }).toList();
+      _milestoneBaselineInitialized =
+          savedMilestoneVersion >= _milestoneTrackingVersion &&
+              saved['milestoneBaselineInitialized'] == true;
+      _milestoneFeedBaseline =
+          (saved['milestoneFeedBaseline'] as num?)?.toInt() ?? 0;
+      _milestoneGroomBaseline =
+          (saved['milestoneGroomBaseline'] as num?)?.toInt() ?? 0;
+      _milestonePlayBaseline =
+          (saved['milestonePlayBaseline'] as num?)?.toInt() ?? 0;
 
-      _feedDays = ((saved['feedDays'] as List<dynamic>? ?? []))
-          .cast<String>()
-          .toSet();
-      _groomDays = ((saved['groomDays'] as List<dynamic>? ?? []))
-          .cast<String>()
-          .toSet();
-      _playDays = ((saved['playDays'] as List<dynamic>? ?? []))
-          .cast<String>()
-          .toSet();
+      _feedDays =
+          ((saved['feedDays'] as List<dynamic>? ?? [])).cast<String>().toSet();
+      _groomDays =
+          ((saved['groomDays'] as List<dynamic>? ?? [])).cast<String>().toSet();
+      _playDays =
+          ((saved['playDays'] as List<dynamic>? ?? [])).cast<String>().toSet();
       _lastFeedCount = (saved['lastFeedCount'] as num?)?.toInt() ?? 0;
       _lastGroomCount = (saved['lastGroomCount'] as num?)?.toInt() ?? 0;
       _lastPlayCount = (saved['lastPlayCount'] as num?)?.toInt() ?? 0;
     }
 
+    // Achievement rewards now contribute to the separate lifetime
+    // Achievement Points score; they no longer add spendable Reward Points.
+    // Existing RewardService balances are intentionally left untouched.
+
+    if (!_syncListenersAttached) {
+      _syncListenersAttached = true;
+      AuthService.instance.addListener(_onAccountOrNetworkChanged);
+      ConnectivityService.instance.addListener(_onAccountOrNetworkChanged);
+    }
     notifyListeners();
+    // Merge, never blindly replace, so first login preserves offline badges.
+    await syncProgress();
+  }
+
+  void _onAccountOrNetworkChanged() {
+    // Avoid overlapping auth/connectivity callbacks.
+    syncProgress();
   }
 
   // ── Live updates from VirtualPetProvider (forwarded via main.dart) ────────
 
   Future<void> onVirtualPetChanged(VirtualPetState pet) async {
     if (!_initialized) return;
+
+    // Establish a lifetime-counter baseline for the added milestones. This
+    // prevents pre-existing feed/groom/play counts from instantly completing
+    // achievements that were only recently introduced.
+    if (!_milestoneBaselineInitialized) {
+      _milestoneFeedBaseline = pet.simFeedCount;
+      _milestoneGroomBaseline = pet.simGroomCount;
+      _milestonePlayBaseline = pet.simPlayCount;
+      _milestoneBaselineInitialized = true;
+      _lastFeedCount = pet.simFeedCount;
+      _lastGroomCount = pet.simGroomCount;
+      _lastPlayCount = pet.simPlayCount;
+      _hasObservedPetBaseline = true;
+      await _save();
+      notifyListeners();
+      return;
+    }
+
+    // On a genuinely fresh local achievement state, the first provider
+    // notification establishes a baseline only. It must not count historical
+    // pet counters as actions performed after the tracker was installed.
+    if (!_hasObservedPetBaseline) {
+      _lastFeedCount = pet.simFeedCount;
+      _lastGroomCount = pet.simGroomCount;
+      _lastPlayCount = pet.simPlayCount;
+      _hasObservedPetBaseline = true;
+      await _save();
+      return;
+    }
 
     final today = _dayKey(DateTime.now());
     var changed = false;
@@ -140,18 +227,55 @@ class VirtualAchievementService extends ChangeNotifier {
 
     await _unlockAndLog(VirtualAchievementType.firstFeed, pet.simFeedCount);
     await _unlockAndLog(VirtualAchievementType.feedingFriend, pet.simFeedCount);
-    await _unlockAndLog(VirtualAchievementType.feedingRoutine, _feedDays.length);
+    await _unlockAndLog(
+        VirtualAchievementType.feedingRoutine, _feedDays.length);
     await _unlockAndLog(VirtualAchievementType.firstPlay, pet.simPlayCount);
     await _unlockAndLog(VirtualAchievementType.playtimePal, pet.simPlayCount);
-    await _unlockAndLog(VirtualAchievementType.playtimeRegular, _playDays.length);
+    await _unlockAndLog(
+        VirtualAchievementType.playtimeRegular, _playDays.length);
     await _unlockAndLog(VirtualAchievementType.firstGroom, pet.simGroomCount);
-    await _unlockAndLog(VirtualAchievementType.groomingBuddy, pet.simGroomCount);
-    await _unlockAndLog(VirtualAchievementType.fluffyRoutine, _groomDays.length);
-    await _unlockAndLog(VirtualAchievementType.caringCompanion, categoriesTouched);
+    await _unlockAndLog(
+        VirtualAchievementType.groomingBuddy, pet.simGroomCount);
+    await _unlockAndLog(
+        VirtualAchievementType.fluffyRoutine, _groomDays.length);
+    await _unlockAndLog(
+        VirtualAchievementType.caringCompanion, categoriesTouched);
     await _unlockAndLog(VirtualAchievementType.dedicatedPlayer, combined);
+
+    // The 89 added milestones count only actions performed since their
+    // baseline was established, and use the action category named by each
+    // achievement rather than the combined total for every badge.
+    final feedProgress =
+        (pet.simFeedCount - _milestoneFeedBaseline).clamp(0, 1 << 30);
+    final groomProgress =
+        (pet.simGroomCount - _milestoneGroomBaseline).clamp(0, 1 << 30);
+    final playProgress =
+        (pet.simPlayCount - _milestonePlayBaseline).clamp(0, 1 << 30);
+    final careActions = feedProgress + groomProgress;
+    final milestoneCombined = careActions + playProgress;
+    for (final achievement in List<VirtualAchievement>.from(_achievements)) {
+      if (!achievement.type.name.startsWith('catMilestone')) continue;
+      final description = achievement.description.toLowerCase();
+      final int progress;
+      if (description.startsWith('fed the virtual cat')) {
+        progress = feedProgress;
+      } else if (description.startsWith('played with the virtual cat')) {
+        progress = playProgress;
+      } else if (description.startsWith('groomed the virtual cat')) {
+        progress = groomProgress;
+      } else if (description.contains('care actions')) {
+        progress = careActions;
+      } else {
+        // "spent time", "routine", and "interactions" describe combined
+        // care/play milestones.
+        progress = milestoneCombined;
+      }
+      await _unlockAndLog(achievement.type, progress);
+    }
 
     await _save();
     notifyListeners();
+    syncProgress();
   }
 
   Future<void> _unlockAndLog(VirtualAchievementType type, int progress) async {
@@ -169,6 +293,8 @@ class VirtualAchievementService extends ChangeNotifier {
     );
 
     if (!wasUnlocked && nowUnlocked) {
+      // Achievement Points are derived from unlocked badges, so the score
+      // increases exactly once per achievement and never inflates shop currency.
       await _log.logAchievementUnlocked(before.title, 'Virtual Cat');
     }
   }
@@ -182,7 +308,141 @@ class VirtualAchievementService extends ChangeNotifier {
       'lastFeedCount': _lastFeedCount,
       'lastGroomCount': _lastGroomCount,
       'lastPlayCount': _lastPlayCount,
+      'milestoneTrackingVersion': _milestoneTrackingVersion,
+      'milestoneBaselineInitialized': _milestoneBaselineInitialized,
+      'milestoneFeedBaseline': _milestoneFeedBaseline,
+      'milestoneGroomBaseline': _milestoneGroomBaseline,
+      'milestonePlayBaseline': _milestonePlayBaseline,
     });
+  }
+
+  /// Syncs virtual-cat achievements to the signed-in user's cloud profile.
+  /// Local and cloud progress are merged monotonically: unlocked badges stay
+  /// unlocked, progress uses the maximum seen, and distinct-day sets are unioned.
+  /// Guests remain fully offline-first and never write to a shared guest path.
+  Future<void> syncProgress() async {
+    if (!_initialized ||
+        _syncing ||
+        !AuthService.instance.isAuthenticated ||
+        !ConnectivityService.instance.isOnline) {
+      return;
+    }
+    final uid = AuthService.instance.userId;
+    final ownerUid = _local.fetchVirtualProgressOwner();
+    // Keep local achievements available offline, but don't silently upload a
+    // previous account's virtual-cat achievements into a different account.
+    if (ownerUid != null && ownerUid != uid) {
+      debugPrint('VirtualAchievementService: account mismatch; sync paused.');
+      return;
+    }
+    _syncing = true;
+    try {
+      final doc = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('settings')
+          .doc('virtual_achievements');
+      final snapshot = await doc.get();
+      final cloud = snapshot.data();
+      var changed = false;
+
+      if (cloud != null) {
+        final cloudMilestoneVersion =
+            (cloud['milestoneTrackingVersion'] as num?)?.toInt() ?? 0;
+        final ignoreLegacyMilestoneUnlocks =
+            cloudMilestoneVersion < _milestoneTrackingVersion;
+        final rawAchievements =
+            (cloud['achievements'] as List<dynamic>? ?? const [])
+                .whereType<Map>()
+                .map((m) => Map<String, dynamic>.from(m))
+                .toList();
+        final mergedAchievements = <VirtualAchievement>[];
+        for (final localAchievement in _achievements) {
+          final remote =
+              rawAchievements.cast<Map<String, dynamic>?>().firstWhere(
+                    (m) => m?['type'] == localAchievement.type.name,
+                    orElse: () => null,
+                  );
+          if (remote == null) {
+            mergedAchievements.add(localAchievement);
+            continue;
+          }
+          final remoteAchievement =
+              VirtualAchievement.fromMap(remote, localAchievement);
+          // Ignore pre-fix cloud states for the added milestones; they were
+          // often unlocked from the wrong combined counter.
+          if (ignoreLegacyMilestoneUnlocks &&
+              localAchievement.type.name.startsWith('catMilestone')) {
+            mergedAchievements.add(localAchievement);
+            continue;
+          }
+          final isUnlocked =
+              localAchievement.unlocked || remoteAchievement.unlocked;
+          final localDate = localAchievement.unlockedAt;
+          final remoteDate = remoteAchievement.unlockedAt;
+          final unlockedAt = localDate == null
+              ? remoteDate
+              : remoteDate == null || localDate.isBefore(remoteDate)
+                  ? localDate
+                  : remoteDate;
+          final merged = localAchievement.copyWith(
+            unlocked: isUnlocked,
+            unlockedAt: unlockedAt,
+            progressCurrent: localAchievement.progressCurrent >
+                    remoteAchievement.progressCurrent
+                ? localAchievement.progressCurrent
+                : remoteAchievement.progressCurrent,
+          );
+          if (merged.unlocked != localAchievement.unlocked ||
+              merged.progressCurrent != localAchievement.progressCurrent ||
+              merged.unlockedAt != localAchievement.unlockedAt) {
+            changed = true;
+          }
+          mergedAchievements.add(merged);
+        }
+        _achievements = mergedAchievements;
+        for (final key in ['feedDays', 'groomDays', 'playDays']) {
+          final localSet = switch (key) {
+            'feedDays' => _feedDays,
+            'groomDays' => _groomDays,
+            _ => _playDays,
+          };
+          final remoteSet =
+              ((cloud[key] as List<dynamic>?) ?? const []).cast<String>();
+          final union = {...localSet, ...remoteSet};
+          if (union.length != localSet.length) changed = true;
+          if (key == 'feedDays') _feedDays = union;
+          if (key == 'groomDays') _groomDays = union;
+          if (key == 'playDays') _playDays = union;
+        }
+      }
+
+      await _save();
+      await doc.set({
+        'achievements': _achievements.map((a) => a.toMap()).toList(),
+        'feedDays': _feedDays.toList(),
+        'groomDays': _groomDays.toList(),
+        'playDays': _playDays.toList(),
+        'lastFeedCount': _lastFeedCount,
+        'lastGroomCount': _lastGroomCount,
+        'lastPlayCount': _lastPlayCount,
+        'milestoneTrackingVersion': _milestoneTrackingVersion,
+        'milestoneBaselineInitialized': _milestoneBaselineInitialized,
+        'milestoneFeedBaseline': _milestoneFeedBaseline,
+        'milestoneGroomBaseline': _milestoneGroomBaseline,
+        'milestonePlayBaseline': _milestonePlayBaseline,
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+      await _local.saveVirtualProgressOwner(uid);
+
+      // Achievement Points are derived from the merged unlocked badges, so
+      // they remain consistent across local/cloud achievement merges.
+      if (changed) notifyListeners();
+    } catch (e) {
+      debugPrint('VirtualAchievementService: sync failed: $e');
+    } finally {
+      _syncing = false;
+    }
   }
 
   String _dayKey(DateTime d) =>

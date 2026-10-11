@@ -1,18 +1,34 @@
-import 'dart:math';
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
+import 'package:provider/provider.dart';
+
 import '../services/activity_service.dart';
-import '../widgets/feed_pet.dart';
+import '../services/reward_service.dart';
+import '../services/global_music_service.dart';
 import '../widgets/feed_thought.dart';
 import '../game/feed.dart';
+import '../game/cat_animation.dart';
+import '../providers/virtual_pet_provider.dart';
+import '../widgets/realtime_clock.dart';
+import '../widgets/shop_scene_background.dart';
+import '../widgets/dirt_overlay.dart';
+
+import '../utils/day_period.dart';
+import '../utils/nighttime_mode.dart';
 
 class FeedScreen extends StatefulWidget {
   final int hunger;
   final int happiness;
   final int cleanliness;
   final bool isDirty;
-  final Function(int hunger, int happiness, int cleanliness) onUpdate;
+
+  final Function(
+    int hunger,
+    int happiness,
+    int cleanliness,
+  ) onUpdate;
 
   const FeedScreen({
     super.key,
@@ -29,17 +45,20 @@ class FeedScreen extends StatefulWidget {
 
 class _FeedScreenState extends State<FeedScreen> {
   final _service = ActivityService.instance;
-  final _random = Random();
 
   late final FeedGame _feedGame;
+  late final CatAnimation _sadCatGame;
+  late final CatAnimation _sleepyCatGame;
 
   late int hunger;
   late int happiness;
   late int cleanliness;
 
   bool _hovering = false;
+
   String _feedbackText = '';
   String _feedbackEmoji = '😺';
+
   bool _showFeedEffect = false;
 
   String? _foodInBowl;
@@ -47,12 +66,36 @@ class _FeedScreenState extends State<FeedScreen> {
   bool _isEating = false;
 
   final List<Map<String, dynamic>> _foods = const [
-    {'emoji': '🍗', 'name': 'Dry Food', 'color': Color(0xFFFFE0B2)},
-    {'emoji': '🥫', 'name': 'Wet Food', 'color': Color(0xFFFFCDD2)},
-    {'emoji': '🐟', 'name': 'Fish', 'color': Color(0xFFB3E5FC)},
-    {'emoji': '🥛', 'name': 'Milk', 'color': Color(0xFFE1F5FE)},
-    {'emoji': '💧', 'name': 'Water', 'color': Color(0xFFBBDEFB)},
-    {'emoji': '🍖', 'name': 'Treat', 'color': Color(0xFFFFCCBC)},
+    {
+      'emoji': '🍗',
+      'name': 'Dry Food',
+      'color': Color(0xFFFFE0B2),
+    },
+    {
+      'emoji': '🥫',
+      'name': 'Wet Food',
+      'color': Color(0xFFFFCDD2),
+    },
+    {
+      'emoji': '🐟',
+      'name': 'Fish',
+      'color': Color(0xFFB3E5FC),
+    },
+    {
+      'emoji': '🥛',
+      'name': 'Milk',
+      'color': Color(0xFFE1F5FE),
+    },
+    {
+      'emoji': '💧',
+      'name': 'Water',
+      'color': Color(0xFFBBDEFB),
+    },
+    {
+      'emoji': '🍖',
+      'name': 'Treat',
+      'color': Color(0xFFFFCCBC),
+    },
   ];
 
   @override
@@ -64,67 +107,207 @@ class _FeedScreenState extends State<FeedScreen> {
     cleanliness = widget.cleanliness;
 
     _feedGame = FeedGame();
+
+    // Neglected uses the SAME sad animation.
+    _sadCatGame = CatAnimation(
+      startSad: true,
+      // Match FeedGame so Sad/Hungry and eating animations share the
+      // same cat position relative to the bowl.
+      positionYOffset: 17,
+    );
+    _sleepyCatGame = CatAnimation(
+      // Keep sleepy animation aligned with the feed/eating cat and bowl.
+      positionYOffset: 17,
+    );
+    dayPeriodNotifier.addListener(_onDayPeriodChanged);
   }
 
-  Future<void> _startEating(String food) async {
-    // Prevent multiple foods from being processed at the same time.
-    if (_foodInBowl != null || _isEating) {
-      return;
-    }
+  bool _isNeglected(
+    VirtualPetProvider pet,
+  ) {
+    return pet.hunger >= 90 && pet.happiness <= 20 && pet.cleanliness <= 20;
+  }
 
-    if (widget.isDirty) {
-      setState(() {
-        _feedbackEmoji = "🧼";
-        _feedbackText = "Clean me first!";
-        _showFeedEffect = true;
-      });
+  Future<void> _showSleepyBlocked() async {
+    if (!mounted) return;
 
-      await Future.delayed(const Duration(seconds: 2));
-
-      if (!mounted) return;
-
-      setState(() {
-        _showFeedEffect = false;
-        _feedbackText = "";
-      });
-
-      return;
-    }
-
-    // Show food in bowl first
     setState(() {
-      _foodInBowl = food;
+      _feedbackEmoji = '😴';
+      _feedbackText = 'Zzz... Im sleepy!';
+      _showFeedEffect = true;
     });
 
-    // Give player time to see the food
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    setState(() {
+      _showFeedEffect = false;
+      _feedbackText = '';
+    });
+  }
+
+  Future<void> _showFullBlocked() async {
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackEmoji = '😸';
+      _feedbackText = 'Im full!';
+      _showFeedEffect = true;
+    });
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    setState(() {
+      _showFeedEffect = false;
+      _feedbackText = '';
+    });
+  }
+
+  Future<void> _showNighttimeBlocked() async {
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackEmoji = '🌙';
+      _feedbackText = 'I’m not hungry. Let me rest!';
+      _showFeedEffect = true;
+    });
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    setState(() {
+      _showFeedEffect = false;
+      _feedbackText = '';
+    });
+  }
+
+  Future<void> _showCleanFirst() async {
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackEmoji = '🧼';
+      _feedbackText = 'Clean me first!';
+      _showFeedEffect = true;
+    });
+
     await Future.delayed(
-      const Duration(milliseconds: 800),
+      const Duration(seconds: 2),
     );
 
     if (!mounted) return;
 
-    // Cat starts eating or drinking
     setState(() {
+      _showFeedEffect = false;
+      _feedbackText = '';
+    });
+  }
+
+  Future<void> _startEating(
+    String food,
+  ) async {
+    if (_foodInBowl != null || _isEating) {
+      return;
+    }
+
+    final pet = context.read<VirtualPetProvider>();
+
+    // Long fur blocks feeding before any bowl/animation state starts.
+    if (pet.furStage > 0) {
+      await _showCleanFirst();
+      return;
+    }
+
+    // Sleeping/Sleepy cats cannot be fed.
+    // Keep the two states distinct: sleeping silently blocks feeding, while
+    // a sleepy (but awake) cat shows the sleepy feedback.
+    if (pet.isSleeping) {
+      return;
+    }
+    if (pet.isSleepy) {
+      await _showSleepyBlocked();
+      return;
+    }
+
+    // A cat with 0 hunger is already full. Do not start the eating/drinking
+    // animation or place food in the bowl; show the same thought-bubble style
+    // used by the other care/play screens instead.
+    if (pet.hunger <= 0) {
+      await _showFullBlocked();
+      return;
+    }
+
+    // Neglected cat must be groomed first.
+    if (_isNeglected(pet)) {
+      await _showCleanFirst();
+      return;
+    }
+
+    // At night, feeding is allowed only when the cat actually needs care.
+    // Keep this aligned with the Feed screen's nighttime visibility rule:
+    // hunger >= 70, dirt, or fur means care is still permitted.
+    final needsCareAtNight =
+        pet.hunger >= 70 || pet.isDirty || pet.furStage > 0;
+    if (NighttimeMode.isNighttime() && !needsCareAtNight) {
+      await _showNighttimeBlocked();
+      return;
+    }
+
+    // Mark the care animation as active BEFORE the short bowl delay.
+    // This is important because a hungry cat normally uses the SadCat game;
+    // while feeding, FeedGame must be the visible cat so its eating/drinking
+    // animation can actually be seen.
+    setState(() {
+      _foodInBowl = food;
       _isEating = true;
     });
 
-    if (food == 'Milk' || food == 'Water') {
-      await _feedGame.playDrinking();
-    } else {
-      await _feedGame.playEating();
+    if (!mounted) return;
+
+    final isDrinking = food == 'Milk' || food == 'Water';
+
+    // Start the SFX only when the sprite reaches the bowl, not when the
+    // animation begins. The first part of each sheet is the cat lowering its
+    // head, so playing the sound immediately makes it feel out of sync.
+    void playBowlContactSound() {
+      unawaited(
+        GlobalMusicService.instance.playSfx(
+          isDrinking ? 'drinkcat.wav' : 'eatcat.wav',
+        ),
+      );
+    }
+
+    try {
+      if (isDrinking) {
+        await _feedGame.playDrinking(
+          onHeadAtBowl: playBowlContactSound,
+        );
+      } else {
+        await _feedGame.playEating(
+          onHeadAtBowl: playBowlContactSound,
+        );
+      }
+    } finally {
+      // Also stops the sound if the animation is interrupted by navigation.
+      await GlobalMusicService.instance.stopSfx();
     }
 
     if (!mounted) return;
 
-    // Apply stats
-    _feed(food);
+    await _feed(food);
 
-    // Remove food
+    if (!mounted) return;
+
     setState(() {
       _isEating = false;
     });
 
-    await Future.delayed(const Duration(milliseconds: 400));
+    await Future.delayed(
+      const Duration(milliseconds: 400),
+    );
 
     if (!mounted) return;
 
@@ -133,63 +316,79 @@ class _FeedScreenState extends State<FeedScreen> {
     });
   }
 
-  void _feed(String food) {
+  Future<void> _feed(
+    String food,
+  ) async {
+    final pet = context.read<VirtualPetProvider>();
+
+    if (pet.furStage > 0) {
+      await _showCleanFirst();
+      return;
+    }
+
+    int hungerDelta = 0;
+    int happinessDelta = 0;
+    int cleanlinessDelta = 0;
     String feedback;
+    String emoji;
+
+    switch (food) {
+      case 'Dry Food':
+        hungerDelta = -25;
+        happinessDelta = 5;
+        feedback = 'Crunchy!';
+        emoji = '😸';
+        break;
+      case 'Wet Food':
+        hungerDelta = -20;
+        happinessDelta = 10;
+        feedback = 'Yummy!';
+        emoji = '😻';
+        break;
+      case 'Fish':
+        hungerDelta = -15;
+        happinessDelta = 20;
+        feedback = 'Fishy treat!';
+        emoji = '🐟';
+        break;
+      case 'Milk':
+        hungerDelta = -10;
+        happinessDelta = 15;
+        cleanlinessDelta = 5;
+        feedback = 'Milk time!';
+        emoji = '🥛';
+        break;
+      case 'Water':
+        cleanlinessDelta = 10;
+        feedback = 'Hydrated!';
+        emoji = '💧';
+        break;
+      case 'Treat':
+        hungerDelta = -10;
+        happinessDelta = 25;
+        feedback = 'Treat time!';
+        emoji = '🍖';
+        break;
+      default:
+        feedback = '';
+        emoji = '😺';
+    }
+
+    await pet.feed(
+      hungerDelta: hungerDelta,
+      happinessDelta: happinessDelta,
+      cleanlinessDelta: cleanlinessDelta,
+    );
+    if (!mounted) return;
 
     setState(() {
-      switch (food) {
-        case 'Dry Food':
-          hunger = (hunger - 25).clamp(0, 100);
-          happiness = (happiness + 5).clamp(0, 100);
-          feedback = 'Crunchy!';
-          _feedbackEmoji = '😸';
-          break;
-
-        case 'Wet Food':
-          hunger = (hunger - 20).clamp(0, 100);
-          happiness = (happiness + 10).clamp(0, 100);
-          feedback = 'Yummy!';
-          _feedbackEmoji = '😻';
-          break;
-
-        case 'Fish':
-          hunger = (hunger - 15).clamp(0, 100);
-          happiness = (happiness + 20).clamp(0, 100);
-          feedback = 'Fishy treat!';
-          _feedbackEmoji = '🐟';
-          break;
-
-        case 'Milk':
-          hunger = (hunger - 10).clamp(0, 100);
-          happiness = (happiness + 15).clamp(0, 100);
-          cleanliness = (cleanliness + 5).clamp(0, 100);
-          feedback = 'Milk time!';
-          _feedbackEmoji = '🥛';
-          break;
-
-        case 'Water':
-          cleanliness = (cleanliness + 10).clamp(0, 100);
-          feedback = 'Hydrated!';
-          _feedbackEmoji = '💧';
-          break;
-
-        case 'Treat':
-          hunger = (hunger - 10).clamp(0, 100);
-          happiness = (happiness + 25).clamp(0, 100);
-          feedback = 'Treat time!';
-          _feedbackEmoji = '🍖';
-          break;
-
-        default:
-          feedback = '';
-          _feedbackEmoji = '😺';
-      }
-
+      hunger = pet.hunger;
+      happiness = pet.happiness;
+      cleanliness = pet.cleanliness;
       _feedbackText = feedback;
+      _feedbackEmoji = emoji;
       _showFeedEffect = true;
     });
-
-    widget.onUpdate(hunger, happiness, cleanliness);
 
     _service.logActivity(
       icon: Icons.restaurant,
@@ -197,30 +396,22 @@ class _FeedScreenState extends State<FeedScreen> {
       title: 'Fed cat — $food',
     );
 
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (!mounted) return;
+    Future.delayed(
+      const Duration(milliseconds: 1200),
+      () {
+        if (!mounted) return;
 
-      setState(() {
-        _showFeedEffect = false;
-        _feedbackText = '';
-      });
-    });
+        setState(() {
+          _showFeedEffect = false;
+          _feedbackText = '';
+        });
+      },
+    );
   }
 
-  String _getEmotion() {
-    final avg = (happiness + cleanliness + (100 - hunger)) ~/ 3;
-    if (avg >= 75) return 'happy';
-    if (avg >= 40) return 'normal';
-    return 'sad';
-  }
-
-  String _getHair() {
-    if (cleanliness >= 70) return 'clean';
-    if (cleanliness >= 40) return 'messy';
-    return 'very_messy';
-  }
-
-  String _getBowlImage(String food) {
+  String _getBowlImage(
+    String food,
+  ) {
     switch (food) {
       case 'Dry Food':
         return 'assets/images/bowl/dry.png';
@@ -245,11 +436,44 @@ class _FeedScreenState extends State<FeedScreen> {
     }
   }
 
-  Widget _foodCard(Map<String, dynamic> item) {
+  Color _shopCardColor(Map<String, dynamic> item, Color fallback) {
+    final rewards = context.watch<RewardService>();
+    final equippedId = rewards.equippedShopItem('item_feed');
+    if (equippedId == null) return fallback;
+
+    final itemName = (item['name'] as String).toLowerCase().replaceAll(' ', '');
+    final idParts = equippedId.split('_');
+    if (idParts.length < 3 || idParts.first != 'feed') {
+      return fallback;
+    }
+    final equippedItemName = idParts.sublist(1, idParts.length - 1).join('');
+    if (equippedItemName != itemName) return fallback;
+
+    switch (idParts.last) {
+      case 'mint':
+        return const Color(0xFFDDF4E7);
+      case 'pink':
+        return const Color(0xFFFFDCE8);
+      case 'blue':
+        return const Color(0xFFD9EEFF);
+      case 'lilac':
+        return const Color(0xFFEADFFF);
+      case 'peach':
+        return const Color(0xFFFFE2D4);
+      default:
+        return fallback;
+    }
+  }
+
+  Widget _foodCard(
+    Map<String, dynamic> item,
+  ) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        vertical: 10,
+      ),
       decoration: BoxDecoration(
-        color: item['color'] as Color,
+        color: _shopCardColor(item, item['color'] as Color),
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [
           BoxShadow(
@@ -264,7 +488,9 @@ class _FeedScreenState extends State<FeedScreen> {
         children: [
           Text(
             item['emoji'] as String,
-            style: const TextStyle(fontSize: 28),
+            style: const TextStyle(
+              fontSize: 28,
+            ),
           ),
           const SizedBox(height: 5),
           Text(
@@ -280,9 +506,9 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
-  Widget _draggable(Map<String, dynamic> item) {
-    // Disable dragging while food is already in the bowl
-    // or while the cat is eating or drinking.
+  Widget _draggable(
+    Map<String, dynamic> item,
+  ) {
     if (_foodInBowl != null || _isEating) {
       return Opacity(
         opacity: 0.45,
@@ -296,7 +522,9 @@ class _FeedScreenState extends State<FeedScreen> {
         color: Colors.transparent,
         child: Text(
           item['emoji'] as String,
-          style: const TextStyle(fontSize: 46),
+          style: const TextStyle(
+            fontSize: 46,
+          ),
         ),
       ),
       childWhenDragging: Opacity(
@@ -307,33 +535,58 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
+  void _onDayPeriodChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    dayPeriodNotifier.removeListener(_onDayPeriodChanged);
     _feedGame.pauseEngine();
+    _sadCatGame.pauseEngine();
+    unawaited(GlobalMusicService.instance.stopSfx());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
+    final pet = context.watch<VirtualPetProvider>();
+
+    // Care conditions take visual priority over a stale saved sleep state.
+    // Keep neglect detection unchanged; critical hunger or dirt wakes the
+    // visual state so the player can see the cat's current needs.
+    final isSleeping =
+        pet.isSleeping && pet.hunger < 90 && pet.cleanliness > 30;
+    final isNeglected = _isNeglected(pet);
+    final isSleepy = pet.isSleepy && !isSleeping && !isNeglected;
+    final isSad = !isSleeping && !isNeglected && !isSleepy && pet.isSadOrHungry;
+    final isNight = NighttimeMode.isNighttime();
+    final needsCareAtNight =
+        isNeglected || pet.hunger >= 70 || pet.isDirty || pet.furStage > 0;
+    final showCat =
+        isNeglected || (!isSleeping && (!isNight || needsCareAtNight));
+    _feedGame.setFurStage(pet.furStage);
+    if (isSleepy) {
+      _sleepyCatGame.enterSleepy();
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFFFE6CC),
       body: Stack(
         children: [
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.12,
-              child: Image.asset(
-                'assets/images/paws_bg.png',
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
+          const ShopSceneBackground(slot: 'background_feed'),
           SafeArea(
             child: Column(
               children: [
-                // Header
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    8,
+                    4,
+                    16,
+                    0,
+                  ),
                   child: Row(
                     children: [
                       IconButton(
@@ -341,11 +594,16 @@ class _FeedScreenState extends State<FeedScreen> {
                           Icons.arrow_back_ios_new,
                           size: 20,
                         ),
-                        onPressed: () => Navigator.pop(context, {
-                          'hunger': hunger,
-                          'happiness': happiness,
-                          'cleanliness': cleanliness,
-                        }),
+                        onPressed: () {
+                          Navigator.pop(
+                            context,
+                            {
+                              'hunger': pet.hunger,
+                              'happiness': pet.happiness,
+                              'cleanliness': pet.cleanliness,
+                            },
+                          );
+                        },
                       ),
                       const Expanded(
                         child: Text(
@@ -359,9 +617,7 @@ class _FeedScreenState extends State<FeedScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 4),
-
                 const Text(
                   'Drag food to your cat to feed it!',
                   style: TextStyle(
@@ -370,24 +626,40 @@ class _FeedScreenState extends State<FeedScreen> {
                     fontStyle: FontStyle.italic,
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
-                // Drop zone
                 Stack(
                   children: [
                     DragTarget<String>(
                       onWillAcceptWithDetails: (_) {
-                        // Do not allow another food while the cat is already
-                        // waiting for food or eating or drinking.
+                        // Long fur must be groomed and trimmed before feeding.
+                        if (pet.furStage > 0) {
+                          unawaited(_showCleanFirst());
+                          return false;
+                        }
+
+                        // Actual Sleeping cannot receive food.
+                        if (isSleeping) {
+                          return false;
+                        }
+
+                        // Sleepy still accepts the drop so the user gets
+                        // the ZZZ reaction instead of a silent rejection.
+
                         if (_foodInBowl != null || _isEating) {
                           return false;
                         }
 
-                        setState(() => _hovering = true);
+                        setState(() {
+                          _hovering = true;
+                        });
+
                         return true;
                       },
-                      onLeave: (_) => setState(() => _hovering = false),
+                      onLeave: (_) {
+                        setState(() {
+                          _hovering = false;
+                        });
+                      },
                       onAcceptWithDetails: (details) {
                         setState(() {
                           _hovering = false;
@@ -395,74 +667,144 @@ class _FeedScreenState extends State<FeedScreen> {
 
                         _startEating(details.data);
                       },
-                      builder: (_, __, ___) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        height: 210,
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(
-                            color: _hovering
-                                ? const Color(0xFFFF8C69)
-                                : Colors.transparent,
-                            width: _hovering ? 3 : 0,
+                      builder: (_, __, ___) {
+                        return AnimatedContainer(
+                          duration: const Duration(
+                            milliseconds: 200,
                           ),
-                          boxShadow: _hovering
-                              ? [
-                                  BoxShadow(
-                                    color: const Color(0xFFFF8C69)
-                                        .withValues(alpha: 0.35),
-                                    blurRadius: 16,
-                                  ),
-                                ]
-                              : null,
-                          image: const DecorationImage(
-                            image: AssetImage(
-                              'assets/images/cat_room/feed_cat_room.png',
+                          height: 210,
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: _hovering
+                                  ? const Color(0xFFFF8C69)
+                                  : Colors.transparent,
+                              width: _hovering ? 3 : 0,
                             ),
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        child: Stack(
-                          children: [
-                            // CAT
-                            Positioned(
-                              bottom: 18,
-                              left: 0,
-                              right: 0,
-                              child: SizedBox(
-                                height: 135,
-                                child: GameWidget(
-                                  game: _feedGame,
+                            boxShadow: _hovering
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(0xFFFF8C69)
+                                          .withValues(alpha: 0.35),
+                                      blurRadius: 16,
+                                    ),
+                                  ]
+                                : null,
+                            image: DecorationImage(
+                              image: AssetImage(
+                                roomAsset(
+                                  dayPeriodNotifier.value,
+                                  day:
+                                      'assets/images/cat_room/feed_cat_room.png',
+                                  noon:
+                                      'assets/images/cat_room/feed_cat_roomnoon.png',
+                                  night:
+                                      'assets/images/cat_room/feed_cat_roomnight.png',
                                 ),
                               ),
+                              fit: BoxFit.cover,
                             ),
+                          ),
 
-                            // Bowl - directly in front of the cat
-                            Positioned(
-                              bottom: -6,
-                              left: 0,
-                              right: 0,
-                              child: Center(
-                                child: SizedBox(
-                                  width: _foodInBowl == null ? 82 : 72,
-                                  height: _foodInBowl == null ? 64 : 56,
-                                  child: Image.asset(
-                                    _foodInBowl == null
-                                        ? 'assets/images/bowl/bowl.png'
-                                        : _getBowlImage(_foodInBowl!),
-                                    fit: BoxFit.contain,
+                          // IMPORTANT:
+                          // The room background stays visible while sleeping.
+                          // Only the cat is hidden.
+                          child: Stack(
+                            children: [
+                              const Positioned(
+                                top: 10,
+                                right: 12,
+                                child: RealtimeClock(),
+                              ),
+                              if (showCat)
+                                Positioned(
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 180,
+                                      height: 170,
+                                      child: Stack(
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          Positioned.fill(
+                                            child: _isEating
+                                                ? GameWidget(
+                                                    game: _feedGame,
+                                                  )
+                                                : (isNeglected &&
+                                                        pet.furStage == 0)
+                                                    ? GameWidget(
+                                                        game: _sadCatGame,
+                                                      )
+                                                    : isSad
+                                                        ? GameWidget(
+                                                            game: _sadCatGame,
+                                                          )
+                                                        : isSleepy
+                                                            ? GameWidget(
+                                                                game:
+                                                                    _sleepyCatGame,
+                                                              )
+                                                            : GameWidget(
+                                                                game: _feedGame,
+                                                              ),
+                                          ),
+                                          if (pet.isDirty && !isNeglected)
+                                            const Positioned(
+                                              left: 42,
+                                              top: 62,
+                                              child: DirtOverlay(
+                                                size: 96,
+                                                showFly: false,
+                                              ),
+                                            ),
+                                          if (isNeglected)
+                                            const Positioned(
+                                              left: 42,
+                                              top: 62,
+                                              child: DirtOverlay(
+                                                size: 96,
+                                                showFly: true,
+                                                heavy: true,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              Positioned(
+                                bottom: -6,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: _foodInBowl == null ? 82 : 72,
+                                    height: _foodInBowl == null ? 64 : 56,
+                                    child: Image.asset(
+                                      _foodInBowl == null
+                                          ? 'assets/images/bowl/bowl.png'
+                                          : _getBowlImage(
+                                              _foodInBowl!,
+                                            ),
+                                      fit: BoxFit.contain,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
-
-                    // Feedback text
-                    if (_showFeedEffect && _feedbackText.isNotEmpty)
+                    if (_showFeedEffect &&
+                        _feedbackText.isNotEmpty &&
+                        !isSleeping)
                       Positioned(
                         bottom: 118,
                         left: 0,
@@ -476,13 +818,12 @@ class _FeedScreenState extends State<FeedScreen> {
                       ),
                   ],
                 ),
-
                 const SizedBox(height: 12),
-
-                // Food grid
                 Expanded(
                   child: GridView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                    ),
                     itemCount: _foods.length,
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -490,10 +831,13 @@ class _FeedScreenState extends State<FeedScreen> {
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
                     ),
-                    itemBuilder: (_, i) => _draggable(_foods[i]),
+                    itemBuilder: (_, i) {
+                      return _draggable(
+                        _foods[i],
+                      );
+                    },
                   ),
                 ),
-
                 const SizedBox(height: 8),
               ],
             ),

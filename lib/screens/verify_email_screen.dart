@@ -42,13 +42,23 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       _resending = true;
       _message = null;
     });
-    final result = await AuthService.instance.resendVerificationEmail();
-    if (!mounted) return;
-    setState(() {
-      _resending = false;
-      _messageIsError = !result.isSuccess;
-      _message = result.isSuccess ? result.message : result.error;
-    });
+
+    try {
+      final result = await AuthService.instance.resendVerificationEmail();
+      if (!mounted) return;
+      setState(() {
+        _messageIsError = !result.isSuccess;
+        _message = result.isSuccess ? result.message : result.error;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _messageIsError = true;
+        _message = 'Could not send the verification email. Please try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
   }
 
   Future<void> _continue() async {
@@ -57,40 +67,69 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       _message = null;
     });
 
-    await AuthService.instance.reloadUser();
-    final verified = !AuthService.instance.needsEmailVerification;
+    try {
+      // Reload from Firebase so we don't rely on the cached emailVerified
+      // value after the user returns from their email app/browser.
+      await AuthService.instance.reloadUser();
+      final verified = !AuthService.instance.needsEmailVerification;
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    if (verified) {
-      if (widget.onVerified != null) {
-        widget.onVerified!();
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+      if (verified) {
+        final onVerified = widget.onVerified;
+        if (onVerified != null) {
+          // Reveal the still-mounted LoginScreen before running its callback.
+          // The callback checks `mounted` and completes guest-data merge/Home
+          // navigation, so it must not run while LoginScreen is disposed.
+          Navigator.of(context).pop();
+          await Future<void>.delayed(Duration.zero);
+          onVerified();
+        } else {
+          // Cold-start verification has no LoginScreen callback to resume.
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    setState(() {
-      _checking = false;
-      _messageIsError = true;
-      _message =
-          "We haven't detected your verification yet. Check your inbox "
-          '(and spam folder), tap the link, then try again.';
-    });
+      setState(() {
+        _messageIsError = true;
+        _message =
+            "We haven't detected your verification yet. Check your inbox "
+            '(and spam folder), tap the link, then try again.';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _messageIsError = true;
+        _message =
+            'Could not check verification status. Please check your connection and try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
   }
 
   Future<void> _signOut() async {
     setState(() => _signingOut = true);
-    await AuthService.instance.signOut();
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    try {
+      await AuthService.instance.signOut();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _messageIsError = true;
+        _message = 'Could not sign out. Please try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
   }
 
   @override
@@ -104,13 +143,15 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
           Positioned.fill(
             child: Opacity(
               opacity: 0.11,
-              child: Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
+              child:
+                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
             ),
           ),
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -123,7 +164,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                             letterSpacing: 2.5,
                             color: Color(0xFF7A3B1E))),
                     const SizedBox(height: 24),
-
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(24),
@@ -144,7 +184,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFF8C69).withValues(alpha: 0.12),
+                              color: const Color(0xFFFF8C69)
+                                  .withValues(alpha: 0.12),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.mark_email_unread_outlined,
@@ -164,7 +205,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                             style: const TextStyle(
                                 fontSize: 13, color: Colors.grey, height: 1.4),
                           ),
-
                           if (_message != null) ...[
                             const SizedBox(height: 16),
                             Container(
@@ -212,9 +252,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 20),
-
                           SizedBox(
                             width: double.infinity,
                             height: 50,
@@ -232,7 +270,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                                       width: 22,
                                       height: 22,
                                       child: CircularProgressIndicator(
-                                          strokeWidth: 2.5, color: Colors.white),
+                                          strokeWidth: 2.5,
+                                          color: Colors.white),
                                     )
                                   : const Text("I've verified — Continue",
                                       style: TextStyle(
@@ -241,7 +280,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                             ),
                           ),
                           const SizedBox(height: 10),
-
                           SizedBox(
                             width: double.infinity,
                             height: 50,
@@ -258,7 +296,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                                       width: 20,
                                       height: 20,
                                       child: CircularProgressIndicator(
-                                          strokeWidth: 2, color: Color(0xFFFF8C69)),
+                                          strokeWidth: 2,
+                                          color: Color(0xFFFF8C69)),
                                     )
                                   : const Text('Resend email',
                                       style: TextStyle(
@@ -270,7 +309,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 16),
                     TextButton(
                       onPressed: _anyLoading ? null : _signOut,

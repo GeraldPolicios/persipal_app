@@ -9,8 +9,9 @@
 // broken. Firebase is NEVER awaited here.
 
 import 'dart:async';
+import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import '../game/splash.dart';
 import '../services/auth_service.dart';
 import '../services/session_manager.dart';
 import 'home_screen.dart';
@@ -31,29 +32,13 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _scale;
   late Animation<double> _slide;
 
-  int _catFrame = 0;
-
-  // Splash-only performance fix: the original sequence had 141 full-size
-  // PNG frames (~72MB) all decoded into memory at once for a splash shown
-  // for well under 3 seconds — only a fraction of them were ever actually
-  // seen. This keeps every 4th frame (36 total), evenly sampled across the
-  // full original animation so the same motion/visual identity is
-  // preserved, just at a lower temporal resolution. Does not touch any
-  // virtual-cat asset folder — only assets/images/splash_cat/.
-  static const List<int> _frameNumbers = [
-    1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73,
-    77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137,
-    141,
-  ];
-  int get totalFrames => _frameNumbers.length;
-  Timer? _catTimer;
-
-  final List<Widget> _catImages = [];
-  bool _framesLoaded = false;
+  late final SplashGame _splashGame;
 
   @override
   void initState() {
     super.initState();
+
+    _splashGame = SplashGame();
 
     _ctrl = AnimationController(
       vsync: this,
@@ -61,14 +46,22 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
-    _scale = Tween<double>(begin: 0.82, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
-    _slide = Tween<double>(begin: 28, end: 0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+
+    _scale = Tween<double>(begin: 0.82, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    _slide = Tween<double>(begin: 28, end: 0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: Curves.easeOut,
+      ),
+    );
 
     _ctrl.forward();
-
-    _loadCatFrames();
 
     Future.delayed(
       const Duration(milliseconds: 2800),
@@ -76,57 +69,22 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Future<void> _loadCatFrames() async {
-    for (final n in _frameNumbers) {
-      final asset = await rootBundle.load(
-        'assets/images/splash_cat/frame_${n.toString().padLeft(4, '0')}.png',
-      );
-
-      _catImages.add(
-        Image.memory(
-          asset.buffer.asUint8List(),
-          fit: BoxFit.contain,
-          gaplessPlayback: true,
-          filterQuality: FilterQuality.high,
-        ),
-      );
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _framesLoaded = true;
-    });
-
-    _startCatAnimation();
-  }
-
-  void _startCatAnimation() {
-    _catTimer = Timer.periodic(
-      const Duration(milliseconds: 60),
-      (timer) {
-        if (!mounted) return;
-
-        setState(() {
-          _catFrame = (_catFrame + 1) % totalFrames;
-        });
-      },
-    );
-  }
-
   @override
   void dispose() {
-    _catTimer?.cancel();
+    _splashGame.pauseEngine();
     _ctrl.dispose();
     super.dispose();
   }
 
   Future<void> _navigate() async {
     if (!mounted) return;
+
     await _ctrl.reverse();
+
     if (!mounted) return;
 
     final hasSession = SessionManager.instance.hasSession;
+
     // Catches an authenticated-but-unverified user reopening the app —
     // Firebase persists sign-in state locally regardless of verification,
     // so without this check they could bypass VerifyEmailScreen just by
@@ -134,6 +92,7 @@ class _SplashScreenState extends State<SplashScreen>
     final needsVerification = AuthService.instance.needsEmailVerification;
 
     Widget destination;
+
     if (!hasSession) {
       destination = const LoginScreen();
     } else if (needsVerification) {
@@ -147,8 +106,10 @@ class _SplashScreenState extends State<SplashScreen>
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 450),
         pageBuilder: (_, __, ___) => destination,
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          opacity: anim,
+          child: child,
+        ),
       ),
     );
   }
@@ -162,15 +123,21 @@ class _SplashScreenState extends State<SplashScreen>
           Positioned.fill(
             child: Opacity(
               opacity: 0.10,
-              child:
-                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
+              child: Image.asset(
+                'assets/images/paws_bg.png',
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           const Positioned(
             top: 56,
             left: 0,
             right: 0,
-            child: Icon(Icons.pets, size: 40, color: Color(0xFFFF8C69)),
+            child: Icon(
+              Icons.pets,
+              size: 40,
+              color: Color(0xFFFF8C69),
+            ),
           ),
           Center(
             child: AnimatedBuilder(
@@ -201,9 +168,9 @@ class _SplashScreenState extends State<SplashScreen>
                             child: SizedBox(
                               width: 240,
                               height: 240,
-                              child: _framesLoaded
-                                  ? _catImages[_catFrame]
-                                  : const CircularProgressIndicator(),
+                              child: GameWidget(
+                                game: _splashGame,
+                              ),
                             ),
                           ),
                         ),
@@ -234,14 +201,18 @@ class _SplashScreenState extends State<SplashScreen>
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                                const Color(0xFFFF8C69)
-                                    .withValues(alpha: 0.65)),
+                              const Color(0xFFFF8C69).withValues(alpha: 0.65),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 10),
-                        const Text('Loading…',
-                            style: TextStyle(
-                                fontSize: 12, color: Color(0xFFAA7755))),
+                        const Text(
+                          'Loading…',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFAA7755),
+                          ),
+                        ),
                       ],
                     ),
                   ),

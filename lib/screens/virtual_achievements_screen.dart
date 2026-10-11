@@ -39,7 +39,8 @@ class _VirtualAchievementsScreenState extends State<VirtualAchievementsScreen>
 
   AchievementCardData _toCardData(VirtualAchievement a) => AchievementCardData(
         title: a.title,
-        description: a.description,
+        description:
+            '${a.description} Earn ${a.coinReward} Achievement Points when completed.',
         emoji: a.emoji,
         unlocked: a.unlocked,
         unlockedAt: a.unlockedAt,
@@ -66,7 +67,6 @@ class _VirtualAchievementsScreenState extends State<VirtualAchievementsScreen>
           opacity: 0.10,
           child: Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
         )),
-
         SafeArea(
             child: Column(children: [
           Padding(
@@ -99,7 +99,6 @@ class _VirtualAchievementsScreenState extends State<VirtualAchievementsScreen>
               ),
             ]),
           ),
-
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
             child: Column(
@@ -128,15 +127,47 @@ class _VirtualAchievementsScreenState extends State<VirtualAchievementsScreen>
                   child: LinearProgressIndicator(
                     value: total > 0 ? unlocked / total : 0,
                     minHeight: 10,
-                    backgroundColor: const Color(0xFFFFB347).withValues(alpha: 0.18),
+                    backgroundColor:
+                        const Color(0xFFFFB347).withValues(alpha: 0.18),
                     valueColor: const AlwaysStoppedAnimation(Color(0xFFFFB347)),
                   ),
                 ),
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFB347).withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.emoji_events_rounded,
+                      color: Color(0xFFAA7755), size: 22),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('Achievement Points',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFAA7755))),
+                  ),
+                  Text(
+                    '${_service.achievementPoints}',
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFAA7755)),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 14),
-
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
@@ -154,7 +185,6 @@ class _VirtualAchievementsScreenState extends State<VirtualAchievementsScreen>
             ),
           ),
         ])),
-
         buildConfettiOverlay(),
       ]),
     );

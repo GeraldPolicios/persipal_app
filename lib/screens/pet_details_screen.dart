@@ -5,10 +5,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../../providers/pet_profile_provider.dart';
-import '../../providers/reminder_provider.dart';
-import '../../models/pet_extended_models.dart';
-import '../../utils/pet_age.dart';
+import '../providers/pet_profile_provider.dart';
+import '../providers/reminder_provider.dart';
+import '../models/pet_extended_models.dart';
+import '../utils/pet_age.dart';
 
 const _kAvatarColors = [
   Color(0xFFFFB3BA),

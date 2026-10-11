@@ -12,8 +12,10 @@ import 'services/activity_log_service.dart';
 import 'services/activity_service.dart';
 import 'services/lesson_progress_service.dart';
 import 'services/reward_service.dart';
-import 'services/virtual_sound_service.dart';
+import 'services/global_music_service.dart';
 import 'services/virtual_achievement_service.dart';
+import 'services/app_achievement_service.dart';
+import 'services/virtual_cat_progress_service.dart';
 import 'services/pet_photo_service.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
@@ -60,9 +62,11 @@ Future<void> main() async {
   // 6b2. Lesson progress — which Learn Cat Care topics are completed
   await LessonProgressService.instance.init();
   await RewardService.instance.init();
+  await AppAchievementService.instance.init();
 
   // 6c. Virtual Cat achievement tracking — loads from Hive
   await VirtualAchievementService.instance.init();
+  await VirtualCatProgressService.instance.init();
 
   // 6d. Pet profile photos — loads petId -> local file path map from Hive
   await PetPhotoService.instance.init();
@@ -70,7 +74,10 @@ Future<void> main() async {
   // 7. Notification service — requests permissions, sets up channels
   await NotificationService.instance.init();
 
-  // 8. Reminder provider — constructed eagerly (rather than lazily inside
+  // Global BGM is started only when the user enters the Virtual Pet module.
+  // See GameScreen; it remains active while Feed/Play/Groom are pushed over it.
+
+  // 9. Reminder provider — constructed eagerly (rather than lazily inside
   // MultiProvider's create) so the notification-action wiring below is
   // guaranteed to be in place, and any "Mark Done" tap that cold-started
   // the app just now is never silently dropped, before the first frame.
@@ -84,7 +91,8 @@ Future<void> main() async {
       (petId) => PetProfileProvider.instance.getById(petId)?.name;
   ReminderProvider.onReminderCompleted =
       PetProfileProvider.instance.checkCareAchievements;
-  NotificationService.onMarkDoneAction = reminderProvider.completeReminderOccurrence;
+  NotificationService.onMarkDoneAction =
+      reminderProvider.completeReminderOccurrence;
   NotificationService.instance.consumeStartupAction();
 
   runApp(PersipalApp(reminderProvider: reminderProvider));
@@ -128,7 +136,14 @@ class PersipalApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppProvider()..init()),
+        ChangeNotifierProvider(create: (_) {
+          final app = AppProvider()..init();
+          app.addListener(() {
+            // Settings -> Sound controls the global BGM.
+            GlobalMusicService.instance.setEnabled(app.settings.soundEnabled);
+          });
+          return app;
+        }),
         ChangeNotifierProvider(create: (_) {
           final vp = VirtualPetProvider()..init();
           // Forwards the virtual pet's already-persisted feed/groom/play
@@ -136,11 +151,11 @@ class PersipalApp extends StatelessWidget {
           // VirtualPetProvider (frozen) needing any achievement awareness.
           vp.addListener(() {
             VirtualAchievementService.instance.onVirtualPetChanged(vp.pet);
-            // Sound effects + daily-capped reward points for virtual-cat
-            // actions — both observe the same public counters, and only
-            // once the saved cat has loaded (so start-up isn't an "action").
             if (!vp.loading) {
-              VirtualSoundService.instance.onVirtualPetChanged(vp.pet);
+              VirtualCatProgressService.instance.onVirtualPetChanged(vp.pet);
+            }
+            // Daily-capped reward points for virtual-cat actions.
+            if (!vp.loading) {
               RewardService.instance.onVirtualPetChanged(vp.pet);
               ActivityLogService.instance.onVirtualPetChanged(vp.pet);
             }
@@ -154,6 +169,7 @@ class PersipalApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: ActivityService.instance),
         ChangeNotifierProvider.value(value: LessonProgressService.instance),
         ChangeNotifierProvider.value(value: RewardService.instance),
+        ChangeNotifierProvider.value(value: VirtualCatProgressService.instance),
         ChangeNotifierProvider.value(value: AuthService.instance),
         ChangeNotifierProvider.value(value: SessionManager.instance),
         ChangeNotifierProvider.value(value: ConnectivityService.instance),

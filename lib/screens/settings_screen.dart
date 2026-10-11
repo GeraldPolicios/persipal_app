@@ -59,7 +59,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // in the legacy data exportLocalData() covers.
       data['petProfiles'] =
           PetProfileProvider.instance.profiles.map((p) => p.toMap()).toList();
-      data['careReminders'] = reminders.reminders.map((r) => r.toMap()).toList();
+      data['careReminders'] =
+          reminders.reminders.map((r) => r.toMap()).toList();
       final json = const JsonEncoder.withIndent('  ').convert(data);
       await Clipboard.setData(ClipboardData(text: json));
       if (mounted) {
@@ -142,8 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (_) {
       if (mounted) {
-        showPersipalSnackBar(
-            context,
+        showPersipalSnackBar(context,
             "Couldn't delete your account. Check your connection and try again.",
             isError: true);
       }
@@ -319,8 +319,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _switchTile(
                       icon: Icons.volume_up_outlined,
                       iconColor: AppTheme.lavender,
-                      label: 'Sound Effects',
-                      subtitle: 'Virtual cat simulation only',
+                      label: 'Sound',
+                      subtitle: 'Music and sound effects',
                       value: prov.settings.soundEnabled,
                       // FIX: AppSettings is immutable — use copyWith instead of cascade mutation
                       onChanged: (v) => prov.updateSettings(
@@ -346,7 +346,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.download,
                       iconColor: AppTheme.lavender,
                       label: 'Export Local Data',
-                      subtitle: 'Copy a backup of your local data to the clipboard',
+                      subtitle:
+                          'Copy a backup of your local data to the clipboard',
                       onTap: _exportData,
                     ),
                     _tile(
@@ -485,32 +486,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
-      decoration: BoxDecoration(
+      child: Material(
         color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(14),
-      ),
-      child: ListTile(
-        leading: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: iconColor),
           ),
-          child: Icon(icon, size: 18, color: iconColor),
+          title: Text(label,
+              style:
+                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          subtitle: subtitle != null
+              ? Text(subtitle,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey))
+              : null,
+          trailing: trailing ??
+              (onTap != null
+                  ? const Icon(Icons.arrow_forward_ios,
+                      size: 14, color: Colors.grey)
+                  : null),
+          onTap: onTap,
         ),
-        title: Text(label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        subtitle: subtitle != null
-            ? Text(subtitle,
-                style: const TextStyle(fontSize: 11, color: Colors.grey))
-            : null,
-        trailing: trailing ??
-            (onTap != null
-                ? const Icon(Icons.arrow_forward_ios,
-                    size: 14, color: Colors.grey)
-                : null),
-        onTap: onTap,
       ),
     );
   }
@@ -525,30 +528,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
-      decoration: BoxDecoration(
+      child: Material(
         color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(14),
-      ),
-      child: ListTile(
-        leading: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: iconColor),
           ),
-          child: Icon(icon, size: 18, color: iconColor),
-        ),
-        title: Text(label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        subtitle: subtitle != null
-            ? Text(subtitle,
-                style: const TextStyle(fontSize: 11, color: Colors.grey))
-            : null,
-        trailing: Switch.adaptive(
-          value: value,
-          onChanged: onChanged,
-          activeColor: AppTheme.salmon,
+          title: Text(label,
+              style:
+                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          subtitle: subtitle != null
+              ? Text(subtitle,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey))
+              : null,
+          trailing: Switch.adaptive(
+            value: value,
+            onChanged: onChanged,
+            activeThumbColor: AppTheme.salmon,
+          ),
         ),
       ),
     );
