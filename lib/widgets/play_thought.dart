@@ -27,15 +27,15 @@ class PlayThought extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
+              horizontal: 10,
+              vertical: 7,
             ),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(.15),
+                  color: Colors.black.withValues(alpha: .15),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -48,11 +48,11 @@ class PlayThought extends StatelessWidget {
                   emoji,
                   style: const TextStyle(fontSize: 22),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 5),
                 Text(
                   text,
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF7A3B1E),
                   ),
@@ -61,7 +61,7 @@ class PlayThought extends StatelessWidget {
             ),
           ),
           CustomPaint(
-            size: const Size(20, 12),
+            size: const Size(14, 8),
             painter: _BubbleTail(),
           ),
         ],

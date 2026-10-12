@@ -1,24 +1,47 @@
-// lib/screens/home_screen.dart
 import 'dart:async';
+
+import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/pet_profile_provider.dart';
 import '../providers/reminder_provider.dart';
 import '../services/auth_service.dart';
 import '../services/connectivity_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/shared_widgets.dart';
+import '../game/home_idle.dart';
+import '../widgets/daily_advice_card.dart';
+
 import 'game_screen.dart';
 import 'learn_screen.dart';
 import 'reminder_screen.dart';
 import 'pet_profile_screen.dart';
 import 'settings_screen.dart';
 import 'achievements_hub_screen.dart';
-import '../widgets/animated_idle_cat.dart';
-import '../widgets/daily_advice_card.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final HomeIdleGame _homeIdleGame;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _homeIdleGame = HomeIdleGame();
+  }
+
+  @override
+  void dispose() {
+    _homeIdleGame.pauseEngine();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +63,7 @@ class HomeScreen extends StatelessWidget {
     // profile list is loaded; the ListenableBuilder below picks up the
     // resulting notifyListeners() once loading finishes.
     unawaited(PetProfileProvider.instance.init());
+
     return Scaffold(
       backgroundColor: AppTheme.cream,
       body: Stack(
@@ -54,24 +78,35 @@ class HomeScreen extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(20, 16, 16, 0),
                     child: Row(
                       children: [
-                        const Icon(Icons.pets,
-                            size: 28, color: AppTheme.salmon),
+                        const Icon(
+                          Icons.pets,
+                          size: 28,
+                          color: AppTheme.salmon,
+                        ),
                         const SizedBox(width: 8),
-                        const Text('PERSIPAL',
-                            style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.5,
-                                color: AppTheme.darkText)),
+                        const Text(
+                          'PERSIPAL',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5,
+                            color: AppTheme.darkText,
+                          ),
+                        ),
                         const Spacer(),
                         const SyncStatusBadge(),
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.settings_outlined, size: 24),
+                          icon: const Icon(
+                            Icons.settings_outlined,
+                            size: 24,
+                          ),
                           onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const SettingsScreen())),
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SettingsScreen(),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -87,9 +122,11 @@ class HomeScreen extends StatelessWidget {
                         isOnline: isOnline,
                         isGuest: !auth.isAuthenticated,
                         onSignIn: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const SettingsScreen())),
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -102,7 +139,10 @@ class HomeScreen extends StatelessWidget {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFFFF8C69), Color(0xFFFFB347)],
+                          colors: [
+                            Color(0xFFFF8C69),
+                            Color(0xFFFFB347),
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -126,23 +166,31 @@ class HomeScreen extends StatelessWidget {
                                       ? 'Hello, ${auth.currentUser?.displayName?.split(' ').first ?? 'Cat Parent'}! 🐾'
                                       : 'Hello, Cat Parent! 🐾',
                                   style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold),
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
                                   'Learn, simulate, and manage\nyour Persian cat\'s care.',
                                   style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                      height: 1.4),
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                    height: 1.4,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const AnimatedIdleCat(
-                            height: 80,
+
+                          // ── Flame Home Idle Cat ─────────────────────────────
+                          SizedBox(
+                            width: 96,
+                            height: 96,
+                            child: GameWidget(
+                              game: _homeIdleGame,
+                            ),
                           ),
                         ],
                       ),
@@ -172,10 +220,11 @@ class HomeScreen extends StatelessWidget {
                             icon: Icons.account_circle,
                             color: AppTheme.lavender,
                             onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) =>
-                                        const PetProfileScreen())),
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const PetProfileScreen(),
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -185,9 +234,11 @@ class HomeScreen extends StatelessWidget {
                           icon: Icons.alarm,
                           color: AppTheme.salmon,
                           onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const ReminderScreen())),
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ReminderScreen(),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -198,12 +249,15 @@ class HomeScreen extends StatelessWidget {
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
-                    child: Text('EXPLORE MODULES',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.4,
-                            color: AppTheme.softBrown)),
+                    child: Text(
+                      'EXPLORE MODULES',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.4,
+                        color: AppTheme.softBrown,
+                      ),
+                    ),
                   ),
                 ),
 
@@ -241,6 +295,7 @@ class HomeScreen extends StatelessWidget {
                         listenable: PetProfileProvider.instance,
                         builder: (context, _) {
                           final petCount = PetProfileProvider.instance.count;
+
                           return _ModuleTile(
                             icon: '🐾',
                             title: 'Pet Profile',
@@ -256,7 +311,8 @@ class HomeScreen extends StatelessWidget {
                       const _ModuleTile(
                         icon: '🏆',
                         title: 'Achievements',
-                        subtitle: 'Virtual Cat milestones & real-pet care badges',
+                        subtitle:
+                            'Virtual Cat milestones & real-pet care badges',
                         color: Color(0xFFFFB347),
                         page: AchievementsHubScreen(),
                       ),
@@ -288,9 +344,14 @@ class _InfoBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!isOnline) {
-      return _banner(Icons.wifi_off, 'Offline Mode — data saved locally.',
-          AppTheme.softBrown, null);
+      return _banner(
+        Icons.wifi_off,
+        'Offline Mode — data saved locally.',
+        AppTheme.softBrown,
+        null,
+      );
     }
+
     if (isGuest) {
       return _banner(
         Icons.person_outline,
@@ -299,39 +360,62 @@ class _InfoBanner extends StatelessWidget {
         TextButton(
           onPressed: onSignIn,
           style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: const Size(0, 0),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-          child: const Text('sign in to sync',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.salmon,
-                  fontWeight: FontWeight.bold)),
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 0),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: const Text(
+            'sign in to sync',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.salmon,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
       );
     }
+
     return const SizedBox.shrink();
   }
 
-  Widget _banner(IconData icon, String text, Color color, Widget? action) =>
+  Widget _banner(
+    IconData icon,
+    String text,
+    Color color,
+    Widget? action,
+  ) =>
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 8,
+        ),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
+          border: Border.all(
+            color: color.withValues(alpha: 0.25),
+          ),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 14, color: color),
+            Icon(
+              icon,
+              size: 14,
+              color: color,
+            ),
             const SizedBox(width: 6),
-            // Wrap so the message + "sign in" link flow onto a second line
-            // instead of overflowing on narrow screens / large text.
             Expanded(
               child: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Text(text, style: TextStyle(fontSize: 12, color: color)),
+                  Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color,
+                    ),
+                  ),
                   if (action != null) action,
                 ],
               ),
@@ -362,27 +446,45 @@ class _StatCard extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+          padding: const EdgeInsets.symmetric(
+            vertical: 12,
+            horizontal: 10,
+          ),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.78),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2)),
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
             ],
           ),
           child: Column(
             children: [
-              Icon(icon, size: 20, color: color),
+              Icon(
+                icon,
+                size: 20,
+                color: color,
+              ),
               const SizedBox(height: 4),
-              Text(value,
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold, color: color)),
-              Text(label,
-                  style: const TextStyle(fontSize: 9, color: Colors.grey),
-                  textAlign: TextAlign.center),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 9,
+                  color: Colors.grey,
+                ),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),
@@ -411,8 +513,12 @@ class _ModuleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BounceButton(
-      onTap: () =>
-          Navigator.push(context, MaterialPageRoute(builder: (_) => page)),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => page,
+        ),
+      ),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -420,9 +526,10 @@ class _ModuleTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2)),
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Row(
@@ -431,40 +538,65 @@ class _ModuleTile extends StatelessWidget {
               width: 50,
               height: 50,
               decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(14)),
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(14),
+              ),
               child: Center(
-                  child: Text(icon, style: const TextStyle(fontSize: 24))),
+                child: Text(
+                  icon,
+                  style: const TextStyle(fontSize: 24),
+                ),
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Text(subtitle,
-                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey,
+                    ),
+                  ),
                 ],
               ),
             ),
             if (badge != null) ...[
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                    color: color, borderRadius: BorderRadius.circular(12)),
-                child: Text(badge!,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold)),
+                  color: color,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  badge!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               const SizedBox(width: 6),
             ],
-            Icon(Icons.arrow_forward_ios,
-                size: 15, color: Colors.grey.withValues(alpha: 0.6)),
+            Icon(
+              Icons.arrow_forward_ios,
+              size: 15,
+              color: Colors.grey.withValues(alpha: 0.6),
+            ),
           ],
         ),
       ),

@@ -24,6 +24,8 @@ class LocalStorageService {
       'ls_activity_entries'; // ActivityService's real activity feed
   static const _bVirtualAchievements =
       'ls_virtual_achievements'; // single-record: virtual-cat achievements
+  static const _bVirtualCatProgress =
+      'ls_virtual_cat_progress'; // offline-first cat level/XP; not cleared on sign-out
   static const _bPetPhotos =
       'ls_pet_photos'; // single-record: petId -> local photo file path
 
@@ -53,6 +55,7 @@ class LocalStorageService {
       Hive.openBox<String>(_bVirtualPet),
       Hive.openBox<String>(_bActivityEntries),
       Hive.openBox<String>(_bVirtualAchievements),
+      Hive.openBox<String>(_bVirtualCatProgress),
       Hive.openBox<String>(_bPetPhotos),
       Hive.openBox<String>(_bDailyAdvice),
     ]);
@@ -72,6 +75,7 @@ class LocalStorageService {
   Box<String> get _activityEntries => Hive.box<String>(_bActivityEntries);
   Box<String> get _virtualAchievements =>
       Hive.box<String>(_bVirtualAchievements);
+  Box<String> get _virtualCatProgress => Hive.box<String>(_bVirtualCatProgress);
   Box<String> get _petPhotos => Hive.box<String>(_bPetPhotos);
   Box<String> get _dailyAdvice => Hive.box<String>(_bDailyAdvice);
 
@@ -191,6 +195,36 @@ class LocalStorageService {
 
   Future<void> saveRewardState(String json) =>
       _settings.put('reward_state', json);
+
+  // Track which account owns the locally persisted reward ledger. This stops
+  // offline coins and shop purchases from silently merging into a different
+  // account after the user switches accounts.
+  static const _kRewardProgressOwnerUid = 'reward_progress_owner_uid';
+  String? fetchRewardProgressOwner() => _settings.get(_kRewardProgressOwnerUid);
+  Future<void> saveRewardProgressOwner(String uid) =>
+      _settings.put(_kRewardProgressOwnerUid, uid);
+  Future<void> clearRewardProgressOwner() =>
+      _settings.delete(_kRewardProgressOwnerUid);
+
+  // Virtual cat level/XP is device-local first, so offline progress survives
+  // restarts even before a user creates or signs into an account.
+  String? fetchVirtualCatProgress() =>
+      _virtualCatProgress.get('virtual_cat_progress');
+
+  Future<void> saveVirtualCatProgress(String json) =>
+      _virtualCatProgress.put('virtual_cat_progress', json);
+
+  // The virtual-cat local save is device-wide until it is first synced to an
+  // account. Once bound, do not silently upload it into a different account.
+  static const _kVirtualProgressOwner = 'virtual_progress_owner_uid';
+
+  String? fetchVirtualProgressOwner() => _settings.get(_kVirtualProgressOwner);
+
+  Future<void> saveVirtualProgressOwner(String uid) =>
+      _settings.put(_kVirtualProgressOwner, uid);
+
+  Future<void> clearVirtualProgressOwner() =>
+      _settings.delete(_kVirtualProgressOwner);
 
   // ── Quiz Results ──────────────────────────────────────────────────────────
 

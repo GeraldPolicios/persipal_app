@@ -11,6 +11,8 @@
 // On success, SessionManager is updated and the user lands on HomeScreen.
 // Guest data merge dialog appears when a guest signs into a real account.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
@@ -80,19 +82,22 @@ class _LoginScreenState extends State<LoginScreen>
     },
   ];
 
+  Timer? _tipsTimer;
+
   @override
   void initState() {
     super.initState();
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 4));
-      if (!mounted) return false;
+    // A cancellable timer keeps the tips carousel running normally while this
+    // screen is visible, and prevents a pending timer after the screen closes.
+    _tipsTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted) return;
       setState(() => _tipIndex = (_tipIndex + 1) % _tips.length);
-      return true;
     });
   }
 
   @override
   void dispose() {
+    _tipsTimer?.cancel();
     _emailCtrl.dispose();
     _passCtrl.dispose();
     _nameCtrl.dispose();
@@ -220,15 +225,27 @@ class _LoginScreenState extends State<LoginScreen>
   // ── Post-login: check for guest data to merge ─────────────────────────────
 
   Future<void> _handlePostLogin() async {
-    // Google sign-ins are already emailVerified per Firebase, so this only
-    // ever routes an unverified email/password user — they don't reach the
-    // guest-merge check or HomeScreen until they've verified. Passing
-    // _handlePostLogin as onVerified means, once verified, this same
-    // method runs again and falls through to the merge-dialog/_goHome
-    // logic below exactly as it always has.
+    // Refresh Firebase's cached user before deciding whether to show the
+    // verification screen. After a user verifies from their mail app, the
+    // cached emailVerified flag can remain false until reload() is called.
+    // If the network is temporarily unavailable, keep using the cached
+    // status so the login flow can still give the user a useful next step.
+    try {
+      await AuthService.instance.reloadUser();
+    } catch (_) {
+      // Continue with the last known verification status.
+    }
+
+    if (!mounted) return;
+
+    // Do not route unverified email/password accounts into HomeScreen.
+    // Once verified, this method continues to the guest-merge check/Home.
     if (AuthService.instance.needsEmailVerification) {
       if (!mounted) return;
-      Navigator.pushReplacement(
+      // Keep LoginScreen mounted underneath verification. Once verified,
+      // VerifyEmailScreen pops itself before calling _handlePostLogin so the
+      // callback can safely complete the normal merge/Home navigation flow.
+      Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => VerifyEmailScreen(onVerified: _handlePostLogin),
@@ -422,6 +439,7 @@ class _LoginScreenState extends State<LoginScreen>
               onPressed: sending
                   ? null
                   : () async {
+                      final messenger = ScaffoldMessenger.of(context);
                       final email = _resetCtrl.text.trim();
                       if (email.isEmpty || !email.contains('@')) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -434,7 +452,7 @@ class _LoginScreenState extends State<LoginScreen>
                           await AuthService.instance.sendPasswordReset(email);
                       if (!ctx.mounted) return;
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      messenger.showSnackBar(SnackBar(
                         content: Text(res.isSuccess
                             ? res.message ?? 'Reset email sent!'
                             : res.error ?? 'Failed to send reset email.'),

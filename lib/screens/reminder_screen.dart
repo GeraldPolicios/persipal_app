@@ -286,7 +286,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFF8C69).withOpacity(0.15),
+                          color: const Color(0xFFFF8C69).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.alarm_add,
@@ -333,7 +333,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                             decoration: BoxDecoration(
                               color: isSelected
                                   ? p.avatarColor
-                                  : p.avatarColor.withOpacity(0.15),
+                                  : p.avatarColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -375,7 +375,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: isSelected ? color : color.withOpacity(0.12),
+                            color: isSelected ? color : color.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                                 color: isSelected ? color : Colors.transparent),
@@ -393,7 +393,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                                   fontWeight: FontWeight.w600,
                                   color: isSelected
                                       ? Colors.white
-                                      : color.withOpacity(0.85),
+                                      : color.withValues(alpha: 0.85),
                                 ),
                               ),
                             ],
@@ -430,6 +430,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                               ),
                             );
                             if (date == null) return;
+                            if (!ctx.mounted) return;
                             final time = await showTimePicker(
                               context: ctx,
                               initialTime: pickedDt != null
@@ -446,6 +447,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                               ),
                             );
                             if (time == null) return;
+                            if (!ctx.mounted) return;
                             setD(() => pickedDt = DateTime(date.year,
                                 date.month, date.day, time.hour, time.minute));
                           },
@@ -456,7 +458,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: const Color(0xFFFF8C69).withOpacity(0.4)),
+                            color: const Color(0xFFFF8C69).withValues(alpha: 0.4)),
                       ),
                       child: Row(
                         children: [
@@ -502,7 +504,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                             decoration: BoxDecoration(
                               color: isSelected
                                   ? const Color(0xFF20B2AA)
-                                  : const Color(0xFF20B2AA).withOpacity(0.12),
+                                  : const Color(0xFF20B2AA).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -525,7 +527,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFDC143C).withOpacity(0.08),
+                        color: const Color(0xFFDC143C).withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Row(children: [
@@ -624,12 +626,12 @@ class _ReminderScreenState extends State<ReminderScreen>
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide:
-              BorderSide(color: const Color(0xFFFF8C69).withOpacity(0.3)),
+              BorderSide(color: const Color(0xFFFF8C69).withValues(alpha: 0.3)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide:
-              BorderSide(color: const Color(0xFFFF8C69).withOpacity(0.25)),
+              BorderSide(color: const Color(0xFFFF8C69).withValues(alpha: 0.25)),
         ),
       ),
       style: const TextStyle(fontSize: 14),
@@ -733,7 +735,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.45),
+                    color: Colors.white.withValues(alpha: 0.45),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: TabBar(
@@ -830,7 +832,7 @@ class _ReminderScreenState extends State<ReminderScreen>
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: isSelected ? color : color.withOpacity(0.15),
+          color: isSelected ? color : color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(18),
         ),
         child: Text(label,
@@ -846,7 +848,7 @@ class _ReminderScreenState extends State<ReminderScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -858,7 +860,7 @@ class _ReminderScreenState extends State<ReminderScreen>
           Text(label,
               style: TextStyle(
                   fontSize: 12,
-                  color: color.withOpacity(0.8),
+                  color: color.withValues(alpha: 0.8),
                   fontWeight: FontWeight.w600)),
         ],
       ),
@@ -932,25 +934,25 @@ class _ReminderScreenState extends State<ReminderScreen>
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: item.isDone
-            ? Colors.white.withOpacity(0.55)
-            : Colors.white.withOpacity(0.88),
+            ? Colors.white.withValues(alpha: 0.55)
+            : Colors.white.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(16),
         border: isHighlighted
             ? Border.all(color: const Color(0xFFFFC107), width: 2.5)
             : (isOverdue
                 ? Border.all(
-                    color: Colors.redAccent.withOpacity(0.5), width: 1.5)
+                    color: Colors.redAccent.withValues(alpha: 0.5), width: 1.5)
                 : null),
         boxShadow: [
           if (isHighlighted)
             BoxShadow(
-              color: const Color(0xFFFFC107).withOpacity(0.35),
+              color: const Color(0xFFFFC107).withValues(alpha: 0.35),
               blurRadius: 14,
               spreadRadius: 1,
             )
           else
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -966,7 +968,7 @@ class _ReminderScreenState extends State<ReminderScreen>
               width: 46,
               height: 46,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Center(
@@ -1001,7 +1003,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 7, vertical: 2),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.12),
+                          color: color.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -1017,7 +1019,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: pet.avatarColor.withOpacity(0.25),
+                            color: pet.avatarColor.withValues(alpha: 0.25),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text('🐱 ${pet.name}',
@@ -1031,7 +1033,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF20B2AA).withOpacity(0.12),
+                            color: const Color(0xFF20B2AA).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1050,7 +1052,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent.withOpacity(0.12),
+                            color: Colors.redAccent.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Text('Overdue',
@@ -1195,7 +1197,7 @@ class _ReminderScreenState extends State<ReminderScreen>
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, size: 18, color: color),

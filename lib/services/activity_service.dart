@@ -63,7 +63,7 @@ class ActivityEntry {
         'iconCodePoint': icon.codePoint,
         'iconFontFamily': icon.fontFamily,
         'iconFontPackage': icon.fontPackage,
-        'colorValue': iconColor.value,
+        'colorValue': iconColor.toARGB32(),
         'title': title,
         'timestamp': timestamp.toIso8601String(),
       };

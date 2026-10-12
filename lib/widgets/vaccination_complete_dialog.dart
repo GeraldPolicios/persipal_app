@@ -41,7 +41,7 @@ Future<void> showVaccinationCompleteDialog(
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF32CD32).withOpacity(0.15),
+                      color: const Color(0xFF32CD32).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.check_circle,
@@ -89,7 +89,7 @@ Future<void> showVaccinationCompleteDialog(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: const Color(0xFF32CD32).withOpacity(0.3)),
+                          color: const Color(0xFF32CD32).withValues(alpha: 0.3)),
                     ),
                     child: Row(children: [
                       const Icon(Icons.event_available,
@@ -106,7 +106,7 @@ Future<void> showVaccinationCompleteDialog(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF20B2AA).withOpacity(0.08),
+                      color: const Color(0xFF20B2AA).withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Row(children: [

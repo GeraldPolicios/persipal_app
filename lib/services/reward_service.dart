@@ -47,12 +47,33 @@ class RewardService extends ChangeNotifier {
 
   Map<String, int> _ledger = {};
   Set<String> _claimed = {};
+  Map<String, int> _shopPurchases = {};
+  Map<String, String> _equippedShopItems = {};
+
   bool _syncing = false;
   bool _listening = false;
 
   int get earned => _ledger.values.fold(0, (a, b) => a + b);
-  int get spent => _claimed.length * lessonUnlockCost;
+  int get lessonSpent => _claimed.length * lessonUnlockCost;
+  int get shopSpent => _shopPurchases.values.fold(0, (a, b) => a + b);
+  int get spent => lessonSpent + shopSpent;
   int get points => (earned - spent).clamp(0, 1 << 30);
+
+  bool isShopItemPurchased(String itemId) => _shopPurchases.containsKey(itemId);
+
+  /// Whether a one-time reward ledger key has already been recorded.
+  bool hasAwardKey(String key) => _ledger.containsKey(key);
+
+  Set<String> get purchasedShopItems =>
+      Set.unmodifiable(_shopPurchases.keys.toSet());
+
+  String? equippedShopItem(String slot) => _equippedShopItems[slot];
+
+  Future<void> equipShopItem(String itemId, String slot) async {
+    if (!_shopPurchases.containsKey(itemId)) return;
+    _equippedShopItems = {..._equippedShopItems, slot: itemId};
+    await _changed();
+  }
 
   bool isLessonUnlockClaimed(String type) => _claimed.contains('lesson:$type');
 
@@ -77,6 +98,8 @@ class RewardService extends ChangeNotifier {
       if (raw == null) {
         _ledger = {};
         _claimed = {};
+        _shopPurchases = {};
+        _equippedShopItems = {};
         return;
       }
       final m = jsonDecode(raw) as Map<String, dynamic>;
@@ -85,23 +108,36 @@ class RewardService extends ChangeNotifier {
           e.key as String: (e.value as num).toInt(),
       };
       _claimed = {...((m['claimed'] as List?) ?? const []).cast<String>()};
+      _shopPurchases = {
+        for (final e in (m['shopPurchases'] as Map? ?? {}).entries)
+          e.key as String: (e.value as num).toInt(),
+      };
+      _equippedShopItems = {
+        for (final e in (m['equippedShopItems'] as Map? ?? {}).entries)
+          e.key as String: e.value as String,
+      };
     } catch (_) {
       _ledger = {};
       _claimed = {};
+      _shopPurchases = {};
+      _equippedShopItems = {};
     }
   }
 
   Future<void> _save() => _local.saveRewardState(jsonEncode({
         'ledger': _ledger,
         'claimed': _claimed.toList(),
+        'shopPurchases': _shopPurchases,
+        'equippedShopItems': _equippedShopItems,
       }));
 
   /// Called when local data is wiped during sign-out or account deletion so
   /// the in-memory copy doesn't outlive the persisted one.
   void resetInMemory() {
-    if (_ledger.isEmpty && _claimed.isEmpty) return;
+    if (_ledger.isEmpty && _claimed.isEmpty && _shopPurchases.isEmpty) return;
     _ledger = {};
     _claimed = {};
+    _shopPurchases = {};
     notifyListeners();
   }
 
@@ -112,6 +148,8 @@ class RewardService extends ChangeNotifier {
   Future<void> discardLocal() async {
     _ledger = {};
     _claimed = {};
+    _shopPurchases = {};
+    _equippedShopItems = {};
     await _save();
     notifyListeners();
   }
@@ -180,6 +218,19 @@ class RewardService extends ChangeNotifier {
     return true;
   }
 
+  /// Purchases a shop item once and deducts its exact cost from the shared
+  /// reward-point balance. Shop purchases are persisted with the same
+  /// offline-first reward ledger, so the Shop uses the existing point system
+  /// instead of creating a second currency.
+  Future<bool> purchaseShopItem(String itemId, int cost) async {
+    if (cost < 0 || _shopPurchases.containsKey(itemId) || points < cost) {
+      return false;
+    }
+    _shopPurchases = {..._shopPurchases, itemId: cost};
+    await _changed();
+    return true;
+  }
+
   Future<void> _changed() async {
     await _save();
     notifyListeners();
@@ -208,6 +259,17 @@ class RewardService extends ChangeNotifier {
     if (doc == null || !ConnectivityService.instance.isOnline || _syncing) {
       return;
     }
+
+    final uid = AuthService.instance.userId;
+    final ownerUid = _local.fetchRewardProgressOwner();
+    // Guest progress can migrate to the first account that successfully syncs.
+    // Once the local ledger belongs to an account, never silently merge its
+    // coins, claims, purchases, or equipped items into a different account.
+    if (ownerUid != null && ownerUid != uid) {
+      debugPrint('RewardService: account mismatch; sync paused.');
+      return;
+    }
+
     _syncing = true;
     try {
       final snap = await doc.get();
@@ -227,6 +289,22 @@ class RewardService extends ChangeNotifier {
           ..._claimed,
           ...((cloud['claimed'] as List?) ?? const []).cast<String>(),
         };
+        final cloudShopPurchases = {
+          for (final e in (cloud['shopPurchases'] as Map? ?? {}).entries)
+            e.key as String: (e.value as num).toInt(),
+        };
+        final mergedShopPurchases = {..._shopPurchases};
+        cloudShopPurchases.forEach((k, v) {
+          if (v >= 0 && !mergedShopPurchases.containsKey(k)) {
+            mergedShopPurchases[k] = v;
+          }
+        });
+        _shopPurchases = mergedShopPurchases;
+        _equippedShopItems = {
+          ..._equippedShopItems,
+          for (final e in (cloud['equippedShopItems'] as Map? ?? {}).entries)
+            e.key as String: e.value as String,
+        };
         await lessons.mergeCompleted(
             ((cloud['lessons'] as List?) ?? const []).cast<String>());
         await _save();
@@ -235,9 +313,12 @@ class RewardService extends ChangeNotifier {
       await doc.set({
         'ledger': _ledger,
         'claimed': _claimed.toList(),
+        'shopPurchases': _shopPurchases,
+        'equippedShopItems': _equippedShopItems,
         'lessons': lessons.completedTypes.toList(),
         'updatedAt': DateTime.now().toIso8601String(),
       });
+      await _local.saveRewardProgressOwner(uid);
     } catch (e) {
       debugPrint('RewardService: progress sync failed: $e');
     } finally {

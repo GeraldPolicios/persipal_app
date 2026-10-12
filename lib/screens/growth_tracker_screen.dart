@@ -7,11 +7,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-import '../../providers/pet_profile_provider.dart';
-import '../../models/pet_extended_models.dart';
-import '../../utils/cat_weight_status.dart';
-import '../../widgets/growth_chart.dart';
-import '../../widgets/date_filter_control.dart';
+import '../providers/pet_profile_provider.dart';
+import '../models/pet_extended_models.dart';
+import '../utils/cat_weight_status.dart';
+import '../widgets/growth_chart.dart';
+import '../widgets/date_filter_control.dart';
 
 class GrowthTrackerScreen extends StatefulWidget {
   final String petId;

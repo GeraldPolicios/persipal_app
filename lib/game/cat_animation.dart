@@ -4,484 +4,925 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
-import '../models/pet_state.dart';
-
 class CatAnimation extends FlameGame {
-  late SpriteAnimationComponent cat;
+  SpriteAnimationComponent? cat;
 
   late SpriteAnimation sleepAnimation;
+  late SpriteAnimation sleepyAnimation;
+  late SpriteAnimation restAnimation;
   late SpriteAnimation wakeAnimation;
   late SpriteAnimation stretchAnimation;
   late SpriteAnimation lookAnimation;
   late SpriteAnimation sitAnimation;
   late SpriteAnimation idleAnimation;
+  late SpriteAnimation fur1IdleAnimation;
+  late SpriteAnimation fur2IdleAnimation;
 
-  // ── Mood-reactive animations ──────────────────────────────────────────
-  // Reused as-is from existing project assets (see cat_animation.dart's
-  // onLoad below for exactly which files) — no new art was created.
+  late SpriteAnimation sadAnimation;
+
+  late SpriteAnimation standAnimation;
+  late SpriteAnimation highFiveAnimation;
+  late SpriteAnimation idleStandAnimation;
+  late SpriteAnimation sitDownAnimation;
   late SpriteAnimation happyAnimation;
-  late SpriteAnimation sadAnimation; // used for the "hungry" mood
   late SpriteAnimation angryAnimation;
-  late SpriteAnimation dirtyAnimation;
-  late SpriteAnimation neglectedAnimation;
 
+  final bool startSad;
+  final double positionYOffset;
+
+  CatAnimation({
+    this.startSad = false,
+    this.positionYOffset = 30,
+  });
+
+  bool _isSleeping = false;
+  bool _isSleepy = false;
+  bool _isResting = false;
   bool _isWaking = false;
+  bool _isDoingTrick = false;
+  bool _isStanding = false;
+  int _furStage = 0;
 
-  // True once the initial Sleep → Wake → Stretch → Look → Sit → Idle
-  // sequence has finished at least once. Distinguishes "the cat's very
-  // first wake-up" (should play the full sequence) from "the cat is
-  // already awake and idle" (a later tap should just get a quick
-  // reaction, not a disruptive full replay).
-  bool _hasWokenUp = false;
+  int _animationVersion = 0;
+  int _reactionVersion = 0;
 
-  // Guards reactToTap() the same way _isWaking guards wakeUp(): prevents a
-  // second reaction from stacking on top of one that's still playing.
-  bool _reacting = false;
+  // ==========================================================
+  // PENDING REQUESTS
+  //
+  // These are needed when GameScreen requests an animation
+  // before Flame has finished creating the cat component.
+  // ==========================================================
+  bool _pendingHappy = false;
+  bool _pendingSleepy = false;
+  bool _pendingSleeping = false;
+  bool _pendingSad = false;
 
-  bool _loaded = false;
-  final Completer<void> _readyCompleter = Completer<void>();
-
-  /// Completes once onLoad() has finished loading every sprite/animation
-  /// and `cat` exists. Callers (GameScreen) await this once so they can
-  /// force a single rebuild right after Flame is actually ready, instead
-  /// of guessing at timing — see setMood()'s own _loaded guard below for
-  /// why that matters. (Named catReady, not ready — FlameGame already
-  /// defines its own `ready`.)
-  Future<void> get catReady => _readyCompleter.future;
-
-  /// The mood actually showing on `cat.animation` right now. Only ever
-  /// written by [_applyDesiredMood] (the single place allowed to change
-  /// cat.animation for a mood), so it can never drift from reality.
-  PetState _appliedMood = PetState.idle;
-
-  /// The latest mood GameScreen has asked for via [setMood] — recorded
-  /// every call, even when it can't be shown immediately (still asleep, or
-  /// a wake/tap reaction is mid-flight). [_applyDesiredMood] is what
-  /// actually turns this into a visible change, and is re-run once
-  /// wakeUp()/reactToTap() finish, so the most recently requested mood is
-  /// never silently dropped.
-  PetState _desiredMood = PetState.idle;
+  bool get isWaking => _isWaking;
+  bool get isStanding => _isStanding;
+  bool get isBusy => _isDoingTrick;
+  bool get isSleeping => _isSleeping;
+  bool get isSleepy => _isSleepy;
+  bool get isResting => _isResting;
+  @override
+  bool get isLoaded => cat != null;
 
   @override
-  Color backgroundColor() => Colors.transparent;
+  Color backgroundColor() {
+    return Colors.transparent;
+  }
 
   @override
   Future<void> onLoad() async {
     await super.onLoad();
 
-    // Load sleep sprite sheet
+    // ========================================================
+    // SLEEP
+    // ========================================================
     final sleepSheet = await images.load(
       'cat_parts/sleep/sleepsprite.png',
     );
 
-    // Sleep animation
     sleepAnimation = SpriteAnimation.fromFrameData(
       sleepSheet,
       SpriteAnimationData.sequenced(
-        // 121 sleep frames
         amount: 121,
-
-        // Smooth 24 fps
         stepTime: 0.0417,
-
-        // Each frame is 96 x 96
         textureSize: Vector2(96, 96),
-
-        // 11 frames per row
         amountPerRow: 11,
-
-        // Keep sleeping
         loop: true,
       ),
     );
 
-    // Load wake sprite sheet
+    // ========================================================
+    // SLEEPY
+    // ========================================================
+    final sleepySheet = await images.load(
+      'cat_parts/sleepy/sleepysheet.png',
+    );
+
+    sleepyAnimation = SpriteAnimation.fromFrameData(
+      sleepySheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: true,
+      ),
+    );
+
+    // ========================================================
+    // REST
+    // ========================================================
+    final restSheet = await images.load(
+      'cat_parts/rest/restsheet.png',
+    );
+
+    restAnimation = SpriteAnimation.fromFrameData(
+      restSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
+
+    // ========================================================
+    // WAKE
+    // ========================================================
     final wakeSheet = await images.load(
       'cat_parts/wake/wakesprite.png',
     );
 
-    // Wake animation
     wakeAnimation = SpriteAnimation.fromFrameData(
       wakeSheet,
       SpriteAnimationData.sequenced(
-        // 60 wake frames
         amount: 60,
-
-        // 60 x 0.08 = 4.8 seconds
         stepTime: 0.08,
-
-        // Each frame is 96 x 96
         textureSize: Vector2(96, 96),
-
-        // 20 frames per row
         amountPerRow: 20,
-
-        // Play once
         loop: false,
       ),
     );
 
-    // Load stretch sprite sheet
+    // ========================================================
+    // STRETCH
+    // ========================================================
     final stretchSheet = await images.load(
       'cat_parts/stretch/stretchsheet.png',
     );
 
-    // Stretch animation
     stretchAnimation = SpriteAnimation.fromFrameData(
       stretchSheet,
       SpriteAnimationData.sequenced(
-        // 60 stretch frames
         amount: 60,
-
-        // 60 x 0.06 = 3.6 seconds
         stepTime: 0.06,
-
-        // Each frame is 96 x 96
         textureSize: Vector2(96, 96),
-
-        // 20 frames per row
         amountPerRow: 20,
-
-        // Play once
         loop: false,
       ),
     );
 
-    // Load look sprite sheet
+    // ========================================================
+    // LOOK
+    // ========================================================
     final lookSheet = await images.load(
       'cat_parts/look/looksheet.png',
     );
 
-    // Look left and right animation
     lookAnimation = SpriteAnimation.fromFrameData(
       lookSheet,
       SpriteAnimationData.sequenced(
-        // 60 look frames
         amount: 60,
-
-        // 60 x 0.06 = 3.6 seconds
         stepTime: 0.06,
-
-        // Each frame is 96 x 96
         textureSize: Vector2(96, 96),
-
-        // 20 frames per row
         amountPerRow: 20,
-
-        // Play once
         loop: false,
       ),
     );
 
-    // Load sit sprite sheet
+    // ========================================================
+    // SIT
+    // ========================================================
     final sitSheet = await images.load(
       'cat_parts/sit/sitsheet.png',
     );
 
-    // Sit animation
     sitAnimation = SpriteAnimation.fromFrameData(
       sitSheet,
       SpriteAnimationData.sequenced(
-        // 60 sit frames
         amount: 60,
-
-        // 60 x 0.06 = 3.6 seconds
         stepTime: 0.06,
-
-        // Each frame is 96 x 96
         textureSize: Vector2(96, 96),
-
-        // 20 frames per row
         amountPerRow: 20,
-
-        // Play once
         loop: false,
       ),
     );
 
-    // Load idle sprite sheet
+    // ========================================================
+    // IDLE
+    // ========================================================
     final idleSheet = await images.load(
       'cat_parts/idle/idlesheet.png',
     );
 
-    // Idle animation
     idleAnimation = SpriteAnimation.fromFrameData(
       idleSheet,
       SpriteAnimationData.sequenced(
-        // 60 idle frames
         amount: 60,
-
-        // Smooth 24 fps
         stepTime: 0.06,
-
-        // Each frame is 96 x 96
         textureSize: Vector2(96, 96),
-
-        // 20 frames per row
         amountPerRow: 20,
-
-        // Keep idle animation looping
         loop: true,
       ),
     );
 
-    // Mood-reactive animations. Loaded once here, alongside the sprite
-    // sheets above, so runtime mood switches (setMood) are instant.
-    happyAnimation = await _loadFrameSequence('happy_cat', 'happy_', 31);
-    sadAnimation = await _loadFrameSequence('sad_cat', 'sad_', 121);
-    angryAnimation = await _loadStaticFrame('states/angry_cat.png');
-    dirtyAnimation = await _loadStaticFrame('states/dirty_cat.png');
-    neglectedAnimation = await _loadStaticFrame('states/dirty_cat1.png');
+    // ========================================================
+    // FUR 1 IDLE
+    // ========================================================
+    final fur1Sheet = await images.load(
+      'cat_parts/groom/fur1/fur1sheet.png',
+    );
 
-    // Create cat
-    cat = SpriteAnimationComponent(
-      // Start with sleeping animation
-      animation: sleepAnimation,
-
-      // Keep the same size as one sprite frame
-      size: Vector2(96, 96),
-
-      // Center the cat
-      anchor: Anchor.center,
-
-      // Keep the cat in one fixed position
-      position: Vector2(
-        size.x / 2,
-        size.y - 45,
+    fur1IdleAnimation = SpriteAnimation.fromFrameData(
+      fur1Sheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.06,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: true,
       ),
     );
 
-    add(cat);
-
-    _loaded = true;
-    _readyCompleter.complete();
-  }
-
-  /// Loads a mood animation made of individually-numbered frame files
-  /// (e.g. assets/images/happy_cat/happy_0001.png ...) — the same format
-  /// already used elsewhere in the project (idle/, sad_cat/, happy_cat/,
-  /// play_cat/*), as opposed to the single sprite-sheet PNGs used by the
-  /// wake-up sequence above.
-  Future<SpriteAnimation> _loadFrameSequence(
-    String folder,
-    String prefix,
-    int count, {
-    double stepTime = 0.05,
-  }) async {
-    final sprites = <Sprite>[];
-
-    for (var i = 1; i <= count; i++) {
-      final image = await images.load(
-        '$folder/$prefix${i.toString().padLeft(4, '0')}.png',
-      );
-
-      sprites.add(Sprite(image));
-    }
-
-    return SpriteAnimation.spriteList(sprites, stepTime: stepTime);
-  }
-
-  /// Wraps a single existing static mood PNG (no dedicated animated
-  /// sequence exists for this mood — see the Mood Integration report) in
-  /// a one-frame SpriteAnimation, so it can be assigned to `cat.animation`
-  /// exactly like every other mood without a second component type.
-  Future<SpriteAnimation> _loadStaticFrame(String path) async {
-    final image = await images.load(path);
-    return SpriteAnimation.spriteList([Sprite(image)], stepTime: 1);
-  }
-
-  // Sleep -> Wake -> Stretch -> Look -> Sit -> Idle
-  //
-  // While this sequence is running, setMood() (see below) deliberately
-  // cannot touch cat.animation — it only records the latest requested
-  // mood in _desiredMood. Once the sequence genuinely finishes, this
-  // method applies _desiredMood itself (exactly once), so a mood that was
-  // requested while the cat was asleep/waking is never lost, and the cat
-  // wakes into whatever its real current mood actually is instead of
-  // always forcing idle.
-  //
-  // `if (!cat.isMounted) return;` before each step is the minimal guard
-  // against continuing this ~16s async sequence after the component has
-  // been removed (e.g. GameScreen disposed mid-wake) — it only stops
-  // further writes to a torn-down component, nothing else changes.
-  Future<void> wakeUp() async {
-    // Prevent the sequence from starting again
-    if (_isWaking) return;
-
-    _isWaking = true;
-
-    if (!cat.isMounted) return;
-    // Sleep -> Wake
-    cat.animation = wakeAnimation;
-
-    // Wait for Wake to finish
-    await Future.delayed(
-      const Duration(milliseconds: 4800),
+    // ========================================================
+    // FUR 2 IDLE
+    // ========================================================
+    final fur2Sheet = await images.load(
+      'cat_parts/groom/fur2/fur2sheet.png',
     );
 
-    if (!cat.isMounted) return;
-    // Wake -> Stretch
-    cat.animation = stretchAnimation;
-
-    // Wait for Stretch to finish
-    await Future.delayed(
-      const Duration(milliseconds: 3600),
+    fur2IdleAnimation = SpriteAnimation.fromFrameData(
+      fur2Sheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.06,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: true,
+      ),
     );
 
-    if (!cat.isMounted) return;
-    // Stretch -> Look
-    cat.animation = lookAnimation;
-
-    // Wait for Look to finish
-    await Future.delayed(
-      const Duration(milliseconds: 3600),
+    // ========================================================
+    // SAD
+    // ========================================================
+    final sadSheet = await images.load(
+      'cat_parts/sad/sadsheet.png',
     );
 
-    if (!cat.isMounted) return;
-    // Look -> Sit
-    cat.animation = sitAnimation;
-
-    // Wait for Sit to finish
-    await Future.delayed(
-      const Duration(milliseconds: 3600),
+    sadAnimation = SpriteAnimation.fromFrameData(
+      sadSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: true,
+      ),
     );
 
-    if (!cat.isMounted) return;
+    // ========================================================
+    // STAND
+    // ========================================================
+    final standSheet = await images.load(
+      'cat_parts/stand/standsheet.png',
+    );
 
-    // Sequence genuinely finished — the cat is awake now.
-    _isWaking = false;
-    _hasWokenUp = true;
+    standAnimation = SpriteAnimation.fromFrameData(
+      standSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.06,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
 
-    // Sit -> whatever the real current mood actually is (idle if nothing
-    // else was ever requested — _desiredMood starts at idle). Forced: at
-    // this exact point cat.animation is still showing sitAnimation
-    // (single-play, non-looping), NOT _appliedMood's animation — its
-    // default `idle` value is just an unapplied bookkeeping sentinel, so
-    // the normal "only apply if it actually changed" short-circuit must
-    // be bypassed here or the cat would freeze on the last sit frame
-    // whenever the real mood happens to already equal idle.
-    _applyDesiredMood(force: true);
-  }
+    // ========================================================
+    // HIGH FIVE
+    // ========================================================
+    final highFiveSheet = await images.load(
+      'cat_parts/highfive/highfivesheet.png',
+    );
 
-  /// Natural response to a tap. The very first tap (cat still asleep)
-  /// plays the full wake-up sequence exactly as before. Every tap after
-  /// that instead plays a quick, already-loaded "look" reaction and
-  /// returns to the cat's current mood — a snappy acknowledgement instead
-  /// of forcing the entire ~16s Sleep/Wake/Stretch/Look/Sit chain to
-  /// replay every time.
-  Future<void> reactToTap() async {
-    // Already mid-wake-up — let it finish undisturbed, exactly like a
-    // repeated tap during that sequence has always been ignored.
-    if (_isWaking) return;
+    highFiveAnimation = SpriteAnimation.fromFrameData(
+      highFiveSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.09,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
 
-    if (!_hasWokenUp) {
-      await wakeUp();
+    // ========================================================
+    // IDLE STAND
+    // ========================================================
+    final idleStandSheet = await images.load(
+      'cat_parts/idlestand/idlestandsheet.png',
+    );
+
+    idleStandAnimation = SpriteAnimation.fromFrameData(
+      idleStandSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.09,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: true,
+      ),
+    );
+
+    // ========================================================
+    // SIT DOWN
+    // ========================================================
+    final sitDownSheet = await images.load(
+      'cat_parts/sitdown/sitdownsheet.png',
+    );
+
+    sitDownAnimation = SpriteAnimation.fromFrameData(
+      sitDownSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
+
+    // ========================================================
+    // HAPPY
+    // ========================================================
+    final happySheet = await images.load(
+      'cat_parts/happy/happysheet.png',
+    );
+
+    happyAnimation = SpriteAnimation.fromFrameData(
+      happySheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
+
+    // ========================================================
+    // ANGRY
+    // ========================================================
+    final angrySheet = await images.load(
+      'cat_parts/angry/angrysheet.png',
+    );
+
+    angryAnimation = SpriteAnimation.fromFrameData(
+      angrySheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
+
+    // ========================================================
+    // CREATE CAT
+    // ========================================================
+    cat = SpriteAnimationComponent(
+      animation: _currentIdleAnimation(),
+      size: Vector2(110, 110),
+      paint: Paint()..filterQuality = FilterQuality.none,
+    );
+
+    cat!.anchor = Anchor.center;
+
+    cat!.position = Vector2(
+      size.x / 2,
+      size.y / 2 + positionYOffset,
+    );
+
+    add(cat!);
+
+    // ========================================================
+    // RESTORE INITIAL STATE
+    // ========================================================
+
+    // Neglected / Sad has highest priority.
+    if (startSad || _pendingSad) {
+      _pendingSad = false;
+      showSad(force: true);
       return;
     }
 
-    // A reaction is already playing — don't stack another on top of it.
-    if (_reacting) return;
-
-    _reacting = true;
-
-    if (cat.isMounted) {
-      cat.animation = lookAnimation;
+    if (_pendingSleeping) {
+      _pendingSleeping = false;
+      _pendingSleepy = false;
+      _pendingHappy = false;
+      showSleeping();
+      return;
     }
 
-    await Future.delayed(const Duration(milliseconds: 3600));
+    // ========================================================
+    // RESTORE PENDING SLEEPY
+    //
+    // This is the important navigation/loading fix.
+    //
+    // GameScreen can call enterSleepy() before Flame has
+    // finished creating cat.
+    //
+    // Instead of losing that request, _pendingSleepy keeps it
+    // until Flame finishes loading.
+    // ========================================================
+    if (_pendingSleepy) {
+      _pendingSleepy = false;
+      _pendingHappy = false;
 
-    // Only settle if nothing else (e.g. a fresh wakeUp()) has taken over
-    // cat.animation while we were waiting. Settles to the cat's current
-    // mood rather than unconditionally idle, so a tap during e.g. a
-    // hungry mood doesn't leave the display incorrectly stuck on idle.
-    // Forced for the same reason as wakeUp()'s completion: cat.animation
-    // is currently showing lookAnimation, not _appliedMood's animation,
-    // so the mood must be re-applied even if _desiredMood didn't change
-    // while the reaction was playing.
-    if (_reacting) {
-      _reacting = false;
-      _applyDesiredMood(force: true);
+      enterSleepy(
+        force: true,
+      );
+
+      return;
+    }
+
+    // ========================================================
+    // RESTORE PENDING HAPPY
+    // ========================================================
+    if (_pendingHappy) {
+      _pendingHappy = false;
+
+      unawaited(
+        doHappy(),
+      );
     }
   }
 
-  /// Records the cat's current real-world mood, requested by GameScreen on
-  /// every rebuild.
-  ///
-  /// CatAnimation has zero knowledge of VirtualPetProvider/Hive/Provider —
-  /// GameScreen computes the mood via the existing PetBrain (from
-  /// hunger/happiness/cleanliness, using PetBrain's own already-defined
-  /// priority order) and passes in just the resulting PetState. This is
-  /// the only seam between Flame and the rest of the app's state
-  /// management, by design.
-  ///
-  /// Safe to call on every Flutter rebuild. Unlike before, this no longer
-  /// touches cat.animation directly when asleep/mid-reaction — it only
-  /// records the request (_desiredMood) and defers to _applyDesiredMood,
-  /// which is the single place allowed to actually change what's shown.
-  /// That's what stops a non-idle starting mood from skipping the wake
-  /// sequence, and stops a mood requested mid-wake/mid-reaction from being
-  /// silently dropped — see wakeUp()/reactToTap() for where it's re-run
-  /// once those finish.
-  void setMood(PetState mood) {
-    if (!_loaded) return;
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
 
-    _desiredMood = mood;
-    _applyDesiredMood();
-  }
-
-  /// Shows _desiredMood if — and only if — nothing else currently owns
-  /// cat.animation: the cat must have actually finished waking at least
-  /// once, and no wake-up/tap reaction can be mid-flight.
-  ///
-  /// [force] bypasses the "only if it actually changed" short-circuit.
-  /// Needed when the caller (wakeUp()/reactToTap()) knows cat.animation is
-  /// currently showing something that ISN'T a mood animation at all (sit/
-  /// look), so _appliedMood's last-known value can't be trusted to mean
-  /// "this is what's on screen" — without it the cat could freeze on the
-  /// last frame of a non-looping sequence whenever the real mood happens
-  /// to already equal _appliedMood. setMood() itself always calls this
-  /// unforced, since by every point it can run, _appliedMood IS accurate.
-  void _applyDesiredMood({bool force = false}) {
-    if (!_hasWokenUp || _isWaking || _reacting) return;
-    if (!force && _desiredMood == _appliedMood) return;
-
-    _appliedMood = _desiredMood;
-    _setAnimationForMood(_appliedMood);
-  }
-
-  /// The single place that writes cat.animation for a mood value — used
-  /// only by _applyDesiredMood, so _appliedMood can never drift from
-  /// what's actually displayed.
-  void _setAnimationForMood(PetState mood) {
-    if (!cat.isMounted) return;
-
-    switch (mood) {
-      case PetState.idle:
-      case PetState.clean:
-        // PetBrain never actually produces `clean` today — mapped to
-        // idle so the switch stays exhaustive without a dead sixth mood.
-        cat.animation = idleAnimation;
-        break;
-
-      case PetState.happy:
-        cat.animation = happyAnimation;
-        break;
-
-      case PetState.sad:
-        cat.animation = sadAnimation;
-        break;
-
-      case PetState.angry:
-        cat.animation = angryAnimation;
-        break;
-
-      case PetState.dirty:
-        cat.animation = dirtyAnimation;
-        break;
-
-      case PetState.neglected:
-        cat.animation = neglectedAnimation;
-        break;
+    if (cat != null) {
+      cat!.position = Vector2(
+        size.x / 2,
+        size.y / 2 + positionYOffset,
+      );
     }
+  }
+
+  SpriteAnimation _currentIdleAnimation() {
+    switch (_furStage.clamp(0, 2).toInt()) {
+      case 1:
+        return fur1IdleAnimation;
+      case 2:
+        return fur2IdleAnimation;
+      default:
+        return idleAnimation;
+    }
+  }
+
+  void setFurStage(int stage) {
+    _furStage = stage.clamp(0, 2).toInt();
+
+    if (cat == null) {
+      return;
+    }
+
+    if (!_isSleeping &&
+        !_isSleepy &&
+        !_isResting &&
+        !_isWaking &&
+        !_isDoingTrick) {
+      cat!.animation = _currentIdleAnimation();
+    }
+  }
+
+  // ==========================================================
+  // IDLE
+  // ==========================================================
+  void showIdle() {
+    showFurIdle(_furStage);
+  }
+
+  void showFurIdle(
+    int stage, {
+    bool force = false,
+  }) {
+    _furStage = stage.clamp(0, 2).toInt();
+
+    if (cat == null) {
+      return;
+    }
+
+    if (!force &&
+        (_isSleeping ||
+            _isSleepy ||
+            _isResting ||
+            _isWaking ||
+            _isDoingTrick)) {
+      return;
+    }
+
+    _isSleeping = false;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+
+    cat!.animation = _currentIdleAnimation();
+  }
+
+  // ==========================================================
+  // SAD
+  // ==========================================================
+  void showSad({
+    bool force = false,
+  }) {
+    if (cat == null) {
+      _pendingSad = true;
+      _pendingSleeping = false;
+      _pendingSleepy = false;
+      _pendingHappy = false;
+      return;
+    }
+
+    if (!force && (_isSleepy || _isResting || _isWaking || _isDoingTrick)) {
+      return;
+    }
+
+    _animationVersion++;
+    _reactionVersion++;
+
+    _isSleeping = false;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+
+    _pendingSleepy = false;
+    _pendingHappy = false;
+    _pendingSleeping = false;
+    _pendingSad = false;
+
+    cat!.animation = sadAnimation;
+  }
+
+  // ==========================================================
+  // SLEEPY
+  // ==========================================================
+  void enterSleepy({
+    bool force = false,
+  }) {
+    // ========================================================
+    // FLAME HAS NOT CREATED CAT YET
+    //
+    // DO NOT THROW AWAY THE SLEEPY REQUEST.
+    // ========================================================
+    if (cat == null) {
+      _pendingSleepy = true;
+      _pendingSleeping = false;
+      _pendingSad = false;
+      _pendingHappy = false;
+      return;
+    }
+
+    // Never replace actual Sleeping, Resting, or Waking.
+    if (_isSleeping || _isResting || _isWaking) {
+      return;
+    }
+
+    // Already Sleepy.
+    if (_isSleepy && !force) {
+      return;
+    }
+
+    // Invalidate currently running reactions.
+    _animationVersion++;
+    _reactionVersion++;
+
+    // Sleepy is allowed to interrupt Happy/Angry.
+    _isDoingTrick = false;
+    _isStanding = false;
+
+    _isSleeping = false;
+    _isResting = false;
+    _isWaking = false;
+
+    _isSleepy = true;
+
+    _pendingHappy = false;
+    _pendingSleepy = false;
+    _pendingSleeping = false;
+    _pendingSad = false;
+
+    cat!.animation = sleepyAnimation;
+  }
+
+  // ==========================================================
+  // SLEEPY → REST → SLEEPING
+  // ==========================================================
+  Future<void> restAndSleep() async {
+    if (cat == null) {
+      return;
+    }
+
+    if (!_isSleepy || _isResting || _isWaking || _isDoingTrick) {
+      return;
+    }
+
+    final version = ++_animationVersion;
+
+    _isSleepy = false;
+    _isResting = true;
+    _isSleeping = false;
+
+    cat!.animation = restAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 5000,
+      ),
+    );
+
+    if (version != _animationVersion || !_isResting) {
+      return;
+    }
+
+    _isResting = false;
+    _isSleeping = true;
+
+    cat!.animation = sleepAnimation;
+  }
+
+  // ==========================================================
+  // SLEEPING
+  // ==========================================================
+  void showSleeping() {
+    if (cat == null) {
+      _pendingSleeping = true;
+      _pendingSleepy = false;
+      _pendingSad = false;
+      _pendingHappy = false;
+      return;
+    }
+
+    _animationVersion++;
+    _reactionVersion++;
+
+    _isSleeping = true;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+
+    _pendingSleepy = false;
+    _pendingHappy = false;
+    _pendingSleeping = false;
+    _pendingSad = false;
+
+    cat!.animation = sleepAnimation;
+  }
+
+  // ==========================================================
+  // WAKE
+  //
+  // Existing wake behavior remains unchanged for now.
+  // ==========================================================
+  Future<void> wakeUp() async {
+    if (cat == null) {
+      return;
+    }
+
+    if (!_isSleeping || _isWaking || _isDoingTrick) {
+      return;
+    }
+
+    final version = ++_animationVersion;
+
+    _isSleeping = false;
+    _isWaking = true;
+    _pendingSleeping = false;
+
+    cat!.animation = wakeAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 4800,
+      ),
+    );
+
+    if (version != _animationVersion || !_isWaking) {
+      return;
+    }
+
+    cat!.animation = stretchAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 3600,
+      ),
+    );
+
+    if (version != _animationVersion || !_isWaking) {
+      return;
+    }
+
+    cat!.animation = lookAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 3600,
+      ),
+    );
+
+    if (version != _animationVersion || !_isWaking) {
+      return;
+    }
+
+    cat!.animation = sitAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 3600,
+      ),
+    );
+
+    if (version != _animationVersion || !_isWaking) {
+      return;
+    }
+
+    cat!.animation = _currentIdleAnimation();
+
+    _isStanding = false;
+    _isWaking = false;
+  }
+
+  // ==========================================================
+  // HIGH FIVE
+  // ==========================================================
+  Future<void> doHighFive() async {
+    if (cat == null) {
+      return;
+    }
+
+    if (_isDoingTrick ||
+        _isWaking ||
+        _isStanding ||
+        _isSleeping ||
+        _isSleepy ||
+        _isResting) {
+      return;
+    }
+
+    final version = ++_animationVersion;
+
+    _isDoingTrick = true;
+
+    cat!.animation = standAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 3600,
+      ),
+    );
+
+    if (version != _animationVersion || !_isDoingTrick) {
+      return;
+    }
+
+    _isStanding = true;
+
+    cat!.animation = highFiveAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 5400,
+      ),
+    );
+
+    if (version != _animationVersion || !_isDoingTrick) {
+      return;
+    }
+
+    cat!.animation = idleStandAnimation;
+
+    _isDoingTrick = false;
+  }
+
+  // ==========================================================
+  // SIT DOWN
+  // ==========================================================
+  Future<void> sitDown() async {
+    if (cat == null) {
+      return;
+    }
+
+    if (_isDoingTrick || _isWaking || !_isStanding) {
+      return;
+    }
+
+    final version = ++_animationVersion;
+
+    _isDoingTrick = true;
+
+    cat!.animation = sitDownAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 4800,
+      ),
+    );
+
+    if (version != _animationVersion || !_isDoingTrick) {
+      return;
+    }
+
+    cat!.animation = _currentIdleAnimation();
+
+    _isStanding = false;
+    _isDoingTrick = false;
+  }
+
+  // ==========================================================
+  // HAPPY
+  // ==========================================================
+  Future<void> doHappy() async {
+    // Flame hasn't finished loading.
+    // Queue Happy instead of losing it.
+    if (cat == null) {
+      _pendingHappy = true;
+      return;
+    }
+
+    if (_isWaking ||
+        _isDoingTrick ||
+        _isStanding ||
+        _isSleeping ||
+        _isSleepy ||
+        _isResting) {
+      return;
+    }
+
+    final animationVersion = ++_animationVersion;
+
+    _reactionVersion++;
+
+    final currentReactionVersion = _reactionVersion;
+
+    _isDoingTrick = true;
+
+    cat!.animation = happyAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 4800,
+      ),
+    );
+
+    if (animationVersion != _animationVersion ||
+        currentReactionVersion != _reactionVersion ||
+        !_isDoingTrick) {
+      return;
+    }
+
+    cat!.animation = _currentIdleAnimation();
+
+    _isDoingTrick = false;
+  }
+
+  // ==========================================================
+  // ANGRY
+  // ==========================================================
+  Future<void> doAngry() async {
+    if (cat == null) {
+      return;
+    }
+
+    if (_isWaking || _isStanding || _isSleeping || _isSleepy || _isResting) {
+      return;
+    }
+
+    final animationVersion = ++_animationVersion;
+
+    _reactionVersion++;
+
+    final currentReactionVersion = _reactionVersion;
+
+    _isDoingTrick = true;
+
+    cat!.animation = angryAnimation;
+
+    await Future.delayed(
+      const Duration(
+        milliseconds: 4800,
+      ),
+    );
+
+    if (animationVersion != _animationVersion ||
+        currentReactionVersion != _reactionVersion ||
+        !_isDoingTrick) {
+      return;
+    }
+
+    cat!.animation = _currentIdleAnimation();
+
+    _isDoingTrick = false;
   }
 }

@@ -161,7 +161,11 @@ class AuthService extends ChangeNotifier {
   // ── Sign out ──────────────────────────────────────────────────────────────
 
   Future<void> signOut() async {
-    await _google.signOut().catchError((_) {});
+    try {
+      await _google.signOut();
+    } catch (_) {
+      // Ignore when there is no active Google session.
+    }
     await _auth.signOut();
     await SessionManager.instance.onFirebaseSignOut();
     notifyListeners();
@@ -172,7 +176,11 @@ class AuthService extends ChangeNotifier {
   Future<AuthResult> deleteAccount() async {
     try {
       await _auth.currentUser?.delete();
-      await _google.signOut().catchError((_) {});
+      try {
+        await _google.signOut();
+      } catch (_) {
+        // Firebase account deletion has already succeeded.
+      }
       await SessionManager.instance.onFirebaseSignOut();
       notifyListeners();
       return AuthResult.successMsg('Account deleted.');

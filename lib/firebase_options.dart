@@ -57,32 +57,34 @@ class DefaultFirebaseOptions {
     projectId: 'persipal-app',
     storageBucket: 'persipal-app.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBkC1m5xQ37kN2nYJ1_1Rth5s3LEG9lPVg',
     appId: '1:436256385822:ios:1e7a967d5c2b762c88770f',
     messagingSenderId: '436256385822',
     projectId: 'persipal-app',
     storageBucket: 'persipal-app.firebasestorage.app',
+    androidClientId: '436256385822-erbb5ep70g67dvb7rv1k55q61sa1ev1m.apps.googleusercontent.com',
+    iosClientId: '436256385822-ugsd7gn6c93mdsl5n6sq53u9ivg7k5gr.apps.googleusercontent.com',
     iosBundleId: 'com.example.persipalApp',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyBkC1m5xQ37kN2nYJ1_1Rth5s3LEG9lPVg',
     appId: '1:436256385822:ios:1e7a967d5c2b762c88770f',
     messagingSenderId: '436256385822',
     projectId: 'persipal-app',
     storageBucket: 'persipal-app.firebasestorage.app',
+    androidClientId: '436256385822-erbb5ep70g67dvb7rv1k55q61sa1ev1m.apps.googleusercontent.com',
+    iosClientId: '436256385822-ugsd7gn6c93mdsl5n6sq53u9ivg7k5gr.apps.googleusercontent.com',
     iosBundleId: 'com.example.persipalApp',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
     apiKey: 'AIzaSyCqvoNRYGkKMDk8LB1eKIyVON6GV3Pox-o',
-    appId: '1:436256385822:web:d0ed90ceaa902c7588770f',
+    appId: '1:436256385822:web:d7a749ea8f5e39e988770f',
     messagingSenderId: '436256385822',
     projectId: 'persipal-app',
     authDomain: 'persipal-app.firebaseapp.com',
     storageBucket: 'persipal-app.firebasestorage.app',
-    measurementId: 'G-JYQP2N24TY',
+    measurementId: 'G-M3LTLB6SDK',
   );
 }

@@ -13,10 +13,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../providers/pet_profile_provider.dart';
-import '../../providers/reminder_provider.dart';
-import '../../services/completed_care_history.dart';
-import '../../widgets/date_filter_control.dart';
+import '../providers/pet_profile_provider.dart';
+import '../providers/reminder_provider.dart';
+import '../services/completed_care_history.dart';
+import '../widgets/date_filter_control.dart';
 
 const Color _kAccent = Color(0xFF32CD32);
 
@@ -87,7 +87,8 @@ class _CompletedHistoryScreenState extends State<CompletedHistoryScreen> {
           Positioned.fill(
             child: Opacity(
               opacity: 0.10,
-              child: Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
+              child:
+                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
             ),
           ),
           SafeArea(
