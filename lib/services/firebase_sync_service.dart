@@ -410,7 +410,11 @@ class CloudData {
       );
 
   bool get isEmpty =>
-      pets.isEmpty && logs.isEmpty && reminders.isEmpty && quizzes.isEmpty;
+      pets.isEmpty &&
+      logs.isEmpty &&
+      reminders.isEmpty &&
+      quizzes.isEmpty &&
+      settings == null;
 }
 
 class SyncResult {

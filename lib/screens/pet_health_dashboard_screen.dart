@@ -549,15 +549,6 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                         next: nextVaccine,
                       ),
                       const SizedBox(height: 18),
-                      const _SectionLabel('VETERINARY CARE'),
-                      const SizedBox(height: 8),
-                      _VetVisitCard(
-                        completed: history.vetVisits.length,
-                        upcoming: upcomingVetVisits.length,
-                        overdue: overdueVetVisits.length,
-                        next: nextVetVisit,
-                      ),
-                      const SizedBox(height: 18),
                       _CollapsibleSection(
                         title: 'HEALTH & CHECKUP NOTES',
                         trailing: IconButton(
@@ -586,13 +577,6 @@ class _PetHealthDashboardScreenState extends State<PetHealthDashboardScreen> {
                               _showHealthRecordDialog(pet, existing: r),
                           onDelete: (r) => _deleteHealthRecord(pet, r),
                         ),
-                      ),
-                      const SizedBox(height: 18),
-                      const _SectionLabel('UPCOMING & OVERDUE CARE'),
-                      const SizedBox(height: 8),
-                      _ReminderBoxesSection(
-                        upcoming: upcomingReminders,
-                        overdue: overdueReminders,
                       ),
                       const SizedBox(height: 18),
                       _CollapsibleSection(

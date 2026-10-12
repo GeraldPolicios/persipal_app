@@ -90,13 +90,16 @@ void main() {
       expect(plan(n, now: now, due: due).dueAt, due);
     });
 
-    test('never more than 12 follow-ups, however far in the future the '
+    test(
+        'never more than 12 follow-ups, however far in the future the '
         'reminder is', () {
       final far = now.add(const Duration(days: 400));
-      expect(plan(n, now: now, due: far).followUps.length, lessThanOrEqualTo(12));
+      expect(
+          plan(n, now: now, due: far).followUps.length, lessThanOrEqualTo(12));
     });
 
-    test('only follow-ups that are still in the future are armed (none in '
+    test(
+        'only follow-ups that are still in the future are armed (none in '
         'the past)', () {
       // Due 5 minutes from now, but "now" is later than the first follow-up
       // of an earlier-due reminder: simulate by an already-overdue-by-3min
@@ -108,7 +111,8 @@ void main() {
   });
 
   group('3–4. deterministic, non-colliding ids', () {
-    test('a reminder owns exactly 14 distinct consecutive ids: due, repeat, '
+    test(
+        'a reminder owns exactly 14 distinct consecutive ids: due, repeat, '
         '12 follow-ups', () {
       final ids = allCareNotifIds(n);
       expect(ids, hasLength(14));
@@ -119,7 +123,8 @@ void main() {
       expect(kCareIdsPerReminder, 14);
     });
 
-    test('ids are deterministic — the same reminder id always maps to the '
+    test(
+        'ids are deterministic — the same reminder id always maps to the '
         'same set', () {
       final a = NotificationService.careNotifId('1758000000000001');
       final b = NotificationService.careNotifId('1758000000000001');
@@ -136,12 +141,14 @@ void main() {
       }
     });
 
-    test('different reminders cannot collide — ids for many realistic '
+    test(
+        'different reminders cannot collide — ids for many realistic '
         'reminders (timestamp-style and uuid-style) never overlap', () {
       final ids = <String>[
         for (var i = 0; i < 300; i++)
           (1758000000000000 + i * 7919).toString(), // microsecond-style
-        for (var i = 0; i < 100; i++) 'f47ac10b-58cc-4372-a567-0e02b2c3d${i.toString().padLeft(3, '0')}',
+        for (var i = 0; i < 100; i++)
+          'f47ac10b-58cc-4372-a567-0e02b2c3d${i.toString().padLeft(3, '0')}',
       ];
       final owner = <int, String>{};
       for (final rid in ids) {
@@ -158,7 +165,8 @@ void main() {
 
   group('5–6. cancelling a reminder / Mark Done cancels every notification',
       () {
-    test('after arming, cancelAll leaves nothing — due, repeat and all 12 '
+    test(
+        'after arming, cancelAll leaves nothing — due, repeat and all 12 '
         'follow-ups', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n);
@@ -184,7 +192,8 @@ void main() {
       expect(p.ensureRepeat, isFalse);
     });
 
-    test('a done reminder reconciled with a known OS state cancels exactly '
+    test(
+        'a done reminder reconciled with a known OS state cancels exactly '
         'the ids that are scheduled or showing — no wasted calls for a '
         'long history of completed reminders', () {
       final p = plan(n,
@@ -197,20 +206,44 @@ void main() {
       expect(p.cancelIds.toSet(), {n + 1, n + 3, n + 4});
 
       final nothing = plan(n,
-          now: now, due: due, done: true, replace: false, pending: {}, shown: {});
+          now: now,
+          due: due,
+          done: true,
+          replace: false,
+          pending: {},
+          shown: {});
       expect(nothing.cancelIds, isEmpty);
     });
 
-    test('notifications switched off in Settings cancels everything too',
-        () {
+    test('notifications switched off in Settings cancels everything too', () {
       final p = plan(n, now: now, due: due, enabled: false);
       expect(p.cancelIds.toSet(), allCareNotifIds(n).toSet());
       expect(p.followUps, isEmpty);
     });
+
+    test(
+        'notifications switched off cancels displayed notifications even '
+        'when the platform cannot list them', () {
+      final p = plan(
+        n,
+        now: now,
+        due: due,
+        enabled: false,
+        replace: false,
+        pending: {followUpNotifId(n, 1)},
+        shown: null,
+      );
+
+      expect(p.cancelIds.toSet(), allCareNotifIds(n).toSet());
+      expect(p.dueAt, isNull);
+      expect(p.followUps, isEmpty);
+      expect(p.ensureRepeat, isFalse);
+    });
   });
 
   group('7. Reset recreates the chain', () {
-    test('done -> pending again restores the due alarm and all 12 '
+    test(
+        'done -> pending again restores the due alarm and all 12 '
         'follow-ups', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n);
@@ -226,7 +259,8 @@ void main() {
   });
 
   group('8. editing a reminder replaces the old chain', () {
-    test('a new future time re-times every follow-up on the same ids — no '
+    test(
+        'a new future time re-times every follow-up on the same ids — no '
         'old alarm is left behind and none is duplicated', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n);
@@ -243,7 +277,8 @@ void main() {
       expect(os.armed.values.any((t) => t == due), isFalse);
     });
 
-    test('editing a future reminder to a time that is already past cancels '
+    test(
+        'editing a future reminder to a time that is already past cancels '
         'the old due alarm and chain and hands over to the repeat', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n);
@@ -257,23 +292,27 @@ void main() {
       expect(os.ids, {repeatNotifId(n)});
     });
 
-    test('editing to a nearer time drops follow-ups that would now be in the '
+    test(
+        'editing to a nearer time drops follow-ups that would now be in the '
         'past (no stale alarm stays armed)', () {
       // Only possible when the new due is past; covered above. Here: the
       // plan for an overdue reminder cancels every follow-up id.
-      final p = plan(n,
-          now: now, due: now.subtract(const Duration(minutes: 1)));
-      expect(p.cancelIds.toSet(),
-          {n, ...followUpNotifIds(n)});
+      final p =
+          plan(n, now: now, due: now.subtract(const Duration(minutes: 1)));
+      expect(p.cancelIds.toSet(), {n, ...followUpNotifIds(n)});
     });
   });
 
   group('9. recurrence never reuses the completed occurrence\'s ids', () {
-    test('the next occurrence (a new reminder id) gets its own id block; '
+    test(
+        'the next occurrence (a new reminder id) gets its own id block; '
         'cancelling the completed one cannot touch it', () {
       final oldN = NotificationService.careNotifId('1758000000000001');
       final newN = NotificationService.careNotifId('1758000086400009');
-      expect(allCareNotifIds(oldN).toSet().intersection(allCareNotifIds(newN).toSet()),
+      expect(
+          allCareNotifIds(oldN)
+              .toSet()
+              .intersection(allCareNotifIds(newN).toSet()),
           isEmpty);
 
       final os = FakeOs();
@@ -295,15 +334,15 @@ void main() {
   });
 
   group('10. repeated reconciliation never duplicates a chain', () {
-    test('re-running with the same pending reminder and a known OS state '
+    test(
+        're-running with the same pending reminder and a known OS state '
         'arms nothing new', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n); // created
       final before = Map<int, DateTime?>.of(os.armed);
 
       for (var i = 0; i < 5; i++) {
-        final p = plan(n,
-            now: now, due: due, replace: false, pending: os.ids);
+        final p = plan(n, now: now, due: due, replace: false, pending: os.ids);
         expect(p.dueAt, isNull);
         expect(p.followUps, isEmpty);
         os.apply(p, n);
@@ -311,7 +350,8 @@ void main() {
       expect(os.armed, before);
     });
 
-    test('reconciliation re-arms ONLY what went missing (e.g. after the OS '
+    test(
+        'reconciliation re-arms ONLY what went missing (e.g. after the OS '
         'dropped some alarms)', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n);
@@ -325,7 +365,8 @@ void main() {
       expect(os.ids.length, 13);
     });
 
-    test('with the OS state unknown, everything is armed — and because ids '
+    test(
+        'with the OS state unknown, everything is armed — and because ids '
         'are fixed, arming twice still yields exactly one chain', () {
       final os = FakeOs();
       final p = plan(n, now: now, due: due, replace: false, pending: null);
@@ -337,7 +378,8 @@ void main() {
 
   group('overdue boundary — the endless repeat takes over', () {
     test('a reminder already overdue gets the repeat and NO follow-ups', () {
-      final p = plan(n, now: now, due: now.subtract(const Duration(minutes: 3)));
+      final p =
+          plan(n, now: now, due: now.subtract(const Duration(minutes: 3)));
       expect(p.ensureRepeat, isTrue);
       expect(p.followUps, isEmpty);
       expect(p.dueAt, isNull);
@@ -350,20 +392,21 @@ void main() {
       expect(p.dueAt, isNull);
     });
 
-    test('opening the app mid-chain: pending follow-ups are cancelled and '
+    test(
+        'opening the app mid-chain: pending follow-ups are cancelled and '
         'the repeat starts — the two never both notify', () {
       final os = FakeOs();
       os.apply(plan(n, now: now, due: due), n);
       // 22:48 — the due alarm has fired (no longer armed) and the app opens.
       os.armed.remove(n);
       final opened = DateTime(2026, 9, 24, 22, 48);
-      final p = plan(n,
-          now: opened, due: due, replace: false, pending: os.ids);
+      final p = plan(n, now: opened, due: due, replace: false, pending: os.ids);
       os.apply(p, n);
       expect(os.ids, {repeatNotifId(n)});
     });
 
-    test('reconciling an overdue reminder whose repeat already runs leaves '
+    test(
+        'reconciling an overdue reminder whose repeat already runs leaves '
         'it alone (does not re-arm)', () {
       final os = FakeOs()..armed[repeatNotifId(n)] = null;
       final p = plan(n,
@@ -377,7 +420,8 @@ void main() {
   });
 
   group('follow-up chain budget (Android alarm limit)', () {
-    test('only the soonest kMaxChainedReminders pending reminders are '
+    test(
+        'only the soonest kMaxChainedReminders pending reminders are '
         'chained', () {
       final pending = [
         for (var i = 0; i < 50; i++)
@@ -390,7 +434,8 @@ void main() {
       expect(chosen.contains('r$kMaxChainedReminders'), isFalse);
     });
 
-    test('a reminder whose whole hour has already passed no longer takes a '
+    test(
+        'a reminder whose whole hour has already passed no longer takes a '
         'slot', () {
       final chosen = pickChainedReminderIds([
         (id: 'old', scheduledAt: now.subtract(const Duration(hours: 3))),
@@ -399,7 +444,8 @@ void main() {
       expect(chosen, {'soon'});
     });
 
-    test('a reminder outside the budget gets no follow-ups and has any '
+    test(
+        'a reminder outside the budget gets no follow-ups and has any '
         'pending ones cancelled', () {
       final p = plan(n,
           now: now,

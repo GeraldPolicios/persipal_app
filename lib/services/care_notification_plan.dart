@@ -119,7 +119,9 @@ class CareNotificationPlan {
 ///   displayed, when known. Null means unknown: cancel unconditionally and
 ///   arm everything. Known ids let reconciliation skip work — important
 ///   because it runs at every start over the whole (growing) history of
-///   completed reminders.
+///   completed reminders. When Settings turns notifications off and
+///   displayed ids cannot be read, cancellation is conservative so no
+///   already-shown care alert can linger.
 CareNotificationPlan planCareNotifications({
   required int notificationId,
   required DateTime now,
@@ -133,10 +135,16 @@ CareNotificationPlan planCareNotifications({
 }) {
   final n = notificationId;
 
-  bool mayCancel(int id, {bool includeShown = false}) {
+  bool mayCancel(
+    int id, {
+    bool includeShown = false,
+    bool unknownShownMeansCancel = false,
+  }) {
     if (pendingIds == null) return true;
     if (pendingIds.contains(id)) return true;
-    return includeShown && (shownIds?.contains(id) ?? false);
+    if (!includeShown) return false;
+    if (shownIds == null) return unknownShownMeansCancel;
+    return shownIds.contains(id);
   }
 
   bool needsArm(int id) =>
@@ -147,7 +155,12 @@ CareNotificationPlan planCareNotifications({
   if (isDone || !notificationsEnabled) {
     return CareNotificationPlan(cancelIds: [
       for (final id in allCareNotifIds(n))
-        if (mayCancel(id, includeShown: true)) id,
+        if (mayCancel(
+          id,
+          includeShown: true,
+          unknownShownMeansCancel: !notificationsEnabled,
+        ))
+          id,
     ]);
   }
 

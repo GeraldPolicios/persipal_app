@@ -249,10 +249,10 @@ class ActivityLogService extends ChangeNotifier {
         description: 'Cloud sync started',
       );
 
-  Future<void> logSyncCompleted() => log(
-        type: ActionType.sync,
-        description: 'Cloud sync completed',
-      );
+  Future<void> logSyncCompleted() async {
+    // Successful cloud sync is a technical event, not a user activity.
+    // Keep the actual Firebase synchronization unchanged.
+  }
 
   Future<void> logSyncFailed(String reason) => log(
         type: ActionType.sync,
@@ -309,7 +309,9 @@ class ActivityLogService extends ChangeNotifier {
     if (lf == null || lg == null || lp == null) return;
 
     if (pet.simFeedCount == lf + 1) {
-      log(type: ActionType.feed, description: '🎮 Virtual play — fed ${pet.catName}');
+      log(
+          type: ActionType.feed,
+          description: '🎮 Virtual play — fed ${pet.catName}');
     } else if (pet.simGroomCount == lg + 1) {
       log(
           type: ActionType.groom,

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:persipal_app/models/models.dart';
+import 'package:persipal_app/services/firebase_sync_service.dart';
 
 void main() {
   group('AppSettings defaults', () {
@@ -18,6 +19,18 @@ void main() {
       final loaded = AppSettings.fromMap(saved.toMap());
       expect(loaded.soundEnabled, isFalse);
       expect(loaded.notificationsEnabled, isTrue);
+    });
+
+    test('cloud data containing only settings is not treated as empty', () {
+      final cloud = CloudData(
+        pets: const [],
+        logs: const [],
+        reminders: const [],
+        quizzes: const [],
+        settings: const AppSettings().copyWith(notificationsEnabled: false),
+      );
+
+      expect(cloud.isEmpty, isFalse);
     });
   });
 }

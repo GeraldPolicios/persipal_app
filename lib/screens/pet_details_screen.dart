@@ -1,6 +1,7 @@
 // screens/pet_profiles/pet_details_screen.dart
 //
 // Shows ALL cat details. Inline editing. Saves to Hive + Firestore.
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import '../providers/pet_profile_provider.dart';
 import '../providers/reminder_provider.dart';
 import '../models/pet_extended_models.dart';
 import '../utils/pet_age.dart';
+import '../services/pet_photo_service.dart';
 
 const _kAvatarColors = [
   Color(0xFFFFB3BA),
@@ -51,12 +53,14 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
   void initState() {
     super.initState();
     _provider.addListener(_refresh);
+    PetPhotoService.instance.addListener(_refresh);
     _initControllers();
   }
 
   @override
   void dispose() {
     _provider.removeListener(_refresh);
+    PetPhotoService.instance.removeListener(_refresh);
     for (final c in [
       _name,
       _breed,
@@ -331,22 +335,40 @@ class _PetDetailsScreenState extends State<PetDetailsScreen> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Color(_avatarColorValue),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                              color: Color(_avatarColorValue)
-                                  .withValues(alpha: 0.4),
-                              blurRadius: 12,
-                              offset: const Offset(0, 5))
-                        ],
-                      ),
-                      child: const Center(
-                          child: Text('🐱', style: TextStyle(fontSize: 48))),
+                    Builder(
+                      builder: (context) {
+                        final photoPath =
+                            PetPhotoService.instance.pathFor(pet.id);
+
+                        return Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: Color(_avatarColorValue),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.20),
+                                blurRadius: 12,
+                                spreadRadius: 2,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: photoPath != null && photoPath.isNotEmpty
+                              ? Image.file(
+                                  File(photoPath),
+                                  fit: BoxFit.cover,
+                                )
+                              : const Center(
+                                  child: Text(
+                                    '🐱',
+                                    style: TextStyle(fontSize: 48),
+                                  ),
+                                ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 12),
                     if (!_editing)

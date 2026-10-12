@@ -33,7 +33,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-
     _homeIdleGame = HomeIdleGame();
   }
 
@@ -51,17 +50,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final pending = context
         .watch<ReminderProvider>()
         .reminders
-        .where((r) => !r.isDone)
+        .where((reminder) => !reminder.isDone)
         .length;
 
-    // PetProfileProvider isn't registered in the app's MultiProvider tree
-    // (it's accessed as a singleton elsewhere too, e.g. PetProfileScreen),
-    // and isn't guaranteed to have been init()'d yet on this launch (e.g.
-    // splash routes straight to Home for an already-authenticated/guest
-    // session, bypassing LoginScreen's init() call). init() is idempotent
-    // and cheap to call again, so this just guarantees the Hive-backed
-    // profile list is loaded; the ListenableBuilder below picks up the
-    // resulting notifyListeners() once loading finishes.
+    // Ensure the locally stored pet profiles are initialized.
     unawaited(PetProfileProvider.instance.init());
 
     return Scaffold(
@@ -72,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: CustomScrollView(
               slivers: [
-                // ── App bar ────────────────────────────────────────────────────
+                // ── App bar ──────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 16, 0),
@@ -101,19 +93,21 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icons.settings_outlined,
                             size: 24,
                           ),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const SettingsScreen(),
-                            ),
-                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const SettingsScreen(),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
                   ),
                 ),
 
-                // ── Offline / guest banner ──────────────────────────────────────
+                // ── Offline / guest banner ───────────────────────────────
                 if (!isOnline || !auth.isAuthenticated)
                   SliverToBoxAdapter(
                     child: Padding(
@@ -121,17 +115,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: _InfoBanner(
                         isOnline: isOnline,
                         isGuest: !auth.isAuthenticated,
-                        onSignIn: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const SettingsScreen(),
-                          ),
-                        ),
+                        onSignIn: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SettingsScreen(),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
 
-                // ── Hero banner ─────────────────────────────────────────────────
+                // ── Hero banner ──────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
@@ -173,7 +169,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Learn, simulate, and manage\nyour Persian cat\'s care.',
+                                  'Learn, simulate, and manage\n'
+                                  'your Persian cat\'s care.',
                                   style: TextStyle(
                                     color: Colors.white70,
                                     fontSize: 12,
@@ -184,7 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
 
-                          // ── Flame Home Idle Cat ─────────────────────────────
+                          // ── Flame idle cat ──────────────────────────────
                           SizedBox(
                             width: 96,
                             height: 96,
@@ -198,7 +195,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                // ── Daily cat-care advice ───────────────────────────────────────
+                // ── Daily cat-care advice ─────────────────────────────────
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(20, 14, 20, 0),
@@ -206,46 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                // ── Quick stats ─────────────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                    child: Row(
-                      children: [
-                        ListenableBuilder(
-                          listenable: PetProfileProvider.instance,
-                          builder: (context, _) => _StatCard(
-                            value: '${PetProfileProvider.instance.count}',
-                            label: 'Cat Profiles',
-                            icon: Icons.account_circle,
-                            color: AppTheme.lavender,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const PetProfileScreen(),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        _StatCard(
-                          value: '$pending',
-                          label: 'Reminders Due',
-                          icon: Icons.alarm,
-                          color: AppTheme.salmon,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ReminderScreen(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // ── Section label ─────────────────────────────────────────────
+                // ── Section label ─────────────────────────────────────────
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
@@ -261,53 +219,80 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                // ── Module tiles ──────────────────────────────────────────────
+                // ── Module tiles ──────────────────────────────────────────
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      const _ModuleTile(
-                        icon: '🐱',
-                        title: 'Virtual Cat Simulation',
-                        subtitle: 'Feed, groom and play with your virtual cat',
-                        color: Color(0xFFFFB347),
-                        page: GameScreen(),
-                      ),
-                      const SizedBox(height: 10),
-                      const _ModuleTile(
-                        icon: '📚',
-                        title: 'Educational Lessons',
-                        subtitle: 'Grooming, nutrition, behavior & more',
-                        color: AppTheme.lavender,
-                        page: LearnScreen(),
-                      ),
-                      const SizedBox(height: 10),
-                      _ModuleTile(
-                        icon: '⏰',
-                        title: 'Care Reminders',
-                        subtitle: 'Feeding, grooming, vitamin schedules',
-                        color: AppTheme.salmon,
-                        badge: pending > 0 ? '$pending' : null,
-                        page: const ReminderScreen(),
-                      ),
-                      const SizedBox(height: 10),
-                      ListenableBuilder(
-                        listenable: PetProfileProvider.instance,
-                        builder: (context, _) {
-                          final petCount = PetProfileProvider.instance.count;
+                      // 1. Care Reminders and Pet Profile — side by side at the top.
 
-                          return _ModuleTile(
-                            icon: '🐾',
-                            title: 'Pet Profile',
-                            subtitle:
-                                'Manage your Persian cat\'s profile & details',
-                            color: AppTheme.teal,
-                            badge: petCount > 0 ? '$petCount' : null,
-                            page: const PetProfileScreen(),
-                          );
-                        },
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ListenableBuilder(
+                              listenable: PetProfileProvider.instance,
+                              builder: (context, _) {
+                                final petCount =
+                                    PetProfileProvider.instance.count;
+
+                                return _CompactModuleTile(
+                                  icon: '🐾',
+                                  title: 'Pet Profile',
+                                  subtitle: 'Manage your cat profiles',
+                                  color: AppTheme.teal,
+                                  badge: petCount > 0 ? '$petCount' : null,
+                                  page: const PetProfileScreen(),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _CompactModuleTile(
+                              icon: '⏰',
+                              title: 'Care Reminders',
+                              subtitle: 'Manage care schedules',
+                              color: AppTheme.salmon,
+                              badge: pending > 0 ? '$pending' : null,
+                              page: const ReminderScreen(),
+                            ),
+                          ),
+                        ],
                       ),
+
                       const SizedBox(height: 10),
+
+                      // 2. Virtual Cat Simulation and Educational Lessons
+                      // side by side.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _CompactModuleTile(
+                              icon: '🐱',
+                              title: 'Virtual Cat',
+                              subtitle: 'Feed, groom and play',
+                              color: const Color(0xFFFFB347),
+                              page: const GameScreen(),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _CompactModuleTile(
+                              icon: '📚',
+                              title: 'Educational Lessons',
+                              subtitle: 'Grooming, nutrition and behavior',
+                              color: AppTheme.lavender,
+                              page: const LearnScreen(),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // 4. Achievements — full width at the bottom.
                       const _ModuleTile(
                         icon: '🏆',
                         title: 'Achievements',
@@ -328,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ── Sub-widgets ──────────────────────────────────────────────────────────────
+// ── Offline / guest information banner ───────────────────────────────────────
 
 class _InfoBanner extends StatelessWidget {
   final bool isOnline;
@@ -384,114 +369,49 @@ class _InfoBanner extends StatelessWidget {
     String text,
     Color color,
     Widget? action,
-  ) =>
-      Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 8,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withValues(alpha: 0.25),
         ),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: color.withValues(alpha: 0.25),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: color,
           ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: color,
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: color,
-                    ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color,
                   ),
-                  if (action != null) action,
-                ],
-              ),
+                ),
+                if (action != null) action,
+              ],
             ),
-          ],
-        ),
-      );
-}
-
-class _StatCard extends StatelessWidget {
-  final String value;
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _StatCard({
-    required this.value,
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            vertical: 12,
-            horizontal: 10,
           ),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.78),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: color,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 9,
-                  color: Colors.grey,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
 }
+
+// ── Full-width module tile ───────────────────────────────────────────────────
 
 class _ModuleTile extends StatelessWidget {
   final String icon;
@@ -513,12 +433,14 @@ class _ModuleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BounceButton(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => page,
-        ),
-      ),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => page,
+          ),
+        );
+      },
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -541,11 +463,10 @@ class _ModuleTile extends StatelessWidget {
                 color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Center(
-                child: Text(
-                  icon,
-                  style: const TextStyle(fontSize: 24),
-                ),
+              alignment: Alignment.center,
+              child: Text(
+                icon,
+                style: const TextStyle(fontSize: 24),
               ),
             ),
             const SizedBox(width: 14),
@@ -596,6 +517,124 @@ class _ModuleTile extends StatelessWidget {
               Icons.arrow_forward_ios,
               size: 15,
               color: Colors.grey.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Compact module tile for side-by-side layout ──────────────────────────────
+
+class _CompactModuleTile extends StatelessWidget {
+  final String icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final Widget page;
+  final String? badge;
+
+  const _CompactModuleTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.page,
+    this.badge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return BounceButton(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => page,
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 155),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.82),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    icon,
+                    style: const TextStyle(fontSize: 21),
+                  ),
+                ),
+                const Spacer(),
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 10,
+                color: Colors.grey,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Icon(
+                Icons.arrow_forward_ios,
+                size: 13,
+                color: Colors.grey.withValues(alpha: 0.6),
+              ),
             ),
           ],
         ),

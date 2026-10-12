@@ -93,6 +93,8 @@ Future<void> main() async {
       PetProfileProvider.instance.checkCareAchievements;
   NotificationService.onMarkDoneAction =
       reminderProvider.completeReminderOccurrence;
+  AppProvider.onNotificationSettingsChanged =
+      reminderProvider.refreshNotifications;
   NotificationService.instance.consumeStartupAction();
 
   runApp(PersipalApp(reminderProvider: reminderProvider));

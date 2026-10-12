@@ -32,6 +32,10 @@ class AppProvider extends ChangeNotifier {
   final _activityLog = ActivityLogService.instance;
   final _uuid = const Uuid();
 
+  /// Wired from main.dart to the real care-reminder owner. AppProvider owns
+  /// the Settings record, but ReminderProvider owns care notification state.
+  static Future<void> Function()? onNotificationSettingsChanged;
+
   // ── State ─────────────────────────────────────────────────────────────────
 
   List<PetModel> _pets = [];
@@ -220,8 +224,10 @@ class AppProvider extends ChangeNotifier {
     if (cloud.settings != null) {
       final cs = cloud.settings!;
       if (cs.updatedAt.isAfter(_settings.updatedAt)) {
+        final previous = _settings;
         _settings = cs;
         await _local.saveSettings(_settings);
+        await _refreshCareNotificationsIfNeeded(previous, _settings);
       }
     }
 
@@ -273,6 +279,8 @@ class AppProvider extends ChangeNotifier {
     final cloud = await _sync.downloadAll();
     if (cloud.isEmpty) return;
 
+    final previousSettings = _settings;
+
     await _local.deleteAllPets();
     await _local.deleteAllReminders();
     await _local.clearLogs();
@@ -291,9 +299,14 @@ class AppProvider extends ChangeNotifier {
 
     _pets = cloud.pets;
     _reminders = cloud.reminders;
+    if (cloud.settings != null) {
+      _settings = cloud.settings!;
+      await _local.saveSettings(_settings);
+    }
     _selectedPet = _pets.isNotEmpty ? _pets.first : null;
     _logs = await _local.fetchLogs(); // FIX: refresh logs
     await _activityLog.reload();
+    await _refreshCareNotificationsIfNeeded(previousSettings, _settings);
     notifyListeners();
   }
 
@@ -380,7 +393,8 @@ class AppProvider extends ChangeNotifier {
           ),
       'reminders': () => reminderProvider.clearAllLocalData(),
       'virtual pet': () => virtualPetProvider.clearAllLocalData(),
-      if (!keepPetPhotos) 'pet photos': () => PetPhotoService.instance.clearAll(),
+      if (!keepPetPhotos)
+        'pet photos': () => PetPhotoService.instance.clearAll(),
     };
     for (final entry in steps.entries) {
       try {
@@ -605,10 +619,26 @@ class AppProvider extends ChangeNotifier {
   // ── Settings ──────────────────────────────────────────────────────────────
 
   Future<void> updateSettings(AppSettings s) async {
+    final previous = _settings;
     _settings = s;
     await _local.saveSettings(s);
     unawaited(_sync.saveSettings(s));
+    await _refreshCareNotificationsIfNeeded(previous, s);
     notifyListeners();
+  }
+
+  Future<void> _refreshCareNotificationsIfNeeded(
+    AppSettings previous,
+    AppSettings next,
+  ) async {
+    if (previous.notificationsEnabled == next.notificationsEnabled) return;
+    final refresh = onNotificationSettingsChanged;
+    if (refresh == null) return;
+    try {
+      await refresh();
+    } catch (e) {
+      debugPrint('AppProvider: failed to refresh care notifications: $e');
+    }
   }
 
   // ── Data management ───────────────────────────────────────────────────────
