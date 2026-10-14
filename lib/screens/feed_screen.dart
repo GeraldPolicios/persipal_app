@@ -49,6 +49,7 @@ class _FeedScreenState extends State<FeedScreen> {
   late final FeedGame _feedGame;
   late final CatAnimation _sadCatGame;
   late final CatAnimation _sleepyCatGame;
+  late final CatAnimation _happyCatGame;
 
   late int hunger;
   late int happiness;
@@ -64,10 +65,12 @@ class _FeedScreenState extends State<FeedScreen> {
   String? _foodInBowl;
 
   bool _isEating = false;
+  bool _isHappyReaction = false;
+  String _foodExplanation = '';
 
   final List<Map<String, dynamic>> _foods = const [
     {
-      'emoji': '🍗',
+      'emoji': '🥣',
       'name': 'Dry Food',
       'color': Color(0xFFFFE0B2),
     },
@@ -92,9 +95,24 @@ class _FeedScreenState extends State<FeedScreen> {
       'color': Color(0xFFBBDEFB),
     },
     {
-      'emoji': '🍖',
+      'emoji': '🥩',
       'name': 'Treat',
       'color': Color(0xFFFFCCBC),
+    },
+    {
+      'emoji': '🍫',
+      'name': 'Chocolate',
+      'color': Color(0xFFD7CCC8),
+    },
+    {
+      'emoji': '🧅',
+      'name': 'Onion',
+      'color': Color(0xFFE6EE9C),
+    },
+    {
+      'emoji': '🧄',
+      'name': 'Garlic',
+      'color': Color(0xFFFFF9C4),
     },
   ];
 
@@ -119,6 +137,7 @@ class _FeedScreenState extends State<FeedScreen> {
       // Keep sleepy animation aligned with the feed/eating cat and bowl.
       positionYOffset: 17,
     );
+    _happyCatGame = CatAnimation(positionYOffset: 17);
     dayPeriodNotifier.addListener(_onDayPeriodChanged);
   }
 
@@ -256,6 +275,35 @@ class _FeedScreenState extends State<FeedScreen> {
       return;
     }
 
+    // Unsafe foods are educational choices only: the cat refuses them,
+    // no eating animation starts, and care stats are never changed.
+    final unsafeExplanations = <String, String>{
+      'Chocolate': 'Chocolate is toxic to cats.',
+      'Onion': 'Onions can damage a cat’s red blood cells.',
+      'Garlic': 'Garlic is toxic to cats.',
+    };
+    const unsafeThoughts = <String, String>{
+      'Chocolate': 'That is dangerous for me!',
+      'Onion': 'I should stay away from that!',
+      'Garlic': 'No thanks, that is not safe!',
+    };
+    if (unsafeExplanations.containsKey(food)) {
+      setState(() {
+        _feedbackEmoji = '🙀';
+        _feedbackText = unsafeThoughts[food]!;
+        _foodExplanation = unsafeExplanations[food]!;
+        _showFeedEffect = true;
+      });
+      Future.delayed(const Duration(seconds: 3), () {
+        if (!mounted) return;
+        setState(() {
+          _showFeedEffect = false;
+          _feedbackText = '';
+        });
+      });
+      return;
+    }
+
     // Mark the care animation as active BEFORE the short bowl delay.
     // This is important because a hungry cat normally uses the SadCat game;
     // while feeding, FeedGame must be the visible cat so its eating/drinking
@@ -303,16 +351,18 @@ class _FeedScreenState extends State<FeedScreen> {
 
     setState(() {
       _isEating = false;
+      _isHappyReaction = true;
+      _foodInBowl = null;
     });
 
-    await Future.delayed(
-      const Duration(milliseconds: 400),
-    );
+    await _happyCatGame.doHappy();
 
     if (!mounted) return;
 
     setState(() {
-      _foodInBowl = null;
+      _isHappyReaction = false;
+      _showFeedEffect = false;
+      _feedbackText = '';
     });
   }
 
@@ -336,37 +386,37 @@ class _FeedScreenState extends State<FeedScreen> {
       case 'Dry Food':
         hungerDelta = -25;
         happinessDelta = 5;
-        feedback = 'Crunchy!';
+        feedback = 'Yum! My tummy will be happy!';
         emoji = '😸';
         break;
       case 'Wet Food':
         hungerDelta = -20;
         happinessDelta = 10;
-        feedback = 'Yummy!';
+        feedback = 'Mmm, this smells delicious!';
         emoji = '😻';
         break;
       case 'Fish':
         hungerDelta = -15;
         happinessDelta = 20;
-        feedback = 'Fishy treat!';
+        feedback = 'Fishy treat? Yes, please!';
         emoji = '🐟';
         break;
       case 'Milk':
         hungerDelta = -10;
         happinessDelta = 15;
         cleanlinessDelta = 5;
-        feedback = 'Milk time!';
+        feedback = 'Water is better for me!';
         emoji = '🥛';
         break;
       case 'Water':
         cleanlinessDelta = 10;
-        feedback = 'Hydrated!';
+        feedback = 'Ahh, fresh water!';
         emoji = '💧';
         break;
       case 'Treat':
         hungerDelta = -10;
         happinessDelta = 25;
-        feedback = 'Treat time!';
+        feedback = 'A little treat makes me happy!';
         emoji = '🍖';
         break;
       default:
@@ -381,10 +431,19 @@ class _FeedScreenState extends State<FeedScreen> {
     );
     if (!mounted) return;
 
+    const explanations = <String, String>{
+      'Dry Food': 'Balanced cat food provides essential nutrients.',
+      'Wet Food': 'Complete wet food provides nutrients and extra moisture.',
+      'Fish': 'Plain, cooked, boneless fish is an occasional treat.',
+      'Milk': 'Many cats cannot digest cow’s milk well. Water is better.',
+      'Water': 'Fresh water helps keep your cat hydrated.',
+      'Treat': 'Cat-safe treats should be given in small amounts.',
+    };
     setState(() {
       hunger = pet.hunger;
       happiness = pet.happiness;
       cleanliness = pet.cleanliness;
+      _foodExplanation = explanations[food] ?? '';
       _feedbackText = feedback;
       _feedbackEmoji = emoji;
       _showFeedEffect = true;
@@ -394,18 +453,6 @@ class _FeedScreenState extends State<FeedScreen> {
       icon: Icons.restaurant,
       iconColor: const Color(0xFFFF8C69),
       title: 'Fed cat — $food',
-    );
-
-    Future.delayed(
-      const Duration(milliseconds: 1200),
-      () {
-        if (!mounted) return;
-
-        setState(() {
-          _showFeedEffect = false;
-          _feedbackText = '';
-        });
-      },
     );
   }
 
@@ -443,6 +490,28 @@ class _FeedScreenState extends State<FeedScreen> {
 
     final itemName = (item['name'] as String).toLowerCase().replaceAll(' ', '');
     final idParts = equippedId.split('_');
+
+    // The Unsafe Food Card theme applies to all three educational unsafe-food
+    // cards together, rather than to a purchasable food item.
+    final isUnsafeFood =
+        const {'Chocolate', 'Onion', 'Garlic'}.contains(item['name']);
+    if (isUnsafeFood &&
+        idParts.length == 3 &&
+        idParts[0] == 'feed' &&
+        idParts[1] == 'unsafe') {
+      switch (idParts[2]) {
+        case 'pink':
+          return const Color(0xFFFFDCE8);
+        case 'mint':
+          return const Color(0xFFDDF4E7);
+        case 'blue':
+          return const Color(0xFFD9EEFF);
+        case 'lilac':
+          return const Color(0xFFEADFFF);
+        case 'peach':
+          return const Color(0xFFFFE2D4);
+      }
+    }
     if (idParts.length < 3 || idParts.first != 'feed') {
       return fallback;
     }
@@ -460,6 +529,46 @@ class _FeedScreenState extends State<FeedScreen> {
         return const Color(0xFFEADFFF);
       case 'peach':
         return const Color(0xFFFFE2D4);
+      case 'u1':
+        return const Color(0xFFFFF09B);
+      case 'u2':
+        return const Color(0xFF9DEBE8);
+      case 'u3':
+        return const Color(0xFFFFA6B7);
+      case 'u4':
+        return const Color(0xFFC9E0B5);
+      case 'u5':
+        return const Color(0xFFB9C5FF);
+      case 'u6':
+        return const Color(0xFF8FE3D1);
+      case 'u7':
+        return const Color(0xFFCDBDFF);
+      case 'u8':
+        return const Color(0xFFA9D9FF);
+      case 'u9':
+        return const Color(0xFFFFA6B7);
+      case 'u10':
+        return const Color(0xFFB7F0C4);
+      case 'u11':
+        return const Color(0xFFFFCFB4);
+      case 'u12':
+        return const Color(0xFFE6B8FF);
+      case 'u13':
+        return const Color(0xFFF4F59C);
+      case 'u14':
+        return const Color(0xFF9DEBE8);
+      case 'u15':
+        return const Color(0xFFE9B4D8);
+      case 'u16':
+        return const Color(0xFFB9C5FF);
+      case 'u17':
+        return const Color(0xFFFFD0A1);
+      case 'u18':
+        return const Color(0xFFC9E0B5);
+      case 'u19':
+        return const Color(0xFFE2E4E8);
+      case 'u20':
+        return const Color(0xFFD8A7E8);
       default:
         return fallback;
     }
@@ -736,23 +845,29 @@ class _FeedScreenState extends State<FeedScreen> {
                                                 ? GameWidget(
                                                     game: _feedGame,
                                                   )
-                                                : (isNeglected &&
-                                                        pet.furStage == 0)
+                                                : _isHappyReaction
                                                     ? GameWidget(
-                                                        game: _sadCatGame,
+                                                        game: _happyCatGame,
                                                       )
-                                                    : isSad
+                                                    : (isNeglected &&
+                                                            pet.furStage == 0)
                                                         ? GameWidget(
                                                             game: _sadCatGame,
                                                           )
-                                                        : isSleepy
+                                                        : isSad
                                                             ? GameWidget(
                                                                 game:
-                                                                    _sleepyCatGame,
+                                                                    _sadCatGame,
                                                               )
-                                                            : GameWidget(
-                                                                game: _feedGame,
-                                                              ),
+                                                            : isSleepy
+                                                                ? GameWidget(
+                                                                    game:
+                                                                        _sleepyCatGame,
+                                                                  )
+                                                                : GameWidget(
+                                                                    game:
+                                                                        _feedGame,
+                                                                  ),
                                           ),
                                           if (pet.isDirty && !isNeglected)
                                             const Positioned(
@@ -838,6 +953,28 @@ class _FeedScreenState extends State<FeedScreen> {
                     },
                   ),
                 ),
+                if (_foodExplanation.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.symmetric(horizontal: 18),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE8C8A8)),
+                    ),
+                    child: Text(
+                      _foodExplanation,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF80583F),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 8),
               ],
             ),

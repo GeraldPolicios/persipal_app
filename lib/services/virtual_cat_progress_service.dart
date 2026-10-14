@@ -21,6 +21,8 @@ class VirtualCatProgressService extends ChangeNotifier {
   int? _lastActionTotal;
   bool _initialized = false;
   bool _syncing = false;
+  bool _syncRequested = false;
+  bool _allowAccountTransferRequested = false;
   bool _listenersAttached = false;
 
   int get totalXp => _totalXp;
@@ -52,8 +54,7 @@ class VirtualCatProgressService extends ChangeNotifier {
   /// Proposed shop gates. Purchases still cost coins after unlocking.
   bool isShopFeatureUnlocked(String feature) {
     final requiredLevel = switch (feature) {
-      'grooming' || 'feed' => 5,
-      'play' => 6,
+      'grooming' || 'feed' || 'play' => 5,
       'decor' => 7,
       'rooms' => 10,
       'special' => 15,
@@ -63,8 +64,7 @@ class VirtualCatProgressService extends ChangeNotifier {
   }
 
   int requiredLevelFor(String feature) => switch (feature) {
-        'grooming' || 'feed' => 5,
-        'play' => 6,
+        'grooming' || 'feed' || 'play' => 5,
         'decor' => 7,
         'rooms' => 10,
         'special' => 15,
@@ -147,8 +147,14 @@ class VirtualCatProgressService extends ChangeNotifier {
 
   /// Cloud merge is monotonic: an older account/device snapshot cannot lower
   /// the locally saved XP. Offline gameplay continues if Firestore is down.
-  Future<void> syncProgress() async {
-    if (!_initialized || _syncing || !ConnectivityService.instance.isOnline) {
+  Future<void> syncProgress({bool allowAccountTransfer = false}) async {
+    if (!_initialized || !ConnectivityService.instance.isOnline) {
+      return;
+    }
+    if (_syncing) {
+      _syncRequested = true;
+      _allowAccountTransferRequested =
+          _allowAccountTransferRequested || allowAccountTransfer;
       return;
     }
     DocumentReference<Map<String, dynamic>>? doc;
@@ -164,7 +170,7 @@ class VirtualCatProgressService extends ChangeNotifier {
     // different existing account. A future account-switch UI can explicitly
     // offer transfer/merge after user confirmation. Unbound guest progress is
     // allowed to migrate to the first account that successfully syncs.
-    if (ownerUid != null && ownerUid != uid) {
+    if (!allowAccountTransfer && ownerUid != null && ownerUid != uid) {
       debugPrint('VirtualCatProgressService: account mismatch; sync paused.');
       return;
     }
@@ -187,6 +193,12 @@ class VirtualCatProgressService extends ChangeNotifier {
       debugPrint('VirtualCatProgressService: sync failed: $e');
     } finally {
       _syncing = false;
+      if (_syncRequested) {
+        final allowTransfer = _allowAccountTransferRequested;
+        _syncRequested = false;
+        _allowAccountTransferRequested = false;
+        unawaited(syncProgress(allowAccountTransfer: allowTransfer));
+      }
     }
   }
 }

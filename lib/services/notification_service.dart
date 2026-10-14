@@ -116,6 +116,10 @@ class NotificationService {
   static const int virtualPetNeglectedNotificationId = 210000003;
   static const int virtualPetPlayNotificationId = 210000004;
   static const int virtualPetCombinedCareNotificationId = 210000005;
+  // Separate IDs for cat sleep/wake activity updates. These never overlap
+  // with real-pet care reminders or virtual-pet need notifications.
+  static const int virtualPetSleepNotificationId = 210000006;
+  static const int virtualPetWakeNotificationId = 210000007;
 
   // ── Persistent-reminder tuning ───────────────────────────────────────────
   // A care reminder that isn't marked done keeps re-notifying every
@@ -611,6 +615,30 @@ class NotificationService {
   Future<void> cancelVirtualPetNeed(int notificationId) async {
     if (!_initialized) await init();
     await _plugin.cancel(notificationId);
+  }
+
+  /// Sends a one-time, friendly activity update using the cat's current name.
+  /// This is deliberately separate from care reminders and does not repeat.
+  Future<void> showVirtualPetSleepActivity({
+    required bool isSleeping,
+    required String catName,
+  }) async {
+    if (!_initialized) await init();
+
+    final name = catName.trim().isEmpty ? 'Your cat' : catName.trim();
+    final id = isSleeping
+        ? virtualPetSleepNotificationId
+        : virtualPetWakeNotificationId;
+    final title =
+        isSleeping ? '$name is settling down 🌙' : '$name is awake ☀️';
+    final body = isSleeping
+        ? 'It’s bedtime for $name. Let them rest and recharge.'
+        : 'Good morning! $name is awake and ready to spend time with you.';
+
+    // Replacing this activity notification prevents duplicate queued copies.
+    await _plugin.cancel(id);
+    await _plugin.show(id, title, body, _petNeedDetails(),
+        payload: isSleeping ? 'virtual_pet_sleep' : 'virtual_pet_wake');
   }
 
   Future<bool> isVirtualPetNeedScheduled(int notificationId) async {

@@ -154,16 +154,9 @@ class _SplashScreenState extends State<SplashScreen>
                         Container(
                           width: 240,
                           height: 240,
-                          decoration: const BoxDecoration(
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 18,
-                                spreadRadius: 1,
-                                offset: Offset(0, 6),
-                              ),
-                            ],
-                          ),
+                          // Keep the sprite clean against the splash background.
+                          // The old black shadow behind the entire game canvas
+                          // made the cat look like it was inside a dark box.
                           child: RepaintBoundary(
                             child: SizedBox(
                               width: 240,

@@ -134,7 +134,7 @@ class _PlayScreenState extends State<PlayScreen> {
 
     setState(() {
       _feedbackEmoji = '😴';
-      _feedbackText = 'Zzz... Im sleepy!';
+      _feedbackText = 'I want to rest... 😴';
     });
 
     await Future.delayed(const Duration(seconds: 2));

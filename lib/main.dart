@@ -39,12 +39,23 @@ Future<void> main() async {
   // 1. Hive — must initialise before anything reads local data
   await LocalStorageService.instance.init();
 
-  // 2. Firebase — initialise once, never required for startup
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // 2. Firebase — cloud features are optional; local app startup must survive
+  // Firebase configuration/network/plugin failures. Firebase-dependent
+  // services check Firebase.apps before using Auth or Firestore.
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  } catch (error, stackTrace) {
+    debugPrint(
+      'Persipal: Firebase unavailable; starting in local-only mode. $error',
+    );
+    debugPrintStack(stackTrace: stackTrace);
+  }
 
-  // 3. Auth listener
+  // 3. Auth listener (no-op when Firebase did not initialize)
   await AuthService.instance.init();
 
   // 4. Connectivity watcher

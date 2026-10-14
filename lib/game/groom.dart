@@ -671,13 +671,11 @@ class GroomGame extends FlameGame {
 
     if (_dryProgress >= 1.0) {
       _dryProgress = 1.0;
-
       _isWet = false;
-
       _isShowingHappy = false;
-      if (cat!.animation != idleAnimation) {
-        cat!.animation = _currentIdleAnimation();
-      }
+      // Drying is the only action that clears the wet state. Return to the
+      // normal idle animation only after the blower has stayed over the cat.
+      cat!.animation = _currentIdleAnimation();
     }
   }
 

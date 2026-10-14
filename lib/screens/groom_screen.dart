@@ -157,10 +157,10 @@ class _GroomScreenState extends State<GroomScreen> {
   }
 
   bool _isNightCareNeeded(VirtualPetProvider pet, {required bool trimming}) {
-    if (!NighttimeMode.isNighttime()) return true;
-    if (pet.isNeglected) return true;
-    if (trimming) return pet.furStage > 0;
-    return pet.isDirty || pet.cleanliness < 100;
+    // Nighttime is a strict no-grooming period. Keep the existing daytime
+    // eligibility rules unchanged, but block every tool consistently at night.
+    if (NighttimeMode.isNighttime()) return false;
+    return true;
   }
 
   Future<void> _showNightRestBlocked() async {
@@ -832,7 +832,14 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
+    final showerCompleted = _showerCleanProgress >= 1.0;
     _cancelShowerInteraction();
+
+    // Re-assert the wet pose after the shower is released. The water stops,
+    // but the cat must stay visibly wet until the blower dries it.
+    if (showerCompleted) {
+      _groomGame.showWetCat();
+    }
 
     setState(() {
       _showerDragging = false;
@@ -1336,6 +1343,8 @@ class _GroomScreenState extends State<GroomScreen> {
   // TRIM
 
   void _startTrim() {
+    // A blocked nighttime attempt must never leave another tool's SFX playing.
+    _stopGroomingSound();
     final pet = context.read<VirtualPetProvider>();
     if (!_isNightCareNeeded(pet, trimming: true)) {
       unawaited(_showNightRestBlocked());
@@ -1562,6 +1571,16 @@ class _GroomScreenState extends State<GroomScreen> {
         return const Color(0xFFEADFFF);
       case 'peach':
         return const Color(0xFFFFE2D4);
+      case 'u1':
+        return const Color(0xFFFFF09B);
+      case 'u2':
+        return const Color(0xFF9DEBE8);
+      case 'u3':
+        return const Color(0xFFFFA6B7);
+      case 'u4':
+        return const Color(0xFFC9E0B5);
+      case 'u5':
+        return const Color(0xFFB9C5FF);
       default:
         return fallback;
     }
@@ -1979,7 +1998,8 @@ class _GroomScreenState extends State<GroomScreen> {
                     ),
 
                     // Feedback message.
-                    if (_feedbackText.isNotEmpty && !isSleeping)
+                    if (_feedbackText.isNotEmpty &&
+                        (!isSleeping || _feedbackText.startsWith('🌙')))
                       Positioned(
                         // Keep feedback below the room clock and above the cat.
                         bottom: 130,

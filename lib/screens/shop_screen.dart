@@ -25,6 +25,7 @@ class _ShopScreenState extends State<ShopScreen>
   static const _categories = <String>[
     'Grooming',
     'Feed',
+    'Play',
     'Decor',
     'All Rooms',
   ];
@@ -171,7 +172,7 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'feed_dryfood_mint',
         category: 'Feed',
-        emoji: '🍗',
+        emoji: '🥣',
         name: 'Mint Dry Food Card',
         description:
             'Changes the background color of the dry food card to mint.',
@@ -213,15 +214,24 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'feed_treat_mint',
         category: 'Feed',
-        emoji: '🍖',
+        emoji: '🥩',
         name: 'Mint Treat Card',
         description: 'Changes the background color of the treat card to mint.',
         price: 80,
         color: Color(0xFFDDF4E7)),
     ShopItem(
+        id: 'feed_unsafe_pink',
+        category: 'Feed',
+        emoji: '🍫',
+        name: 'Pink Unsafe Food Card',
+        description:
+            'Changes the background color of the chocolate, onion, and garlic cards to pink.',
+        price: 80,
+        color: Color(0xFFFFDCE8)),
+    ShopItem(
         id: 'feed_dryfood_pink',
         category: 'Feed',
-        emoji: '🍗',
+        emoji: '🥣',
         name: 'Pink Dry Food Card',
         description:
             'Changes the background color of the dry food card to pink.',
@@ -263,7 +273,7 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'feed_treat_pink',
         category: 'Feed',
-        emoji: '🍖',
+        emoji: '🥩',
         name: 'Pink Treat Card',
         description: 'Changes the background color of the treat card to pink.',
         price: 80,
@@ -271,7 +281,7 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'feed_dryfood_blue',
         category: 'Feed',
-        emoji: '🍗',
+        emoji: '🥣',
         name: 'Blue Dry Food Card',
         description:
             'Changes the background color of the dry food card to blue.',
@@ -302,7 +312,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the tennis ball card to mint.',
         price: 80,
-        color: Color(0xFFDDF4E7)),
+        color: Color(0xFFBFE8D2)),
     ShopItem(
         id: 'play_feather_pink',
         category: 'Play',
@@ -311,7 +321,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the feather card to pink.',
         price: 80,
-        color: Color(0xFFFFDCE8)),
+        color: Color(0xFFFFC5D8)),
     ShopItem(
         id: 'play_laserdot_blue',
         category: 'Play',
@@ -320,7 +330,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the laser dot card to blue.',
         price: 90,
-        color: Color(0xFFD9EEFF)),
+        color: Color(0xFFB7D9F8)),
     ShopItem(
         id: 'play_yarnball_lilac',
         category: 'Play',
@@ -329,7 +339,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the yarn ball card to lilac.',
         price: 90,
-        color: Color(0xFFEADFFF)),
+        color: Color(0xFFD8C7F2)),
     ShopItem(
         id: 'play_tennisball_peach',
         category: 'Play',
@@ -338,7 +348,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the tennis ball card to peach.',
         price: 80,
-        color: Color(0xFFFFE2D4)),
+        color: Color(0xFFFFD0B5)),
     ShopItem(
         id: 'play_feather_mint',
         category: 'Play',
@@ -347,7 +357,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the feather card to mint.',
         price: 80,
-        color: Color(0xFFDDF4E7)),
+        color: Color(0xFFA9DED0)),
     ShopItem(
         id: 'play_laserdot_pink',
         category: 'Play',
@@ -356,7 +366,7 @@ class _ShopScreenState extends State<ShopScreen>
         description:
             'Changes the background color of the laser dot card to pink.',
         price: 90,
-        color: Color(0xFFFFDCE8)),
+        color: Color(0xFFFFAEC7)),
     ShopItem(
         id: 'play_yarnball_blue',
         category: 'Play',
@@ -510,6 +520,208 @@ class _ShopScreenState extends State<ShopScreen>
         price: 150,
         color: Color(0xFFFFE2D4)),
     ShopItem(
+        id: 'feed_chocolate_u1',
+        category: 'Feed',
+        emoji: '🍫',
+        name: 'Pink Chocolate Card',
+        description: 'Changes only the chocolate card in Feed to pink.',
+        price: 90,
+        color: Color(0xFFFFC6D9)),
+    ShopItem(
+        id: 'feed_garlic_u2',
+        category: 'Feed',
+        emoji: '🧄',
+        name: 'Blue Garlic Card',
+        description: 'Changes only the garlic card in Feed to blue.',
+        price: 90,
+        color: Color(0xFFB9DFFF)),
+    ShopItem(
+        id: 'feed_onion_u3',
+        category: 'Feed',
+        emoji: '🧅',
+        name: 'Gray Onion Card',
+        description: 'Changes only the onion card in Feed to gray.',
+        price: 90,
+        color: Color(0xFFD6D6DE)),
+    ShopItem(
+        id: 'feed_dryfood_u4',
+        category: 'Feed',
+        emoji: '🥣',
+        name: 'Coral Dry Food Card',
+        description: 'Changes only the dry food card in Feed to coral.',
+        price: 90,
+        color: Color(0xFFFFB4A2)),
+    ShopItem(
+        id: 'feed_wetfood_u5',
+        category: 'Feed',
+        emoji: '🥫',
+        name: 'Yellow Wet Food Card',
+        description: 'Changes only the wet food card in Feed to yellow.',
+        price: 90,
+        color: Color(0xFFFFE29A)),
+    ShopItem(
+        id: 'feed_fish_u6',
+        category: 'Feed',
+        emoji: '🐟',
+        name: 'Teal Fish Card',
+        description: 'Changes only the fish card in Feed to teal.',
+        price: 90,
+        color: Color(0xFF8FE3D1)),
+    ShopItem(
+        id: 'feed_milk_u7',
+        category: 'Feed',
+        emoji: '🥛',
+        name: 'Lavender Milk Card',
+        description: 'Changes only the milk card in Feed to lavender.',
+        price: 90,
+        color: Color(0xFFCDBDFF)),
+    ShopItem(
+        id: 'feed_water_u8',
+        category: 'Feed',
+        emoji: '💧',
+        name: 'Sky Water Card',
+        description: 'Changes only the water card in Feed to sky.',
+        price: 90,
+        color: Color(0xFFA9D9FF)),
+    ShopItem(
+        id: 'feed_treat_u9',
+        category: 'Feed',
+        emoji: '🥩',
+        name: 'Rose Treat Card',
+        description: 'Changes only the treat card in Feed to rose.',
+        price: 90,
+        color: Color(0xFFFFA6B7)),
+    ShopItem(
+        id: 'feed_chocolate_u10',
+        category: 'Feed',
+        emoji: '🍫',
+        name: 'Mint Chocolate Card',
+        description: 'Changes only the chocolate card in Feed to mint.',
+        price: 90,
+        color: Color(0xFFB7F0C4)),
+    ShopItem(
+        id: 'feed_garlic_u11',
+        category: 'Feed',
+        emoji: '🧄',
+        name: 'Peach Garlic Card',
+        description: 'Changes only the garlic card in Feed to peach.',
+        price: 90,
+        color: Color(0xFFFFCFB4)),
+    ShopItem(
+        id: 'feed_onion_u12',
+        category: 'Feed',
+        emoji: '🧅',
+        name: 'Lilac Onion Card',
+        description: 'Changes only the onion card in Feed to lilac.',
+        price: 90,
+        color: Color(0xFFE6B8FF)),
+    ShopItem(
+        id: 'feed_dryfood_u13',
+        category: 'Feed',
+        emoji: '🥣',
+        name: 'Lemon Dry Food Card',
+        description: 'Changes only the dry food card in Feed to lemon.',
+        price: 90,
+        color: Color(0xFFF4F59C)),
+    ShopItem(
+        id: 'feed_wetfood_u14',
+        category: 'Feed',
+        emoji: '🥫',
+        name: 'Aqua Wet Food Card',
+        description: 'Changes only the wet food card in Feed to aqua.',
+        price: 90,
+        color: Color(0xFF9DEBE8)),
+    ShopItem(
+        id: 'feed_fish_u15',
+        category: 'Feed',
+        emoji: '🐟',
+        name: 'Mauve Fish Card',
+        description: 'Changes only the fish card in Feed to mauve.',
+        price: 90,
+        color: Color(0xFFE9B4D8)),
+    ShopItem(
+        id: 'feed_milk_u16',
+        category: 'Feed',
+        emoji: '🥛',
+        name: 'Periwinkle Milk Card',
+        description: 'Changes only the milk card in Feed to periwinkle.',
+        price: 90,
+        color: Color(0xFFB9C5FF)),
+    ShopItem(
+        id: 'feed_water_u17',
+        category: 'Feed',
+        emoji: '💧',
+        name: 'Apricot Water Card',
+        description: 'Changes only the water card in Feed to apricot.',
+        price: 90,
+        color: Color(0xFFFFD0A1)),
+    ShopItem(
+        id: 'feed_treat_u18',
+        category: 'Feed',
+        emoji: '🥩',
+        name: 'Sage Treat Card',
+        description: 'Changes only the treat card in Feed to sage.',
+        price: 90,
+        color: Color(0xFFC9E0B5)),
+    ShopItem(
+        id: 'feed_chocolate_u19',
+        category: 'Feed',
+        emoji: '🍫',
+        name: 'Silver Chocolate Card',
+        description: 'Changes only the chocolate card in Feed to silver.',
+        price: 90,
+        color: Color(0xFFE2E4E8)),
+    ShopItem(
+        id: 'feed_garlic_u20',
+        category: 'Feed',
+        emoji: '🧄',
+        name: 'Plum Garlic Card',
+        description: 'Changes only the garlic card in Feed to plum.',
+        price: 90,
+        color: Color(0xFFD8A7E8)),
+    ShopItem(
+        id: 'grooming_soap_u1',
+        category: 'Grooming',
+        emoji: '🧼',
+        name: 'Lemon Soap Card',
+        description: 'Changes only the soap card in Groom to lemon.',
+        price: 90,
+        color: Color(0xFFFFF09B)),
+    ShopItem(
+        id: 'grooming_brush_u2',
+        category: 'Grooming',
+        emoji: '🪥',
+        name: 'Aqua Brush Card',
+        description: 'Changes only the brush card in Groom to aqua.',
+        price: 90,
+        color: Color(0xFF9DEBE8)),
+    ShopItem(
+        id: 'grooming_towel_u3',
+        category: 'Grooming',
+        emoji: '🧻',
+        name: 'Rose Towel Card',
+        description: 'Changes only the towel card in Groom to rose.',
+        price: 90,
+        color: Color(0xFFFFA6B7),
+        imageAsset: 'assets/images/items/towel.png'),
+    ShopItem(
+        id: 'grooming_scissors_u4',
+        category: 'Grooming',
+        emoji: '✂️',
+        name: 'Sage Scissors Card',
+        description: 'Changes only the scissors card in Groom to sage.',
+        price: 90,
+        color: Color(0xFFC9E0B5)),
+    ShopItem(
+        id: 'grooming_blower_u5',
+        category: 'Grooming',
+        emoji: '💨',
+        name: 'Periwinkle Blower Card',
+        description: 'Changes only the blower card in Groom to periwinkle.',
+        price: 90,
+        color: Color(0xFFB9C5FF),
+        imageAsset: 'assets/images/items/blower.png'),
+    ShopItem(
         id: 'background_room_sunroom_morning',
         category: 'Room Decor',
         emoji: '🖼️',
@@ -608,6 +820,32 @@ class _ShopScreenState extends State<ShopScreen>
         imageAsset: 'assets/packs/room/aticroomnight.png',
         equipSlot: 'background_room',
         backgroundItem: true),
+    ShopItem(
+        id: 'feed_dryfood_lilac',
+        category: 'Feed',
+        emoji: '🥣',
+        name: 'Lilac Dry Food Card',
+        description:
+            'Changes the background color of the dry food card to lilac.',
+        price: 60,
+        color: Color(0xFFEADFFF)),
+    ShopItem(
+        id: 'feed_wetfood_peach',
+        category: 'Feed',
+        emoji: '🥫',
+        name: 'Peach Wet Food Card',
+        description:
+            'Changes the background color of the wet food card to peach.',
+        price: 60,
+        color: Color(0xFFFFE2D4)),
+    ShopItem(
+        id: 'feed_fish_mint',
+        category: 'Feed',
+        emoji: '🐟',
+        name: 'Mint Fish Card',
+        description: 'Changes the background color of the fish card to mint.',
+        price: 60,
+        color: Color(0xFFDDF4E7)),
     ShopItem(
         id: 'background_feed_persi_morning',
         category: 'Feed',
@@ -941,7 +1179,7 @@ class _ShopScreenState extends State<ShopScreen>
   }
 
   int _requiredLevelForCategory(String category) => switch (category) {
-        'Grooming' || 'Feed' => 5,
+        'Grooming' || 'Feed' || 'Play' => 5,
         'Decor' => 7,
         'All Rooms' => 10,
         _ => 1,
@@ -1155,6 +1393,10 @@ class _ShopScreenState extends State<ShopScreen>
                             Tab(
                                 icon: Icon(Icons.restaurant_rounded, size: 15),
                                 text: 'Feed'),
+                            Tab(
+                                icon: Icon(Icons.sports_esports_rounded,
+                                    size: 15),
+                                text: 'Play'),
                             Tab(
                                 icon: Icon(Icons.weekend_rounded, size: 15),
                                 text: 'Decor'),

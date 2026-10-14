@@ -25,6 +25,8 @@
 // the virtual simulation is one-per-device, not one-per-account (see
 // virtual_pet_state.dart's header comment).
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/virtual_achievement_model.dart';
@@ -59,6 +61,9 @@ class VirtualAchievementService extends ChangeNotifier {
   static const int _milestoneTrackingVersion = 2;
 
   bool _initialized = false;
+  bool _initializing = false;
+  bool _syncRequested = false;
+  bool _allowAccountTransferRequested = false;
   bool _hasObservedPetBaseline = false;
   bool _syncing = false;
   bool _syncListenersAttached = false;
@@ -98,8 +103,8 @@ class VirtualAchievementService extends ChangeNotifier {
   // ── Init ─────────────────────────────────────────────────────────────────
 
   Future<void> init() async {
-    if (_initialized) return;
-    _initialized = true;
+    if (_initialized || _initializing) return;
+    _initializing = true;
 
     final saved = await _local.fetchVirtualAchievementState();
     if (saved != null) {
@@ -147,6 +152,9 @@ class VirtualAchievementService extends ChangeNotifier {
     // Achievement rewards now contribute to the separate lifetime
     // Achievement Points score; they no longer add spendable Reward Points.
     // Existing RewardService balances are intentionally left untouched.
+
+    _initialized = true;
+    _initializing = false;
 
     if (!_syncListenersAttached) {
       _syncListenersAttached = true;
@@ -320,18 +328,23 @@ class VirtualAchievementService extends ChangeNotifier {
   /// Local and cloud progress are merged monotonically: unlocked badges stay
   /// unlocked, progress uses the maximum seen, and distinct-day sets are unioned.
   /// Guests remain fully offline-first and never write to a shared guest path.
-  Future<void> syncProgress() async {
+  Future<void> syncProgress({bool allowAccountTransfer = false}) async {
     if (!_initialized ||
-        _syncing ||
         !AuthService.instance.isAuthenticated ||
         !ConnectivityService.instance.isOnline) {
+      return;
+    }
+    if (_syncing) {
+      _syncRequested = true;
+      _allowAccountTransferRequested =
+          _allowAccountTransferRequested || allowAccountTransfer;
       return;
     }
     final uid = AuthService.instance.userId;
     final ownerUid = _local.fetchVirtualProgressOwner();
     // Keep local achievements available offline, but don't silently upload a
     // previous account's virtual-cat achievements into a different account.
-    if (ownerUid != null && ownerUid != uid) {
+    if (!allowAccountTransfer && ownerUid != null && ownerUid != uid) {
       debugPrint('VirtualAchievementService: account mismatch; sync paused.');
       return;
     }
@@ -442,6 +455,12 @@ class VirtualAchievementService extends ChangeNotifier {
       debugPrint('VirtualAchievementService: sync failed: $e');
     } finally {
       _syncing = false;
+      if (_syncRequested) {
+        final allowTransfer = _allowAccountTransferRequested;
+        _syncRequested = false;
+        _allowAccountTransferRequested = false;
+        unawaited(syncProgress(allowAccountTransfer: allowTransfer));
+      }
     }
   }
 

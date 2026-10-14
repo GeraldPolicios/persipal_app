@@ -340,6 +340,13 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     notifyListeners();
     await _syncPetNotifications();
+
+    // Friendly sleep/wake update only when the persisted state truly changes.
+    // Uses the user's current cat name and does not repeat while state is stable.
+    await _notifications.showVirtualPetSleepActivity(
+      isSleeping: shouldSleep,
+      catName: _pet.catName,
+    );
   }
 
   // ──────────────────────────────────────────────────────────────────────────

@@ -19,6 +19,8 @@ import '../services/auth_service.dart';
 import '../services/session_manager.dart';
 import '../services/activity_log_service.dart';
 import '../services/lesson_progress_service.dart';
+import '../services/virtual_cat_progress_service.dart';
+import '../services/virtual_achievement_service.dart';
 import '../services/reward_service.dart';
 import '../providers/app_provider.dart';
 import '../providers/pet_profile_provider.dart';
@@ -374,6 +376,14 @@ class _LoginScreenState extends State<LoginScreen>
               await PetProfileProvider.instance.pushGuestDataToCloud();
               await reminderProvider.pushGuestDataToCloud();
               await virtualPetProvider.pushGuestDataToCloud();
+              // Explicitly merge offline virtual-cat XP and achievements too.
+              // These services keep monotonic local/cloud progress, and this
+              // user-confirmed path may rebind progress from the guest device
+              // to the account instead of silently discarding it.
+              await VirtualCatProgressService.instance
+                  .syncProgress(allowAccountTransfer: true);
+              await VirtualAchievementService.instance
+                  .syncProgress(allowAccountTransfer: true);
               // Lesson progress/reward points: syncProgress() itself already
               // performs a merge (max-of-local-and-cloud per key, union of
               // claims/completed lessons) — exactly "Merge Progress"

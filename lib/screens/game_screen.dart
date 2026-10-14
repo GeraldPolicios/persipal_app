@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flame/game.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 import '../providers/virtual_pet_provider.dart';
 import '../services/activity_service.dart';
@@ -74,6 +75,9 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> {
   final _service = ActivityService.instance;
+  // Sleep purring belongs only to GameScreen and must not play on Feed/Play/Groom.
+  final AudioPlayer _sleepcatPlayer = AudioPlayer();
+  bool _sleepcatLoopActive = false;
 
   bool _askedName = false;
   String catName = 'Meow Meow';
@@ -172,7 +176,10 @@ class _GameScreenState extends State<GameScreen> {
 
       final vp = context.read<VirtualPetProvider>();
 
-      if (vp.needsNaming && !_askedName) {
+      // The provider may still be restoring the saved virtual pet from Hive
+      // or reconciling it with Firestore. Never show the naming dialog from
+      // the temporary initial state while that restoration is in progress.
+      if (!vp.loading && vp.needsNaming && !_askedName) {
         _askedName = true;
         _askCatName(vp);
       }
@@ -201,8 +208,9 @@ class _GameScreenState extends State<GameScreen> {
   //
   //   Idle -> Sleepy -> Rest -> Sleep
   //
-  // The existing VirtualPetProvider status rules are intentionally not
-  // replaced here. In particular, a neglected cat is not forced into sleep.
+  // The existing VirtualPetProvider neglected-state rule remains in effect:
+  // a genuinely neglected cat is not forced into sleep. Fur stage and normal
+  // hunger/cleanliness thresholds do not block bedtime for other cats.
   // Once the existing sleep animation reaches Sleeping, the shared provider
   // sleep state is persisted so reopening the app keeps the cat asleep.
   Future<void> _maybeStartNightRoutine() async {
@@ -231,16 +239,19 @@ class _GameScreenState extends State<GameScreen> {
       // still reports a transient busy/waking state. Do not let that transient
       // state permanently skip tonight's sleep reconciliation. At this point
       // the bedtime routine should already have completed while the app was
-      // closed, so restore the sleeping pose directly when care allows it.
-      if (vp.furStage == 0 && vp.hunger < 90 && vp.cleanliness > 30) {
+      // closed, so restore the sleeping pose directly after 10:30 PM.
+      // Fur stage and ordinary hunger/cleanliness thresholds must not leave
+      // a healthy cat awake overnight. The existing neglected-state guard
+      // above remains authoritative, so a genuinely neglected cat still
+      // follows its existing sad/neglected behavior.
+      if (!vp.isNeglected) {
         catGame.showSleeping();
         _initialBedtimeReconciled = true;
         _nightRoutineStartedOn = today;
         await vp.setSleeping(true);
         return;
       }
-      // If care needs currently override sleep, keep retrying on the next
-      // timer tick rather than marking bedtime as reconciled prematurely.
+      // A genuinely neglected cat keeps its existing neglected behavior.
     }
 
     // If already asleep, synchronize the persisted state and mark tonight done.
@@ -329,6 +340,9 @@ class _GameScreenState extends State<GameScreen> {
     _nightRoutineTimer?.cancel();
     _highFiveSoundTimer?.cancel();
     _occasionalMeowTimer?.cancel();
+    _sleepcatLoopActive = false;
+    unawaited(_sleepcatPlayer.stop());
+    unawaited(_sleepcatPlayer.dispose());
 
     // Leaving GameScreen means leaving the entire Virtual Pet module.
     GlobalMusicService.instance.stopForVirtualPet();
@@ -348,6 +362,29 @@ class _GameScreenState extends State<GameScreen> {
   // Once the provider is no longer loading, this schedules a
   // post-frame synchronization using the CURRENT stats.
   //
+  Future<void> _syncSleepcatLoop(bool sleeping) async {
+    if (!mounted) return;
+    if (sleeping) {
+      if (_sleepcatLoopActive) return;
+      _sleepcatLoopActive = true;
+      try {
+        await _sleepcatPlayer.setReleaseMode(ReleaseMode.loop);
+        await _sleepcatPlayer.setVolume(1.0);
+        await _sleepcatPlayer.play(AssetSource('sounds/sleepcat.wav'));
+      } catch (e) {
+        _sleepcatLoopActive = false;
+        debugPrint('GameScreen: sleepcat loop failed: $e');
+      }
+    } else {
+      _sleepcatLoopActive = false;
+      try {
+        await _sleepcatPlayer.stop();
+      } catch (e) {
+        debugPrint('GameScreen: stopping sleepcat failed: $e');
+      }
+    }
+  }
+
   void _scheduleCatStateSync() {
     if (_syncScheduled) return;
 
@@ -367,6 +404,8 @@ class _GameScreenState extends State<GameScreen> {
       // to run again and synchronization will happen then.
       if (vp.loading) return;
       if (!vp.needsNaming) _showWelcomeThought(vp);
+      // Keep the looping purr synchronized with the saved sleeping state.
+      unawaited(_syncSleepcatLoop(vp.isSleeping || catGame.isSleeping));
 
       final statsUnchanged = _lastSyncedHunger == vp.hunger &&
           _lastSyncedHappiness == vp.happiness &&
@@ -409,6 +448,23 @@ class _GameScreenState extends State<GameScreen> {
 
     DirtyState.instance.setDirty(newDirty);
     catGame.setFurStage(vp.furStage);
+
+    // Bedtime must win over a stale animation/provider state when GameScreen
+    // first opens or rebuilds after 10:30 PM. Otherwise the normal controller
+    // can restore Idle/FurIdle while the persisted sleep flag is still saving.
+    // Keep the existing neglected-cat exception unchanged.
+    final now = DateTime.now();
+    final afterBedtime =
+        now.hour < 6 || now.hour > 22 || (now.hour == 22 && now.minute >= 30);
+    if (afterBedtime && !vp.isNeglected) {
+      if (!vp.isSleeping) {
+        unawaited(vp.setSleeping(true));
+      }
+      if (!catGame.isSleeping) {
+        catGame.showSleeping();
+      }
+      return;
+    }
 
     // ========================================================
     // NEVER INTERRUPT A WAKE TRANSITION
@@ -481,7 +537,6 @@ class _GameScreenState extends State<GameScreen> {
       if (!mounted) return;
 
       if (catGame.isSleeping) {
-        unawaited(GlobalMusicService.instance.playSfx('sleepcat.wav'));
         await vp.setSleeping(true);
       }
 
@@ -1257,6 +1312,19 @@ class _GameScreenState extends State<GameScreen> {
     // values.
     // ========================================================
     _scheduleCatStateSync();
+
+    // Naming is checked only after the saved pet has finished loading. This
+    // prevents a restart from prompting for a name before Hive/cloud restore
+    // has supplied the existing catName.
+    if (vp.needsNaming && !_askedName) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _askedName) return;
+        final currentVp = context.read<VirtualPetProvider>();
+        if (currentVp.loading || !currentVp.needsNaming) return;
+        _askedName = true;
+        _askCatName(currentVp);
+      });
+    }
 
     final providerCatName = vp.catName.isEmpty ? 'Meow Meow' : vp.catName;
 
@@ -2038,9 +2106,11 @@ class _GameScreenState extends State<GameScreen> {
           ),
           const SizedBox(width: 8),
           SizedBox(
-            width: 32,
+            width: 42,
             child: Text(
               '$value%',
+              maxLines: 1,
+              softWrap: false,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,

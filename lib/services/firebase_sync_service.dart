@@ -12,6 +12,7 @@
 
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import '../models/models.dart';
 import 'auth_service.dart';
@@ -28,7 +29,9 @@ class FirebaseSyncService extends ChangeNotifier {
   FirebaseSyncService._();
   static final FirebaseSyncService instance = FirebaseSyncService._();
 
-  final _db = FirebaseFirestore.instance;
+  // Lazy getter: constructing the sync service must not access Firestore
+  // when the app is running in local-only mode.
+  FirebaseFirestore get _db => FirebaseFirestore.instance;
   final _auth = AuthService.instance;
   final _connectivity = ConnectivityService.instance;
   final _local = LocalStorageService.instance;
@@ -64,7 +67,10 @@ class FirebaseSyncService extends ChangeNotifier {
   // ── Guards ────────────────────────────────────────────────────────────────
 
   bool get _canSync =>
-      _auth.isAuthenticated && _connectivity.isOnline && !_syncInProgress;
+      Firebase.apps.isNotEmpty &&
+      _auth.isAuthenticated &&
+      _connectivity.isOnline &&
+      !_syncInProgress;
 
   // ── Full upload (Hive → Firestore) ────────────────────────────────────────
 

@@ -13,6 +13,7 @@
 
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -51,7 +52,16 @@ class SessionManager extends ChangeNotifier {
     await Hive.openBox<String>(_boxName);
 
     // Check Firebase Auth first — might be restored from a previous login
-    final firebaseUser = FirebaseAuth.instance.currentUser;
+    User? firebaseUser;
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        firebaseUser = FirebaseAuth.instance.currentUser;
+      } catch (error) {
+        // A native Auth-plugin failure must not prevent restoring local data.
+        debugPrint(
+            'Persipal: Firebase Auth unavailable; restoring local session: $error');
+      }
+    }
     if (firebaseUser != null) {
       _session = _sessionFromFirebase(firebaseUser);
       _saveSession();
