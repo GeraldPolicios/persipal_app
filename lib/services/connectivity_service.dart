@@ -18,18 +18,38 @@ class ConnectivityService extends ChangeNotifier {
   bool get isOffline => !_isOnline;
 
   Future<void> init() async {
-    // Check immediately
-    final results = await Connectivity().checkConnectivity();
-    _isOnline = _hasConnection(results);
+    try {
+      // Check immediately.
+      final results = await Connectivity().checkConnectivity();
+      _isOnline = _hasConnection(results);
 
-    // Subscribe to changes
-    _sub = Connectivity().onConnectivityChanged.listen((results) {
-      final online = _hasConnection(results);
-      if (online != _isOnline) {
-        _isOnline = online;
-        notifyListeners();
-      }
-    });
+      // Subscribe to changes.
+      _sub = Connectivity().onConnectivityChanged.listen(
+        (results) {
+          final online = _hasConnection(results);
+          if (online != _isOnline) {
+            _isOnline = online;
+            notifyListeners();
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          // Connectivity is a convenience for sync decisions, not a
+          // requirement for launching the local-first app.
+          debugPrint('Persipal: connectivity updates unavailable: $error');
+          if (_isOnline) {
+            _isOnline = false;
+            notifyListeners();
+          }
+        },
+      );
+    } catch (error, stackTrace) {
+      // If the platform connectivity plugin fails during startup, continue
+      // in offline mode instead of preventing runApp() from being reached.
+      _isOnline = false;
+      debugPrint(
+          'Persipal: connectivity check unavailable; using offline mode: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   bool _hasConnection(List<ConnectivityResult> results) => results.any((r) =>

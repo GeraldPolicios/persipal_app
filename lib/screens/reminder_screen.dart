@@ -172,8 +172,8 @@ class _ReminderScreenState extends State<ReminderScreen>
       final at = r.completedAt ?? r.scheduledAt;
       return !at.isBefore(range.$1) && at.isBefore(range.$2);
     }).toList();
-    items.sort((a, b) =>
-        (b.completedAt ?? b.scheduledAt).compareTo(a.completedAt ?? a.scheduledAt));
+    items.sort((a, b) => (b.completedAt ?? b.scheduledAt)
+        .compareTo(a.completedAt ?? a.scheduledAt));
     return items;
   }
 
@@ -286,7 +286,8 @@ class _ReminderScreenState extends State<ReminderScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFF8C69).withValues(alpha: 0.15),
+                          color:
+                              const Color(0xFFFF8C69).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.alarm_add,
@@ -375,7 +376,9 @@ class _ReminderScreenState extends State<ReminderScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: isSelected ? color : color.withValues(alpha: 0.12),
+                            color: isSelected
+                                ? color
+                                : color.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                                 color: isSelected ? color : Colors.transparent),
@@ -458,7 +461,8 @@ class _ReminderScreenState extends State<ReminderScreen>
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: const Color(0xFFFF8C69).withValues(alpha: 0.4)),
+                            color:
+                                const Color(0xFFFF8C69).withValues(alpha: 0.4)),
                       ),
                       child: Row(
                         children: [
@@ -504,7 +508,8 @@ class _ReminderScreenState extends State<ReminderScreen>
                             decoration: BoxDecoration(
                               color: isSelected
                                   ? const Color(0xFF20B2AA)
-                                  : const Color(0xFF20B2AA).withValues(alpha: 0.12),
+                                  : const Color(0xFF20B2AA)
+                                      .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -630,8 +635,8 @@ class _ReminderScreenState extends State<ReminderScreen>
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide:
-              BorderSide(color: const Color(0xFFFF8C69).withValues(alpha: 0.25)),
+          borderSide: BorderSide(
+              color: const Color(0xFFFF8C69).withValues(alpha: 0.25)),
         ),
       ),
       style: const TextStyle(fontSize: 14),
@@ -776,6 +781,7 @@ class _ReminderScreenState extends State<ReminderScreen>
                                   current: _doneDateFilter,
                                   accentColor: const Color(0xFF32CD32),
                                 );
+                                if (!mounted) return;
                                 if (picked != null) {
                                   setState(() => _doneDateFilter = picked);
                                 }
@@ -1033,7 +1039,8 @@ class _ReminderScreenState extends State<ReminderScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF20B2AA).withValues(alpha: 0.12),
+                            color:
+                                const Color(0xFF20B2AA).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [

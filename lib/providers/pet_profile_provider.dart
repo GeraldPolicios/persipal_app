@@ -85,7 +85,7 @@ class PetProfileProvider extends ChangeNotifier {
 
     await _loadFromHive();
 
-    if (_auth.isAuthenticated) {
+    if (_auth.isAuthenticated && _auth.accountSyncAllowed) {
       unawaited(_downloadFromCloud());
       unawaited(_flushPendingOps());
     }
@@ -102,14 +102,16 @@ class PetProfileProvider extends ChangeNotifier {
   }
 
   void _onAuthChanged() {
-    if (_auth.isAuthenticated) {
+    if (_auth.isAuthenticated && _auth.accountSyncAllowed) {
       unawaited(_downloadFromCloud());
       unawaited(_flushPendingOps());
     }
   }
 
   void _onConnectivityChanged() {
-    if (_connectivity.isOnline && _auth.isAuthenticated) {
+    if (_connectivity.isOnline &&
+        _auth.isAuthenticated &&
+        _auth.accountSyncAllowed) {
       unawaited(_flushPendingOps());
     }
   }

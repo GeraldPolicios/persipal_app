@@ -32,6 +32,22 @@ class AuthService extends ChangeNotifier {
 
   bool get isAuthenticated => currentUser != null;
   bool get isGuest => currentUser == null;
+
+  // Interactive sign-in must not trigger background reconciliation before the
+  // user has chosen whether to use cloud data or merge local guest progress.
+  bool _accountResolutionPending = false;
+  bool get accountSyncAllowed => !_accountResolutionPending;
+
+  void beginAccountResolution() {
+    _accountResolutionPending = true;
+  }
+
+  void completeAccountResolution() {
+    if (!_accountResolutionPending) return;
+    _accountResolutionPending = false;
+    notifyListeners();
+  }
+
   String get userId => currentUser?.uid ?? 'guest';
   String? get userEmail => currentUser?.email;
   String? get displayName => currentUser?.displayName;

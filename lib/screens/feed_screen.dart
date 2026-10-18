@@ -304,13 +304,28 @@ class _FeedScreenState extends State<FeedScreen> {
       return;
     }
 
-    // Mark the care animation as active BEFORE the short bowl delay.
-    // This is important because a hungry cat normally uses the SadCat game;
-    // while feeding, FeedGame must be the visible cat so its eating/drinking
-    // animation can actually be seen.
+    // Show the cat's food reaction while the eating/drinking animation is
+    // playing, not only after it finishes. The bubble is kept through the
+    // happy reaction below and cleared when that reaction ends.
+    const eatingThoughts = <String, Map<String, String>>{
+      'Dry Food': {'emoji': '😸', 'text': 'Yum! My tummy will be happy!'},
+      'Wet Food': {'emoji': '😻', 'text': 'Mmm, this smells delicious!'},
+      'Fish': {'emoji': '🐟', 'text': 'Fishy treat? Yes, please!'},
+      'Milk': {'emoji': '🥛', 'text': 'Water is better for me!'},
+      'Water': {'emoji': '💧', 'text': 'Ahh, fresh water!'},
+      'Treat': {'emoji': '🍖', 'text': 'A little treat makes me happy!'},
+    };
+    final thought =
+        eatingThoughts[food] ?? const {'emoji': '😺', 'text': 'Yum!'};
+
+    // Mark the care animation and thought bubble active together so the
+    // reaction is visible while the cat eats/drinks.
     setState(() {
       _foodInBowl = food;
       _isEating = true;
+      _feedbackEmoji = thought['emoji']!;
+      _feedbackText = thought['text']!;
+      _showFeedEffect = true;
     });
 
     if (!mounted) return;
@@ -845,29 +860,38 @@ class _FeedScreenState extends State<FeedScreen> {
                                                 ? GameWidget(
                                                     game: _feedGame,
                                                   )
-                                                : _isHappyReaction
+                                                : pet.furStage > 0
+                                                    // The sad/sleepy animations use
+                                                    // the clean-fur sprite sheet. Keep
+                                                    // the fur-stage animation visible
+                                                    // until grooming returns it to 0.
                                                     ? GameWidget(
-                                                        game: _happyCatGame,
-                                                      )
-                                                    : (isNeglected &&
-                                                            pet.furStage == 0)
+                                                        game: _feedGame)
+                                                    : _isHappyReaction
                                                         ? GameWidget(
-                                                            game: _sadCatGame,
+                                                            game: _happyCatGame,
                                                           )
-                                                        : isSad
+                                                        : (isNeglected &&
+                                                                pet.furStage ==
+                                                                    0)
                                                             ? GameWidget(
                                                                 game:
                                                                     _sadCatGame,
                                                               )
-                                                            : isSleepy
+                                                            : isSad
                                                                 ? GameWidget(
                                                                     game:
-                                                                        _sleepyCatGame,
+                                                                        _sadCatGame,
                                                                   )
-                                                                : GameWidget(
-                                                                    game:
-                                                                        _feedGame,
-                                                                  ),
+                                                                : isSleepy
+                                                                    ? GameWidget(
+                                                                        game:
+                                                                            _sleepyCatGame,
+                                                                      )
+                                                                    : GameWidget(
+                                                                        game:
+                                                                            _feedGame,
+                                                                      ),
                                           ),
                                           if (pet.isDirty && !isNeglected)
                                             const Positioned(

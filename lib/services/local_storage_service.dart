@@ -196,6 +196,13 @@ class LocalStorageService {
   Future<void> saveRewardState(String json) =>
       _settings.put('reward_state', json);
 
+  // User-selected daily reminders for the virtual cat only.
+  String? fetchVirtualReminderSettings() =>
+      _settings.get('virtual_reminder_settings');
+
+  Future<void> saveVirtualReminderSettings(String json) =>
+      _settings.put('virtual_reminder_settings', json);
+
   // Track which account owns the locally persisted reward ledger. This stops
   // offline coins and shop purchases from silently merging into a different
   // account after the user switches accounts.

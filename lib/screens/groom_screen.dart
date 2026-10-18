@@ -151,9 +151,12 @@ class _GroomScreenState extends State<GroomScreen> {
   }
 
   bool _isGroomingBlockedByHunger(VirtualPetProvider pet) {
-    // Match the PlayScreen's critical-hunger rule, but keep Neglected
-    // groomable so grooming can be used to break the neglected condition.
-    return pet.isCriticalHunger && !pet.isNeglected;
+    // Hunger must never block access to grooming. When Fur Stage 1/2 is
+    // active, grooming is the required next action even if hunger is critical.
+    // FeedScreen separately blocks feeding until the fur returns to Stage 0.
+    // Keep this helper for the existing call sites, but do not gate grooming
+    // tools on hunger; otherwise the player can become trapped between screens.
+    return false;
   }
 
   bool _isNightCareNeeded(VirtualPetProvider pet, {required bool trimming}) {
@@ -245,11 +248,11 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       await _showSleepyBlocked();
       return;
     }
@@ -441,6 +444,9 @@ class _GroomScreenState extends State<GroomScreen> {
   // Soap, towel, trim, and brush use swipe-only audio below.
   void _startGroomingSound(String filename) {
     final pet = context.read<VirtualPetProvider>();
+    // Sleepy/sleeping cats should not play grooming-tool sounds, even when
+    // a fur-stage action is still available. This gates audio only; it does
+    // not change which grooming actions the player can perform.
     if ((pet.isSleepy || pet.isSleeping) && !pet.isNeglected) {
       _stopGroomingSound();
       return;
@@ -456,6 +462,9 @@ class _GroomScreenState extends State<GroomScreen> {
   // holds the tool still, stop the loop shortly after the last swipe update.
   void _playGroomingSoundOnSwipe(String filename, Offset position) {
     final pet = context.read<VirtualPetProvider>();
+    // Sleepy/sleeping cats should not play grooming-tool sounds, even when
+    // a fur-stage action is still available. This gates audio only; it does
+    // not change which grooming actions the player can perform.
     if ((pet.isSleepy || pet.isSleeping) && !pet.isNeglected) {
       _stopGroomingSound();
       return;
@@ -567,13 +576,13 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -658,13 +667,13 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -914,13 +923,13 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -1088,13 +1097,13 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -1223,13 +1232,13 @@ class _GroomScreenState extends State<GroomScreen> {
 
     _cancelShowerInteraction();
 
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       unawaited(_showSleepyBlocked());
       return;
     }
@@ -1357,11 +1366,11 @@ class _GroomScreenState extends State<GroomScreen> {
     }
 
     _cancelShowerInteraction();
-    if (pet.isSleeping && !pet.isNeglected) {
+    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected) {
+    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
       _showSleepyBlocked();
       return;
     }
@@ -1731,8 +1740,10 @@ class _GroomScreenState extends State<GroomScreen> {
     // Care conditions take visual priority over a stale saved sleep state.
     // Keep neglect detection unchanged; critical hunger or dirt wakes the
     // visual state so the player can see the cat's current needs.
-    final isSleeping =
-        pet.isSleeping && pet.hunger < 90 && pet.cleanliness > 30;
+    final isSleeping = pet.isSleeping &&
+        pet.hunger < 90 &&
+        pet.cleanliness > 30 &&
+        pet.furStage == 0;
     final isNeglected =
         pet.hunger >= 90 && pet.happiness <= 20 && pet.cleanliness <= 20;
     final isSleepy = pet.isSleepy && !isSleeping && !isNeglected;
@@ -1874,7 +1885,7 @@ class _GroomScreenState extends State<GroomScreen> {
                         if (_isGroomingBlockedByHunger(pet)) {
                           return false;
                         }
-                        return !isSleeping || isNeglected;
+                        return !isSleeping || isNeglected || pet.furStage > 0;
                       },
                       onAcceptWithDetails: (details) {
                         if (details.data == 'Soap') {

@@ -79,27 +79,53 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
     _loading = true;
     notifyListeners();
 
+    var remindersLoaded = false;
     try {
-      final loaded = await _local.fetchReminderItems();
+      try {
+        final loaded = await _local.fetchReminderItems();
 
-      _reminders
-        ..clear()
-        ..addAll(loaded);
+        _reminders
+          ..clear()
+          ..addAll(loaded);
+        remindersLoaded = true;
+      } catch (error, stackTrace) {
+        // A local reminder-store failure should not prevent runApp(). Keep
+        // the provider alive so the rest of Persipal can open; don't treat
+        // the failed read as an empty store and don't reconcile notifications
+        // against an incomplete in-memory list.
+        debugPrint(
+          'Persipal: could not load local reminders during startup; continuing without the reminder cache: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+      }
 
-      // One-time-per-load data correction — see its own doc comment. Runs
-      // before notification reconciliation so a reverted reminder's
-      // notification is correctly resumed by the step right after this.
-      await _correctPrematureCompletions();
+      if (remindersLoaded) {
+        // One-time-per-load data correction — see its own doc comment. Runs
+        // before notification reconciliation so a reverted reminder's
+        // notification is correctly resumed by the step right after this.
+        try {
+          await _correctPrematureCompletions();
+        } catch (error, stackTrace) {
+          // A correction/persistence failure must not block the app from
+          // opening. Keep the provider's in-memory state and still attempt
+          // notification reconciliation for the reminders we did load.
+          debugPrint(
+            'Persipal: reminder completion correction failed during startup: $error',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+        }
 
-      // Reconcile all stored reminders with notifications. Safe to execute
-      // every time — see _reconcileAllNotifications.
-      await _reconcileAllNotifications();
+        // Reconcile all stored reminders with notifications. Safe to execute
+        // every time — see _reconcileAllNotifications. This method already
+        // catches notification-plugin failures internally.
+        await _reconcileAllNotifications();
+      }
     } finally {
       _loading = false;
       notifyListeners();
     }
 
-    if (_auth.isAuthenticated) {
+    if (_auth.isAuthenticated && _auth.accountSyncAllowed) {
       unawaited(_downloadFromCloud());
       unawaited(_flushPendingOps());
     }
@@ -149,7 +175,9 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   static bool wasCompletedPrematurely(ReminderItem r) {
     final completedAt = r.completedAt;
-    return r.isDone && completedAt != null && completedAt.isBefore(r.scheduledAt);
+    return r.isDone &&
+        completedAt != null &&
+        completedAt.isBefore(r.scheduledAt);
   }
 
   Future<void> _correctPrematureCompletions() async {
@@ -184,24 +212,33 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// countdown, and never issues cancel calls for the (ever-growing) history
   /// of completed reminders that have nothing scheduled.
   Future<void> _reconcileAllNotifications() async {
-    // Re-reads the device's current UTC offset before (re)scheduling
-    // anything below — see NotificationService.refreshLocalTimeZone's doc
-    // comment for exactly what this does/doesn't guarantee. Cheap and
-    // idempotent, so doing it on every reconcile (app start + every
-    // resume) keeps it fresh without needing a dedicated timer.
-    NotificationService.refreshLocalTimeZone();
+    // Notification scheduling is an OS/plugin integration, not the source
+    // of truth for reminders (the reminder records are persisted locally).
+    // Keep startup and app-resume working if the platform plugin is missing
+    // or temporarily unavailable, and log the failure for diagnosis.
+    try {
+      // Re-reads the device's current UTC offset before (re)scheduling
+      // anything below — see NotificationService.refreshLocalTimeZone's doc
+      // comment for what this does/doesn't guarantee.
+      NotificationService.refreshLocalTimeZone();
 
-    final pending = await _notifications.pendingNotificationIds();
-    final shown = await _notifications.shownNotificationIds();
-    final chained = _chainedReminderIds(DateTime.now());
+      final pending = await _notifications.pendingNotificationIds();
+      final shown = await _notifications.shownNotificationIds();
+      final chained = _chainedReminderIds(DateTime.now());
 
-    for (final reminder in List<ReminderItem>.from(_reminders)) {
-      await _syncNotification(
-        reminder,
-        pendingIds: pending,
-        shownIds: shown,
-        chained: chained,
+      for (final reminder in List<ReminderItem>.from(_reminders)) {
+        await _syncNotification(
+          reminder,
+          pendingIds: pending,
+          shownIds: shown,
+          chained: chained,
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Persipal: reminder notification reconciliation failed; local reminders are still available: $error',
       );
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -221,14 +258,16 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _onAuthChanged() {
-    if (_auth.isAuthenticated) {
+    if (_auth.isAuthenticated && _auth.accountSyncAllowed) {
       unawaited(_downloadFromCloud());
       unawaited(_flushPendingOps());
     }
   }
 
   void _onConnectivityChanged() {
-    if (_connectivity.isOnline && _auth.isAuthenticated) {
+    if (_connectivity.isOnline &&
+        _auth.isAuthenticated &&
+        _auth.accountSyncAllowed) {
       unawaited(_flushPendingOps());
     }
   }
@@ -274,9 +313,7 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     _uploadsInFlight.add(item.id);
     try {
-      await collection
-          .doc(item.id)
-          .set(item.toMap(), SetOptions(merge: true));
+      await collection.doc(item.id).set(item.toMap(), SetOptions(merge: true));
     } catch (_) {
       await _local.queuePendingOp('reminder_item:${item.id}');
     } finally {
@@ -445,9 +482,7 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
             await _local.removePendingOp(token);
             continue;
           }
-          await collection
-              .doc(id)
-              .set(item.toMap(), SetOptions(merge: true));
+          await collection.doc(id).set(item.toMap(), SetOptions(merge: true));
         } else {
           await collection.doc(id).delete();
         }
@@ -643,10 +678,8 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// so Hive/cloud/notification/activity-log cleanup stays identical to a
   /// normal single-reminder delete.
   Future<void> deleteRemindersForPet(String petId) async {
-    final ids = _reminders
-        .where((r) => r.petId == petId)
-        .map((r) => r.id)
-        .toList();
+    final ids =
+        _reminders.where((r) => r.petId == petId).map((r) => r.id).toList();
 
     for (final id in ids) {
       await deleteReminder(id);
@@ -938,8 +971,7 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
       scheduledAt: reminder.scheduledAt,
       isDone: reminder.isDone,
       notificationsEnabled: enabled,
-      chainAllowed:
-          (chained ?? _chainedReminderIds(now)).contains(reminder.id),
+      chainAllowed: (chained ?? _chainedReminderIds(now)).contains(reminder.id),
       replaceExisting: restartOverdueRepeat,
       pendingIds: pendingIds,
       shownIds: shownIds,
@@ -1013,7 +1045,9 @@ class ReminderProvider extends ChangeNotifier with WidgetsBindingObserver {
   String _titleFor(ReminderItem reminder) {
     final type = reminder.type.trim().isEmpty ? 'Care' : reminder.type.trim();
     final petName = _petNameFor(reminder);
-    return petName != null ? '🐱 $petName — $type Reminder' : '⏰ $type Reminder';
+    return petName != null
+        ? '🐱 $petName — $type Reminder'
+        : '⏰ $type Reminder';
   }
 
   String _bodyFor(ReminderItem reminder) {

@@ -210,6 +210,11 @@ class _PlayScreenState extends State<PlayScreen> {
       title: 'Played with cat — $toy',
     );
 
+    // The stat change and activity log are already complete. If the user
+    // left this screen while pet.play() was awaiting, don't start a toy
+    // animation on a disposed screen.
+    if (!mounted) return;
+
     switch (toy) {
       case 'Tennis Ball':
         await _playGame.playTennis();
@@ -580,26 +585,32 @@ class _PlayScreenState extends State<PlayScreen> {
                                         children: [
                                           Positioned.fill(
                                             child: _isPlaying
-                                                ? GameWidget(
-                                                    game: _playGame,
-                                                  )
-                                                : (isNeglected &&
-                                                        pet.furStage == 0)
+                                                ? GameWidget(game: _playGame)
+                                                : pet.furStage > 0
+                                                    // Keep the correct Fur 1/Fur 2
+                                                    // appearance instead of switching
+                                                    // to the clean-fur sad/sleepy sheet.
                                                     ? GameWidget(
-                                                        game: _sadCatGame,
-                                                      )
-                                                    : isSad
+                                                        game: _playGame)
+                                                    : (isNeglected &&
+                                                            pet.furStage == 0)
                                                         ? GameWidget(
                                                             game: _sadCatGame,
                                                           )
-                                                        : isSleepy
+                                                        : isSad
                                                             ? GameWidget(
                                                                 game:
-                                                                    _sleepyCatGame,
+                                                                    _sadCatGame,
                                                               )
-                                                            : GameWidget(
-                                                                game: _playGame,
-                                                              ),
+                                                            : isSleepy
+                                                                ? GameWidget(
+                                                                    game:
+                                                                        _sleepyCatGame,
+                                                                  )
+                                                                : GameWidget(
+                                                                    game:
+                                                                        _playGame,
+                                                                  ),
                                           ),
                                           if (pet.isDirty && !isNeglected)
                                             const Positioned(

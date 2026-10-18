@@ -49,13 +49,25 @@ class RewardService extends ChangeNotifier {
   Set<String> _claimed = {};
   Map<String, int> _shopPurchases = {};
   Map<String, String> _equippedShopItems = {};
+  int _medicineCount = 0;
+  int _medicineSpent = 0;
+  int _vaccineCount = 0;
+  int _vaccineSpent = 0;
+
+  int get medicineCount => _medicineCount;
+  int get vaccineCount => _vaccineCount;
+  static const int medicinePrice = 10;
+  static const int vaccinePrice = 10;
 
   bool _syncing = false;
   bool _listening = false;
 
   int get earned => _ledger.values.fold(0, (a, b) => a + b);
   int get lessonSpent => _claimed.length * lessonUnlockCost;
-  int get shopSpent => _shopPurchases.values.fold(0, (a, b) => a + b);
+  int get shopSpent =>
+      _shopPurchases.values.fold(0, (a, b) => a + b) +
+      _medicineSpent +
+      _vaccineSpent;
   int get spent => lessonSpent + shopSpent;
   int get points => (earned - spent).clamp(0, 1 << 30);
 
@@ -87,10 +99,16 @@ class RewardService extends ChangeNotifier {
       AuthService.instance.addListener(_onAuthChanged);
       ConnectivityService.instance.addListener(_onAuthChanged);
     }
-    unawaited(syncProgress());
+    if (AuthService.instance.accountSyncAllowed) {
+      unawaited(syncProgress());
+    }
   }
 
-  void _onAuthChanged() => unawaited(syncProgress());
+  void _onAuthChanged() {
+    if (AuthService.instance.accountSyncAllowed) {
+      unawaited(syncProgress());
+    }
+  }
 
   void _load() {
     try {
@@ -100,6 +118,10 @@ class RewardService extends ChangeNotifier {
         _claimed = {};
         _shopPurchases = {};
         _equippedShopItems = {};
+        _medicineCount = 0;
+        _medicineSpent = 0;
+        _vaccineCount = 0;
+        _vaccineSpent = 0;
         return;
       }
       final m = jsonDecode(raw) as Map<String, dynamic>;
@@ -116,11 +138,19 @@ class RewardService extends ChangeNotifier {
         for (final e in (m['equippedShopItems'] as Map? ?? {}).entries)
           e.key as String: e.value as String,
       };
+      _medicineCount = (m['medicineCount'] as num?)?.toInt() ?? 0;
+      _medicineSpent = (m['medicineSpent'] as num?)?.toInt() ?? 0;
+      _vaccineCount = (m['vaccineCount'] as num?)?.toInt() ?? 0;
+      _vaccineSpent = (m['vaccineSpent'] as num?)?.toInt() ?? 0;
     } catch (_) {
       _ledger = {};
       _claimed = {};
       _shopPurchases = {};
       _equippedShopItems = {};
+      _medicineCount = 0;
+      _medicineSpent = 0;
+      _vaccineCount = 0;
+      _vaccineSpent = 0;
     }
   }
 
@@ -129,6 +159,10 @@ class RewardService extends ChangeNotifier {
         'claimed': _claimed.toList(),
         'shopPurchases': _shopPurchases,
         'equippedShopItems': _equippedShopItems,
+        'medicineCount': _medicineCount,
+        'medicineSpent': _medicineSpent,
+        'vaccineCount': _vaccineCount,
+        'vaccineSpent': _vaccineSpent,
       }));
 
   /// Called when local data is wiped during sign-out or account deletion so
@@ -231,6 +265,41 @@ class RewardService extends ChangeNotifier {
     return true;
   }
 
+  /// Purchases one consumable medicine using the existing points balance.
+  /// Unlike cosmetics, medicine can be purchased repeatedly and is not equipped.
+  Future<bool> purchaseMedicine() async {
+    if (points < medicinePrice) return false;
+    _medicineCount += 1;
+    _medicineSpent += medicinePrice;
+    await _changed();
+    return true;
+  }
+
+  /// Purchases a vaccine consumable for the virtual Persian cat.
+  Future<bool> purchaseVaccine() async {
+    if (points < vaccinePrice) return false;
+    _vaccineCount += 1;
+    _vaccineSpent += vaccinePrice;
+    await _changed();
+    return true;
+  }
+
+  /// Removes one vaccine only after a valid vaccine interaction succeeds.
+  Future<bool> consumeVaccine() async {
+    if (_vaccineCount <= 0) return false;
+    _vaccineCount -= 1;
+    await _changed();
+    return true;
+  }
+
+  /// Removes one medicine only after a valid medicine interaction succeeds.
+  Future<bool> consumeMedicine() async {
+    if (_medicineCount <= 0) return false;
+    _medicineCount -= 1;
+    await _changed();
+    return true;
+  }
+
   Future<void> _changed() async {
     await _save();
     notifyListeners();
@@ -300,6 +369,14 @@ class RewardService extends ChangeNotifier {
           }
         });
         _shopPurchases = mergedShopPurchases;
+        _medicineCount =
+            (cloud['medicineCount'] as num?)?.toInt() ?? _medicineCount;
+        _medicineSpent =
+            (cloud['medicineSpent'] as num?)?.toInt() ?? _medicineSpent;
+        _vaccineCount =
+            (cloud['vaccineCount'] as num?)?.toInt() ?? _vaccineCount;
+        _vaccineSpent =
+            (cloud['vaccineSpent'] as num?)?.toInt() ?? _vaccineSpent;
         _equippedShopItems = {
           ..._equippedShopItems,
           for (final e in (cloud['equippedShopItems'] as Map? ?? {}).entries)
@@ -315,6 +392,10 @@ class RewardService extends ChangeNotifier {
         'claimed': _claimed.toList(),
         'shopPurchases': _shopPurchases,
         'equippedShopItems': _equippedShopItems,
+        'medicineCount': _medicineCount,
+        'medicineSpent': _medicineSpent,
+        'vaccineCount': _vaccineCount,
+        'vaccineSpent': _vaccineSpent,
         'lessons': lessons.completedTypes.toList(),
         'updatedAt': DateTime.now().toIso8601String(),
       });

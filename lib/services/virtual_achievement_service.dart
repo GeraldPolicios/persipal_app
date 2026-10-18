@@ -163,12 +163,16 @@ class VirtualAchievementService extends ChangeNotifier {
     }
     notifyListeners();
     // Merge, never blindly replace, so first login preserves offline badges.
-    await syncProgress();
+    if (AuthService.instance.accountSyncAllowed) {
+      await syncProgress();
+    }
   }
 
   void _onAccountOrNetworkChanged() {
-    // Avoid overlapping auth/connectivity callbacks.
-    syncProgress();
+    // Avoid starting account sync before the login data choice is resolved.
+    if (AuthService.instance.accountSyncAllowed) {
+      syncProgress();
+    }
   }
 
   // ── Live updates from VirtualPetProvider (forwarded via main.dart) ────────

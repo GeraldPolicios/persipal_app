@@ -121,6 +121,7 @@ class _LoginScreenState extends State<LoginScreen>
   bool get _anyLoading => _loading || _googleLoading || _guestLoading;
 
   void _goHome() {
+    AuthService.instance.completeAccountResolution();
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
@@ -159,17 +160,22 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     _setLoading(true);
+    AuthService.instance.beginAccountResolution();
     final result = await AuthService.instance.signInWithEmail(
       _emailCtrl.text.trim(),
       _passCtrl.text,
     );
     _setLoading(false);
 
-    if (!mounted) return;
+    if (!mounted) {
+      AuthService.instance.completeAccountResolution();
+      return;
+    }
     if (result.isSuccess) {
       await ActivityLogService.instance.logSignIn(_emailCtrl.text.trim());
       await _handlePostLogin();
     } else {
+      AuthService.instance.completeAccountResolution();
       _setError(result.error);
     }
   }
@@ -183,6 +189,7 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     _setLoading(true);
+    AuthService.instance.beginAccountResolution();
     final result = await AuthService.instance.createAccount(
       _emailCtrl.text.trim(),
       _passCtrl.text,
@@ -190,11 +197,15 @@ class _LoginScreenState extends State<LoginScreen>
     );
     _setLoading(false);
 
-    if (!mounted) return;
+    if (!mounted) {
+      AuthService.instance.completeAccountResolution();
+      return;
+    }
     if (result.isSuccess) {
       await ActivityLogService.instance.logSignUp(_emailCtrl.text.trim());
       await _handlePostLogin();
     } else {
+      AuthService.instance.completeAccountResolution();
       _setError(result.error);
     }
   }
@@ -202,15 +213,20 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _googleSignIn() async {
     _clearError();
     _setGoogleLoading(true);
+    AuthService.instance.beginAccountResolution();
     final result = await AuthService.instance.signInWithGoogle();
     _setGoogleLoading(false);
 
-    if (!mounted) return;
+    if (!mounted) {
+      AuthService.instance.completeAccountResolution();
+      return;
+    }
     if (result.isSuccess) {
       await ActivityLogService.instance
           .logGoogleSignIn(result.user?.email ?? '');
       await _handlePostLogin();
     } else {
+      AuthService.instance.completeAccountResolution();
       _setError(result.error);
     }
   }
@@ -299,7 +315,7 @@ class _LoginScreenState extends State<LoginScreen>
         virtualPet.pet.isNamed;
   }
 
-  void _showMergeDialog() {
+  void _showMergeDialog({String? errorMessage}) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -312,14 +328,34 @@ class _LoginScreenState extends State<LoginScreen>
               child: Text('Sync Offline Progress?',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
         ]),
-        content: const Text(
-          'You have offline progress saved locally. What would you like to do?',
-          style: TextStyle(fontSize: 13),
+        content: Text(
+          errorMessage == null
+              ? 'You have offline progress saved locally. What would you like to do?'
+              : '$errorMessage\n\nThe operation may have partially completed. Please retry your choice or cancel to return to guest mode.',
+          style: const TextStyle(fontSize: 13),
         ),
         actions: [
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              // Cancel means keep using the local guest save. Sign out of the
+              // newly authenticated account before releasing the sync gate so
+              // background sync cannot silently upload guest data to it.
               Navigator.pop(ctx);
+              try {
+                await AuthService.instance.signOut();
+                await SessionManager.instance.createGuestSession();
+              } catch (error) {
+                debugPrint('Persipal: could not return to guest mode: $error');
+                if (!mounted) {
+                  AuthService.instance.completeAccountResolution();
+                  return;
+                }
+                _showMergeDialog(
+                  errorMessage:
+                      'Could not safely cancel account linking. Please retry.',
+                );
+                return;
+              }
               _goHome();
             },
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
@@ -336,24 +372,43 @@ class _LoginScreenState extends State<LoginScreen>
               final provider = context.read<AppProvider>();
               final reminderProvider = context.read<ReminderProvider>();
               final virtualPetProvider = context.read<VirtualPetProvider>();
-              await provider.replaceLocalWithCloud();
-              // init() is idempotent — guarantees the Hive box is open
-              // even if the user never visited a pet-profile screen yet.
-              await PetProfileProvider.instance.init();
-              await PetProfileProvider.instance.replaceLocalWithCloud();
-              await reminderProvider.replaceLocalWithCloud();
-              await virtualPetProvider.replaceLocalWithCloud();
-              // Lesson progress/reward points have no per-domain
-              // replaceLocalWithCloud() of their own — discard the guest's
-              // local copy first so it can never survive alongside (or get
-              // merged into) the account's real cloud progress, then pull
-              // the account's actual state down into that now-empty local
-              // copy.
-              await LessonProgressService.instance.discardLocal();
-              await RewardService.instance.discardLocal();
-              await RewardService.instance.syncProgress();
-              await SessionManager.instance.clearGuestId();
-              _goHome();
+              try {
+                await provider.replaceLocalWithCloud();
+                // init() is idempotent — guarantees the Hive box is open
+                // even if the user never visited a pet-profile screen yet.
+                await PetProfileProvider.instance.init();
+                await PetProfileProvider.instance.replaceLocalWithCloud();
+                await reminderProvider.replaceLocalWithCloud();
+                await virtualPetProvider.replaceLocalWithCloud();
+                // Lesson progress/reward points have no per-domain
+                // replaceLocalWithCloud() of their own — discard the guest's
+                // local copy first so it can never survive alongside (or get
+                // merged into) the account's real cloud progress, then pull
+                // the account's actual state down into that now-empty local
+                // copy.
+                await LessonProgressService.instance.discardLocal();
+                await RewardService.instance.discardLocal();
+                await RewardService.instance.syncProgress();
+                await SessionManager.instance.clearGuestId();
+                _goHome();
+              } catch (error, stackTrace) {
+                debugPrint(
+                    'Persipal: Use Cloud Data failed: $error\n$stackTrace');
+                if (!mounted) {
+                  // Don't leave automatic account sync held forever if this
+                  // screen is gone; return to guest mode before releasing it.
+                  try {
+                    await AuthService.instance.signOut();
+                    await SessionManager.instance.createGuestSession();
+                  } catch (_) {}
+                  AuthService.instance.completeAccountResolution();
+                  return;
+                }
+                _showMergeDialog(
+                  errorMessage:
+                      'Could not finish loading cloud progress. Some steps may have completed. Please retry or cancel to return to guest mode.',
+                );
+              }
             },
             child: const Text('Use Cloud Data',
                 style: TextStyle(color: Color(0xFF4682B4), fontSize: 12)),
@@ -371,26 +426,43 @@ class _LoginScreenState extends State<LoginScreen>
               final provider = context.read<AppProvider>();
               final reminderProvider = context.read<ReminderProvider>();
               final virtualPetProvider = context.read<VirtualPetProvider>();
-              await provider.mergeGuestDataWithCloud();
-              await PetProfileProvider.instance.init();
-              await PetProfileProvider.instance.pushGuestDataToCloud();
-              await reminderProvider.pushGuestDataToCloud();
-              await virtualPetProvider.pushGuestDataToCloud();
-              // Explicitly merge offline virtual-cat XP and achievements too.
-              // These services keep monotonic local/cloud progress, and this
-              // user-confirmed path may rebind progress from the guest device
-              // to the account instead of silently discarding it.
-              await VirtualCatProgressService.instance
-                  .syncProgress(allowAccountTransfer: true);
-              await VirtualAchievementService.instance
-                  .syncProgress(allowAccountTransfer: true);
-              // Lesson progress/reward points: syncProgress() itself already
-              // performs a merge (max-of-local-and-cloud per key, union of
-              // claims/completed lessons) — exactly "Merge Progress"
-              // semantics, so the guest's local progress is pushed up here.
-              await RewardService.instance.syncProgress();
-              await SessionManager.instance.clearGuestId();
-              _goHome();
+              try {
+                await provider.mergeGuestDataWithCloud();
+                await PetProfileProvider.instance.init();
+                await PetProfileProvider.instance.pushGuestDataToCloud();
+                await reminderProvider.pushGuestDataToCloud();
+                await virtualPetProvider.pushGuestDataToCloud();
+                // Explicitly merge offline virtual-cat XP and achievements too.
+                // These services keep monotonic local/cloud progress, and this
+                // user-confirmed path may rebind progress from the guest device
+                // to the account instead of silently discarding it.
+                await VirtualCatProgressService.instance
+                    .syncProgress(allowAccountTransfer: true);
+                await VirtualAchievementService.instance
+                    .syncProgress(allowAccountTransfer: true);
+                // Lesson progress/reward points: syncProgress() itself already
+                // performs a merge (max-of-local-and-cloud per key, union of
+                // claims/completed lessons) — exactly "Merge Progress"
+                // semantics, so the guest's local progress is pushed up here.
+                await RewardService.instance.syncProgress();
+                await SessionManager.instance.clearGuestId();
+                _goHome();
+              } catch (error, stackTrace) {
+                debugPrint(
+                    'Persipal: Merge Progress failed: $error\n$stackTrace');
+                if (!mounted) {
+                  try {
+                    await AuthService.instance.signOut();
+                    await SessionManager.instance.createGuestSession();
+                  } catch (_) {}
+                  AuthService.instance.completeAccountResolution();
+                  return;
+                }
+                _showMergeDialog(
+                  errorMessage:
+                      'Could not finish merging progress. Some steps may have completed. Please retry or cancel to return to guest mode.',
+                );
+              }
             },
             child: const Text('Merge Progress', style: TextStyle(fontSize: 12)),
           ),

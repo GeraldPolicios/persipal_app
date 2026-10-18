@@ -26,6 +26,9 @@ class CatAnimation extends FlameGame {
   late SpriteAnimation sitDownAnimation;
   late SpriteAnimation happyAnimation;
   late SpriteAnimation angryAnimation;
+  late SpriteAnimation sickAnimation;
+  late SpriteAnimation takeMedicineAnimation;
+  late SpriteAnimation vaccinationAnimation;
 
   final bool startSad;
   final double positionYOffset;
@@ -41,6 +44,12 @@ class CatAnimation extends FlameGame {
   bool _isWaking = false;
   bool _isDoingTrick = false;
   bool _isStanding = false;
+  bool _isSick = false;
+  bool _isRecoverySleeping = false;
+  bool _isMedicineRecoverySequence = false;
+  bool _isVaccinationRecoverySequence = false;
+  bool _pendingRecoverySleeping = false;
+  bool _pendingVaccinationRecoverySleeping = false;
   int _furStage = 0;
 
   int _animationVersion = 0;
@@ -63,6 +72,23 @@ class CatAnimation extends FlameGame {
   bool get isSleeping => _isSleeping;
   bool get isSleepy => _isSleepy;
   bool get isResting => _isResting;
+  bool get isRecoverySleeping => _isRecoverySleeping;
+  bool get isRecoverySequenceActive =>
+      _isRecoverySleeping ||
+      _isMedicineRecoverySequence ||
+      _isVaccinationRecoverySequence;
+  // Vaccination is available only when the cat can start a new action.
+  bool get canPlayVaccination =>
+      cat != null &&
+      !_isSleeping &&
+      !_isSleepy &&
+      !_isResting &&
+      !_isWaking &&
+      !_isDoingTrick &&
+      !_isRecoverySleeping &&
+      !_isMedicineRecoverySequence &&
+      !_isVaccinationRecoverySequence;
+
   @override
   bool get isLoaded => cat != null;
 
@@ -382,6 +408,60 @@ class CatAnimation extends FlameGame {
     );
 
     // ========================================================
+    // SICK (60 frames, 20 columns x 3 rows)
+    // ========================================================
+    final sickSheet = await images.load(
+      'cat_parts/sick/sicksheet.png',
+    );
+
+    sickAnimation = SpriteAnimation.fromFrameData(
+      sickSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: true,
+      ),
+    );
+
+    // ========================================================
+    // TAKE MEDICINE (one-shot, 4.8 seconds)
+    // ========================================================
+    final medicineSheet = await images.load(
+      'cat_parts/medicine/medicinesheet.png',
+    );
+
+    takeMedicineAnimation = SpriteAnimation.fromFrameData(
+      medicineSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
+
+    // ========================================================
+    // VACCINATION (one-shot, 4.8 seconds)
+    // ========================================================
+    final vaccinationSheet = await images.load(
+      'cat_parts/vaccine/vaccinesheet.png',
+    );
+
+    vaccinationAnimation = SpriteAnimation.fromFrameData(
+      vaccinationSheet,
+      SpriteAnimationData.sequenced(
+        amount: 60,
+        stepTime: 0.08,
+        textureSize: Vector2(96, 96),
+        amountPerRow: 20,
+        loop: false,
+      ),
+    );
+
+    // ========================================================
     // CREATE CAT
     // ========================================================
     cat = SpriteAnimationComponent(
@@ -407,6 +487,18 @@ class CatAnimation extends FlameGame {
     if (startSad || _pendingSad) {
       _pendingSad = false;
       showSad(force: true);
+      return;
+    }
+
+    if (_pendingRecoverySleeping) {
+      _pendingRecoverySleeping = false;
+      resumeRecoverySleep();
+      return;
+    }
+
+    if (_pendingVaccinationRecoverySleeping) {
+      _pendingVaccinationRecoverySleeping = false;
+      resumeVaccinationRecoverySleep();
       return;
     }
 
@@ -482,11 +574,21 @@ class CatAnimation extends FlameGame {
       return;
     }
 
+    // Option A: there are no standing-idle sprites for Fur Stage 1/2.
+    // If the cat becomes dirty while standing, return to the matching fur
+    // idle animation instead of keeping the clean standing pose.
+    if (_isStanding && _furStage > 0 && !_isDoingTrick && !_isWaking) {
+      _isStanding = false;
+      cat!.animation = _currentIdleAnimation();
+      return;
+    }
+
     if (!_isSleeping &&
         !_isSleepy &&
         !_isResting &&
         !_isWaking &&
-        !_isDoingTrick) {
+        !_isDoingTrick &&
+        !_isStanding) {
       cat!.animation = _currentIdleAnimation();
     }
   }
@@ -513,11 +615,15 @@ class CatAnimation extends FlameGame {
             _isSleepy ||
             _isResting ||
             _isWaking ||
-            _isDoingTrick)) {
+            _isDoingTrick ||
+            _isStanding)) {
       return;
     }
 
     _isSleeping = false;
+    _isRecoverySleeping = false;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = false;
     _isSleepy = false;
     _isResting = false;
     _isWaking = false;
@@ -525,6 +631,218 @@ class CatAnimation extends FlameGame {
     _isStanding = false;
 
     cat!.animation = _currentIdleAnimation();
+  }
+
+  // ==========================================================
+  // SICK
+  //
+  // Sickness is a separate virtual-pet condition. Callers must
+  // check the existing Neglected/Sad priority before showing it.
+  // ==========================================================
+  void showSick({bool force = false}) {
+    if (cat == null) {
+      return;
+    }
+
+    if (!force &&
+        (_isSleeping ||
+            _isSleepy ||
+            _isResting ||
+            _isWaking ||
+            _isDoingTrick ||
+            _isStanding)) {
+      return;
+    }
+
+    _animationVersion++;
+    _reactionVersion++;
+    _isSick = true;
+    _isRecoverySleeping = false;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = false;
+    _isSleeping = false;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+
+    cat!.animation = sickAnimation;
+  }
+
+  // Plays medicine once, then the existing REST (yawn) animation,
+  // then keeps the existing SLEEP animation looping for recovery.
+  // The provider owns the persisted one-hour recovery expiry.
+  Future<void> playTakeMedicineThenRecoverySleep() async {
+    if (cat == null || _isSleeping || _isResting || _isWaking) {
+      return;
+    }
+
+    final version = ++_animationVersion;
+    _reactionVersion++;
+    _isSick = false;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = true;
+    _isStanding = false;
+    _isRecoverySleeping = false;
+    _isMedicineRecoverySequence = true;
+    _isVaccinationRecoverySequence = false;
+
+    // 1. Take medicine (60 frames x 0.08 seconds = 4.8 seconds).
+    cat!.animation = takeMedicineAnimation;
+    await Future.delayed(const Duration(milliseconds: 4800));
+
+    if (version != _animationVersion || !_isDoingTrick) {
+      return;
+    }
+
+    // 2. Yawn once using the existing REST animation.
+    _isDoingTrick = false;
+    _isResting = true;
+    cat!.animation = restAnimation;
+    await Future.delayed(const Duration(milliseconds: 4800));
+
+    if (version != _animationVersion || !_isResting) {
+      return;
+    }
+
+    // 3. Enter the existing looping sleep animation and lock recovery mode.
+    _isResting = false;
+    _isSleeping = true;
+    _isRecoverySleeping = true;
+    cat!.animation = sleepAnimation;
+  }
+
+  // Resume medicine recovery directly into the looping sleep animation.
+  // Used after reopening the app so medicine and yawn clips do not replay.
+  void resumeRecoverySleep() {
+    if (cat == null) {
+      _pendingRecoverySleeping = true;
+      _pendingVaccinationRecoverySleeping = false;
+      return;
+    }
+
+    _animationVersion++;
+    _reactionVersion++;
+    _isMedicineRecoverySequence = true;
+    _isVaccinationRecoverySequence = false;
+    _isRecoverySleeping = true;
+    _isSleeping = true;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+    _isSick = false;
+    cat!.animation = sleepAnimation;
+  }
+
+  // Resume vaccination recovery directly into sleep after reopening the app.
+  void resumeVaccinationRecoverySleep() {
+    if (cat == null) {
+      _pendingVaccinationRecoverySleeping = true;
+      _pendingRecoverySleeping = false;
+      return;
+    }
+
+    _animationVersion++;
+    _reactionVersion++;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = true;
+    _isRecoverySleeping = true;
+    _isSleeping = true;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+    cat!.animation = sleepAnimation;
+  }
+
+  // End a recovery sequence when its persisted deadline expires.
+  // This also cancels an in-progress treatment/yawn sequence safely.
+  void stopRecoverySleep({bool returnToSick = false}) {
+    if (!isRecoverySequenceActive && !_isDoingTrick) return;
+
+    _animationVersion++;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = false;
+    _pendingRecoverySleeping = false;
+    _pendingVaccinationRecoverySleeping = false;
+    _isRecoverySleeping = false;
+    _isSleeping = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = false;
+    _isStanding = false;
+
+    if (cat == null) {
+      _isSick = returnToSick;
+      return;
+    }
+
+    if (returnToSick) {
+      _isSick = true;
+      cat!.animation = sickAnimation;
+    } else {
+      _isSick = false;
+      cat!.animation = _currentIdleAnimation();
+    }
+  }
+
+  // Plays vaccination once, then the existing REST (yawn) animation,
+  // then loops the existing SLEEP animation during saved recovery.
+  Future<void> playVaccinationThenRecoverySleep() async {
+    if (cat == null || _isSleeping || _isResting || _isWaking) return;
+
+    final version = ++_animationVersion;
+    _reactionVersion++;
+    _isSleepy = false;
+    _isResting = false;
+    _isWaking = false;
+    _isDoingTrick = true;
+    _isStanding = false;
+    _isRecoverySleeping = false;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = true;
+
+    // 1. Vaccination animation (60 frames x 0.08 seconds = 4.8 seconds).
+    cat!.animation = vaccinationAnimation;
+    await Future.delayed(const Duration(milliseconds: 4800));
+    if (version != _animationVersion || !_isDoingTrick) return;
+
+    // 2. Yawn once.
+    _isDoingTrick = false;
+    _isResting = true;
+    cat!.animation = restAnimation;
+    await Future.delayed(const Duration(milliseconds: 4800));
+    if (version != _animationVersion || !_isResting) return;
+
+    // 3. Sleep until vaccination recovery expires.
+    _isResting = false;
+    _isSleeping = true;
+    _isRecoverySleeping = true;
+    cat!.animation = sleepAnimation;
+  }
+
+  // Existing standalone vaccination animation remains available to other callers.
+  Future<void> playVaccination() async {
+    if (cat == null || _isSleeping || _isResting || _isWaking) return;
+
+    final version = ++_animationVersion;
+    _reactionVersion++;
+    _isSleepy = false;
+    _isDoingTrick = true;
+    _isStanding = false;
+
+    cat!.animation = vaccinationAnimation;
+    await Future.delayed(const Duration(milliseconds: 4800));
+    if (version != _animationVersion || !_isDoingTrick) return;
+
+    _isDoingTrick = false;
+    cat!.animation = _isSick ? sickAnimation : _currentIdleAnimation();
   }
 
   // ==========================================================
@@ -549,6 +867,9 @@ class CatAnimation extends FlameGame {
     _reactionVersion++;
 
     _isSleeping = false;
+    _isRecoverySleeping = false;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = false;
     _isSleepy = false;
     _isResting = false;
     _isWaking = false;
@@ -666,6 +987,9 @@ class CatAnimation extends FlameGame {
     _reactionVersion++;
 
     _isSleeping = true;
+    _isRecoverySleeping = false;
+    _isMedicineRecoverySequence = false;
+    _isVaccinationRecoverySequence = false;
     _isSleepy = false;
     _isResting = false;
     _isWaking = false;

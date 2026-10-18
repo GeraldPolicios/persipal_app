@@ -125,7 +125,7 @@ class AppProvider extends ChangeNotifier {
   // ── Reactive listeners ────────────────────────────────────────────────────
 
   void _onConnectivityChanged() {
-    if (_connectivity.isOnline) {
+    if (_connectivity.isOnline && _auth.accountSyncAllowed) {
       unawaited(_backgroundSync());
     } else {
       _sync.markOffline();
@@ -134,7 +134,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   void _onAuthChanged() {
-    if (_auth.isAuthenticated) {
+    if (_auth.isAuthenticated && _auth.accountSyncAllowed) {
       unawaited(_backgroundSync());
     } else {
       // Signed out — clear the stale sync status (e.g. a leftover

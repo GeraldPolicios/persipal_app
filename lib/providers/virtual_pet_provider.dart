@@ -42,6 +42,9 @@ const int kDecayCleanliness = -2;
 // - Sleeping recovery
 const Duration kDecayCheckInterval = Duration(minutes: 1);
 
+// Sickness starts only after the cat remains Neglected for this long.
+const Duration kNeglectBeforeSickness = Duration(hours: 6);
+
 // Virtual fur growth is intentionally much faster than real Persian-cat coat
 // development because Persipal is a virtual pet.
 // Fur0 -> Fur1 after 3 days, then Fur1 -> Fur2 after another 4 days.
@@ -125,6 +128,92 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get isSleeping => _pet.isSleeping;
 
+  /// Sickness remains separate from the existing care/Neglected status.
+  bool get isSick => _pet.isSick;
+
+  bool get isRecovering =>
+      _pet.recoveryUntil != null &&
+      DateTime.now().isBefore(_pet.recoveryUntil!);
+
+  DateTime? get recoveryUntil => _pet.recoveryUntil;
+
+  bool get isVaccinationRecovering =>
+      _pet.vaccinationRecoveryUntil != null &&
+      DateTime.now().isBefore(_pet.vaccinationRecoveryUntil!);
+
+  DateTime? get vaccinationRecoveryUntil => _pet.vaccinationRecoveryUntil;
+
+  List<DateTime> get vaccinationRecords =>
+      List.unmodifiable(_pet.vaccinationRecords);
+
+  DateTime? get lastVaccinatedAt =>
+      _pet.vaccinationRecords.isEmpty ? null : _pet.vaccinationRecords.last;
+
+  /// Saves a virtual-cat vaccination record without touching real-pet data or
+  /// changing the cat's care stats / sickness state.
+  Future<void> recordVaccination() async {
+    final now = DateTime.now();
+    _pet = _pet.copyWith(
+      vaccinationRecords: [..._pet.vaccinationRecords, now],
+      vaccinationRecoveryUntil: now.add(const Duration(hours: 1)),
+      updatedAt: now,
+    );
+    await _save();
+    notifyListeners();
+  }
+
+  /// Developer/testing hook: trigger sickness immediately without waiting.
+  /// Keep this out of normal player-facing UI; remove after interaction tests.
+  Future<void> triggerSicknessForTesting() => setSick(true);
+
+  /// Records sickness without changing any care stats or Neglected priority.
+  Future<void> setSick(bool value) async {
+    _pet = _pet.copyWith(
+      isSick: value,
+      recoveryUntil: null,
+      updatedAt: DateTime.now(),
+    );
+    await _save();
+    notifyListeners();
+  }
+
+  /// Starts the one-hour recovery window after medicine interaction succeeds.
+  /// Does not change hunger, happiness, cleanliness, Energy, or neglect.
+  Future<void> beginMedicineRecovery() async {
+    final now = DateTime.now();
+    _pet = _pet.copyWith(
+      isSick: true,
+      recoveryUntil: now.add(const Duration(hours: 1)),
+      updatedAt: now,
+    );
+    await _save();
+    notifyListeners();
+  }
+
+  /// Clears an expired deadline while retaining the underlying sickness.
+  Future<void> finishRecoveryIfExpired() async {
+    final deadline = _pet.recoveryUntil;
+    if (deadline == null || DateTime.now().isBefore(deadline)) return;
+
+    _pet = _pet.copyWith(
+      recoveryUntil: null,
+      updatedAt: DateTime.now(),
+    );
+    await _save();
+    notifyListeners();
+  }
+
+  Future<void> finishVaccinationRecoveryIfExpired() async {
+    final deadline = _pet.vaccinationRecoveryUntil;
+    if (deadline == null || DateTime.now().isBefore(deadline)) return;
+    _pet = _pet.copyWith(
+      vaccinationRecoveryUntil: null,
+      updatedAt: DateTime.now(),
+    );
+    await _save();
+    notifyListeners();
+  }
+
   bool get wantsToPlay => _pet.wantsToPlay;
 
   VirtualPetStatus get petStatus => resolveVirtualPetStatus(_pet);
@@ -133,9 +222,14 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Shared thought-bubble priority for every virtual-pet room.
   ///
-  /// Neglected > Critical Hunger > Sleepy > Sad > Hungry > Dirty >
-  /// Wants to Play. Actual Sleeping is shown separately by the room.
+  /// Fur Stage 1/2 > Neglected > Critical Hunger > Sleepy > Sad > Hungry >
+  /// Dirty > Wants to Play. Actual Sleeping is shown separately by the room.
   String? get priorityThoughtEmoji {
+    // Long/medium fur is the first action the player must resolve. Keep this
+    // ahead of hunger/sadness so Home and other status-driven UI cannot tell
+    // the player to feed first while the care flow requires grooming first.
+    if (furStage > 0) return '🧼';
+
     switch (petStatus) {
       case VirtualPetStatus.neglected:
         return '😿';
@@ -181,6 +275,24 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     _pet = loaded ?? VirtualPetState.initial();
 
+    // Expired recovery must not survive an app restart; sickness remains.
+    final now = DateTime.now();
+    if ((_pet.recoveryUntil != null && !now.isBefore(_pet.recoveryUntil!)) ||
+        (_pet.vaccinationRecoveryUntil != null &&
+            !now.isBefore(_pet.vaccinationRecoveryUntil!))) {
+      _pet = _pet.copyWith(
+        recoveryUntil:
+            _pet.recoveryUntil != null && now.isBefore(_pet.recoveryUntil!)
+                ? _pet.recoveryUntil
+                : null,
+        vaccinationRecoveryUntil: _pet.vaccinationRecoveryUntil != null &&
+                now.isBefore(_pet.vaccinationRecoveryUntil!)
+            ? _pet.vaccinationRecoveryUntil
+            : null,
+        updatedAt: now,
+      );
+    }
+
     // Restore Fur0 after the temporary Fur2 QA override used during testing.
     // That override stamped lastFurGrowthAt and lastTrimAt with the exact same
     // timestamp. Reset only that recognizable test state, then let normal fur
@@ -202,7 +314,9 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
     // Do not apply elapsed decay and upload before checking Firestore.
     // Passive elapsed decay must not make an otherwise stale local copy look
     // newer than a newer copy from another device.
-    if (_auth.isAuthenticated && _connectivity.isOnline) {
+    if (_auth.isAuthenticated &&
+        _auth.accountSyncAllowed &&
+        _connectivity.isOnline) {
       final synced = await _syncWithCloud();
 
       if (!synced) {
@@ -239,7 +353,9 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
       },
     );
 
-    if (_auth.isAuthenticated && _connectivity.isOnline) {
+    if (_auth.isAuthenticated &&
+        _auth.accountSyncAllowed &&
+        _connectivity.isOnline) {
       unawaited(_syncWithCloud());
     }
 
@@ -277,7 +393,9 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
       // for the periodic timer.
       unawaited(refreshDecay());
 
-      if (_auth.isAuthenticated && _connectivity.isOnline) {
+      if (_auth.isAuthenticated &&
+          _auth.accountSyncAllowed &&
+          _connectivity.isOnline) {
         unawaited(_syncWithCloud());
       }
     }
@@ -288,13 +406,17 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
   // ──────────────────────────────────────────────────────────────────────────
 
   void _onAuthChanged() {
-    if (_auth.isAuthenticated && _connectivity.isOnline) {
+    if (_auth.isAuthenticated &&
+        _auth.accountSyncAllowed &&
+        _connectivity.isOnline) {
       unawaited(_syncWithCloud());
     }
   }
 
   void _onConnectivityChanged() {
-    if (_connectivity.isOnline && _auth.isAuthenticated) {
+    if (_connectivity.isOnline &&
+        _auth.isAuthenticated &&
+        _auth.accountSyncAllowed) {
       unawaited(_syncWithCloud());
     }
   }
@@ -486,8 +608,43 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
     return _normalizeSleepState(_applyFurGrowth(updated, now));
   }
 
+  VirtualPetState _applySicknessRule(VirtualPetState state, DateTime now) {
+    final neglected =
+        resolveVirtualPetStatus(state) == VirtualPetStatus.neglected;
+    if (!neglected) {
+      if (state.neglectedSince == null) return state;
+      return state.copyWith(neglectedSince: null);
+    }
+
+    final since = state.neglectedSince ?? now;
+    final tracked = state.neglectedSince == null
+        ? state.copyWith(neglectedSince: now)
+        : state;
+
+    // Don't interrupt the medicine recovery presentation. The sickness stays
+    // recorded and will be visible again when recovery expires.
+    final recoveryActive =
+        tracked.recoveryUntil != null && now.isBefore(tracked.recoveryUntil!);
+    if (!tracked.isSick &&
+        !recoveryActive &&
+        now.difference(since) >= kNeglectBeforeSickness) {
+      return tracked.copyWith(isSick: true, updatedAt: now);
+    }
+    return tracked;
+  }
+
   Future<void> refreshDecay() async {
-    final updated = _applyElapsedDecay(_pet);
+    final now = DateTime.now();
+    var updated = _applyElapsedDecay(_pet);
+    updated = _applySicknessRule(updated, now);
+
+    if (updated.recoveryUntil != null &&
+        !now.isBefore(updated.recoveryUntil!)) {
+      updated = updated.copyWith(
+        recoveryUntil: null,
+        updatedAt: now,
+      );
+    }
 
     if (!identical(updated, _pet)) {
       _pet = updated;
@@ -846,9 +1003,12 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
     // Hive is always the immediate source of truth for offline play.
     await _local.saveVirtualPet(_pet);
 
-    if (syncCloud && _auth.isAuthenticated && _connectivity.isOnline) {
+    if (syncCloud &&
+        _auth.isAuthenticated &&
+        _auth.accountSyncAllowed &&
+        _connectivity.isOnline) {
       unawaited(_syncWithCloud());
-    } else if (syncCloud && _auth.isAuthenticated) {
+    } else if (syncCloud && _auth.isAuthenticated && _auth.accountSyncAllowed) {
       await _local.queuePendingOp('virtual_pet:sync');
     }
   }
@@ -1247,14 +1407,26 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
           },
         );
 
-        final changed =
-            reconciled.toMap().toString() != _pet.toMap().toString();
+        // A gameplay action may update _pet while the Firestore transaction
+        // is awaiting the network. Never replace that newer in-memory state
+        // with the older snapshot captured at the start of this sync.
+        final localChangedDuringSync = !identical(_pet, localBase);
 
-        _pet = reconciled;
-        await _local.saveVirtualPet(_pet);
+        if (localChangedDuringSync) {
+          // The transaction may have written localCandidate, so run another
+          // pass with the latest in-memory state before declaring sync done.
+          _cloudSyncRequested = true;
+          await _local.saveVirtualPet(_pet);
+        } else {
+          final changed =
+              reconciled.toMap().toString() != _pet.toMap().toString();
 
-        if (changed) {
-          notifyListeners();
+          _pet = reconciled;
+          await _local.saveVirtualPet(_pet);
+
+          if (changed) {
+            notifyListeners();
+          }
         }
 
         // Remove only this feature's pending operations after a successful
@@ -1370,11 +1542,17 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
   // ─────────────────────────────────────────────────────────────────────────────
 
   Future<void> clearAllLocalData() async {
-    _pet = VirtualPetState.initial();
+    // The virtual cat's identity is device-level, like its XP/level progress.
+    // Keep its name when an account session ends, but reset care/gameplay state
+    // so the next guest/account does not inherit the previous session's needs.
+    final preservedCatName = _pet.catName.trim();
 
-    await _local.saveVirtualPet(
-      _pet,
+    _pet = VirtualPetState.initial().copyWith(
+      catName: preservedCatName,
+      updatedAt: DateTime.now(),
     );
+
+    await _local.saveVirtualPet(_pet);
 
     notifyListeners();
   }

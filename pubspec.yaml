@@ -97,6 +97,9 @@ flutter:
     - assets/images/cat_parts/sleepy/
     - assets/images/cat_parts/rest/
     - assets/images/cat_parts/sad/
+    - assets/images/cat_parts/sick/
+    - assets/images/cat_parts/medicine/
+    - assets/images/cat_parts/vaccine/
     - assets/images/cat_parts/groom/fur1/
     - assets/images/cat_parts/groom/fur2/
     - assets/images/cat_parts/groom/wet1/

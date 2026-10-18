@@ -83,7 +83,7 @@ class SessionManager extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (_) {
-        // Corrupt session — fall through to guest auto-creation below.
+        // Corrupt session — continue without a restored session.
         await _box.delete(_keySession);
       }
     }

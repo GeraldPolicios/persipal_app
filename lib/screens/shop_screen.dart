@@ -28,6 +28,7 @@ class _ShopScreenState extends State<ShopScreen>
     'Play',
     'Decor',
     'All Rooms',
+    'Care',
   ];
 
   final _catProgress = VirtualCatProgressService.instance;
@@ -690,7 +691,7 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'grooming_brush_u2',
         category: 'Grooming',
-        emoji: '🪥',
+        emoji: '🪮',
         name: 'Aqua Brush Card',
         description: 'Changes only the brush card in Groom to aqua.',
         price: 90,
@@ -1143,6 +1144,22 @@ class _ShopScreenState extends State<ShopScreen>
         imageAsset: 'assets/packs/play/createplaynight.png',
         equipSlot: 'background_play',
         backgroundItem: true),
+    ShopItem(
+        id: 'medicine_consumable',
+        category: 'Care',
+        emoji: '💊',
+        name: 'Cat Medicine',
+        description: 'For your sick virtual Persian cat.',
+        price: 10,
+        color: Color(0xFFFFE4D6)),
+    ShopItem(
+        id: 'persian_vaccine_consumable',
+        category: 'Care',
+        emoji: '💉',
+        name: 'Persian Cat Vaccine',
+        description: 'Vaccine item for your virtual Persian cat.',
+        price: 10,
+        color: Color(0xFFE4F0FF)),
   ];
 
   @override
@@ -1172,6 +1189,8 @@ class _ShopScreenState extends State<ShopScreen>
         return item.name.toLowerCase().endsWith(time);
       }).toList();
     }
+    if (category == 'Care')
+      return _items.where((item) => item.category == 'Care').toList();
     final itemCategory = category == 'Decor' ? 'Room Decor' : category;
     return _items
         .where((item) => !item.backgroundItem && item.category == itemCategory)
@@ -1181,11 +1200,40 @@ class _ShopScreenState extends State<ShopScreen>
   int _requiredLevelForCategory(String category) => switch (category) {
         'Grooming' || 'Feed' || 'Play' => 5,
         'Decor' => 7,
+        'Care' => 1,
         'All Rooms' => 10,
         _ => 1,
       };
 
   Future<void> _buy(ShopItem item) async {
+    if (item.id == 'medicine_consumable' ||
+        item.id == 'persian_vaccine_consumable') {
+      final rewards = context.read<RewardService>();
+      final price = item.id == 'medicine_consumable'
+          ? RewardService.medicinePrice
+          : RewardService.vaccinePrice;
+      if (rewards.points < price) {
+        showPersipalSnackBar(
+            context, 'You need ${price - rewards.points} more points.',
+            color: AppTheme.softBrown, icon: Icons.lock_outline);
+        return;
+      }
+      final purchased = item.id == 'medicine_consumable'
+          ? await rewards.purchaseMedicine()
+          : await rewards.purchaseVaccine();
+      if (!mounted) return;
+      if (purchased) {
+        showPersipalSnackBar(
+          context,
+          item.id == 'medicine_consumable'
+              ? 'Medicine added to your Care Bag! 💊'
+              : 'Persian Cat Vaccine added to your Care Bag! 💉',
+          color: AppTheme.teal,
+          icon: Icons.check_circle_outline,
+        );
+      }
+      return;
+    }
     final category = item.category == 'Room Decor'
         ? 'Decor'
         : (item.backgroundItem ? 'All Rooms' : item.category);
@@ -1403,6 +1451,10 @@ class _ShopScreenState extends State<ShopScreen>
                             Tab(
                                 icon: Icon(Icons.home_work_rounded, size: 15),
                                 text: 'All Rooms'),
+                            Tab(
+                                icon: Icon(Icons.medical_services_rounded,
+                                    size: 15),
+                                text: 'Care'),
                           ],
                         ),
                       ),
@@ -1493,7 +1545,8 @@ class _ShopScreenState extends State<ShopScreen>
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final item = items[index];
-        final owned = rewards.isShopItemPurchased(item.id);
+        final isMedicine = item.id == 'medicine_consumable';
+        final owned = !isMedicine && rewards.isShopItemPurchased(item.id);
         final slot = item.equipSlot ??
             'item_${item.category.toLowerCase().replaceAll(' ', '_')}';
         final equipped = rewards.equippedShopItem(slot) == item.id;
@@ -1697,7 +1750,9 @@ class _ShopScreenState extends State<ShopScreen>
                                 color: AppTheme.softBrown,
                                 icon: Icons.lock_outline,
                               )
-                          : (owned ? null : (canBuy ? () => _buy(item) : null)),
+                          : ((owned && !isMedicine)
+                              ? null
+                              : (canBuy ? () => _buy(item) : null)),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 11),
                         elevation: canBuy ? 2 : 0,
@@ -1711,7 +1766,11 @@ class _ShopScreenState extends State<ShopScreen>
                         ),
                       ),
                       child: Text(
-                          itemLocked ? 'LOCKED' : (owned ? 'OWNED' : 'BUY'),
+                          itemLocked
+                              ? 'LOCKED'
+                              : (owned
+                                  ? 'OWNED'
+                                  : (isMedicine ? 'BUY' : 'BUY')),
                           style: const TextStyle(
                             fontSize: 10,
                             letterSpacing: 0.7,

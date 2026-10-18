@@ -617,6 +617,71 @@ class NotificationService {
     await _plugin.cancel(notificationId);
   }
 
+  // Separate ID range and channel for opt-in, daily virtual-cat reminders.
+  // These never share IDs or actions with real-pet care reminders.
+  static const int virtualFeedReminderId = 81001;
+  static const int virtualGroomReminderId = 81002;
+  static const int virtualMedicineReminderId = 81003;
+
+  Future<void> scheduleVirtualDailyReminder({
+    required int notificationId,
+    required String title,
+    required String body,
+    required int hour,
+    required int minute,
+  }) async {
+    if (!_initialized) await init();
+    final now = tz.TZDateTime.now(tz.local);
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
+    if (!scheduled.isAfter(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+    await _plugin.cancel(notificationId);
+    await _plugin.zonedSchedule(
+      notificationId,
+      title,
+      body,
+      scheduled,
+      _virtualCareDetails(),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+      payload: 'virtual_care:$notificationId',
+    );
+  }
+
+  Future<void> cancelVirtualDailyReminder(int notificationId) async {
+    if (!_initialized) await init();
+    await _plugin.cancel(notificationId);
+  }
+
+  NotificationDetails _virtualCareDetails() => const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'persipal_virtual_care',
+          'Virtual Cat Care',
+          channelDescription:
+              'Optional daily reminders for the PersiPal virtual cat.',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          icon: '@mipmap/ic_launcher',
+          enableVibration: false,
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: false,
+          presentSound: true,
+        ),
+      );
+
   /// Sends a one-time, friendly activity update using the cat's current name.
   /// This is deliberately separate from care reminders and does not repeat.
   Future<void> showVirtualPetSleepActivity({

@@ -93,7 +93,10 @@ class _SplashScreenState extends State<SplashScreen>
 
     Widget destination;
 
-    if (!hasSession) {
+    if (!hasSession || SessionManager.instance.isGuest) {
+      // Always show the existing account-choice UI to users without an
+      // authenticated account, including returning offline guests. Their
+      // guest ID/local data remains stored; choosing Guest reuses that ID.
       destination = const LoginScreen();
     } else if (needsVerification) {
       destination = const VerifyEmailScreen();

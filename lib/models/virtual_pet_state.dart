@@ -4,8 +4,8 @@
 //   GameScreen / FeedScreen / GroomScreen / PlayScreen
 //
 // INDEPENDENCE RULE:
-// NOT real Persian cat profiles, no id, no list, no FullPetProfile,
-// no PetProfileProvider, no petId, no vaccinations/growth/reminders.
+// NOT real Persian cat profiles or real-pet vaccination/growth/reminder data.
+// This model owns only the single virtual game cat and its virtual-care history.
 
 const Object _unset = Object();
 
@@ -39,6 +39,24 @@ class VirtualPetState {
   // Independent clock for the optional no-trim fur-growth rule.
   final DateTime lastTrimAt;
   final int furStageAtLastTrim;
+
+  // Virtual sickness is independent of hunger, cleanliness, happiness,
+  // Energy, and the existing Neglected status.
+  final bool isSick;
+
+  // Medicine temporarily suppresses sickness presentation until this absolute
+  // timestamp. The deadline survives app restarts.
+  final DateTime? recoveryUntil;
+
+  // Virtual-cat vaccination history; kept separate from real-pet records.
+  final List<DateTime> vaccinationRecords;
+
+  // Independent one-hour recovery window after virtual vaccination.
+  final DateTime? vaccinationRecoveryUntil;
+
+  // Timestamp when the cat first entered the Neglected state. Used to trigger
+  // sickness only after prolonged neglect, and persisted across app restarts.
+  final DateTime? neglectedSince;
 
   // Shared sleeping state.
   //
@@ -76,6 +94,11 @@ class VirtualPetState {
     required this.lastFurGrowthAt,
     required this.lastTrimAt,
     this.furStageAtLastTrim = 0,
+    this.isSick = false,
+    this.recoveryUntil,
+    this.vaccinationRecords = const [],
+    this.vaccinationRecoveryUntil,
+    this.neglectedSince,
     this.isSleeping = false,
     this.wantsToPlay = false,
     this.hungerNotificationSent = false,
@@ -135,6 +158,11 @@ class VirtualPetState {
     DateTime? lastFurGrowthAt,
     DateTime? lastTrimAt,
     int? furStageAtLastTrim,
+    bool? isSick,
+    Object? recoveryUntil = _unset,
+    List<DateTime>? vaccinationRecords,
+    Object? vaccinationRecoveryUntil = _unset,
+    Object? neglectedSince = _unset,
     bool? isSleeping,
     bool? wantsToPlay,
     bool? hungerNotificationSent,
@@ -161,6 +189,17 @@ class VirtualPetState {
       lastFurGrowthAt: lastFurGrowthAt ?? this.lastFurGrowthAt,
       lastTrimAt: lastTrimAt ?? this.lastTrimAt,
       furStageAtLastTrim: furStageAtLastTrim ?? this.furStageAtLastTrim,
+      isSick: isSick ?? this.isSick,
+      recoveryUntil: identical(recoveryUntil, _unset)
+          ? this.recoveryUntil
+          : recoveryUntil as DateTime?,
+      vaccinationRecords: vaccinationRecords ?? this.vaccinationRecords,
+      vaccinationRecoveryUntil: identical(vaccinationRecoveryUntil, _unset)
+          ? this.vaccinationRecoveryUntil
+          : vaccinationRecoveryUntil as DateTime?,
+      neglectedSince: identical(neglectedSince, _unset)
+          ? this.neglectedSince
+          : neglectedSince as DateTime?,
       isSleeping: isSleeping ?? this.isSleeping,
       wantsToPlay: wantsToPlay ?? this.wantsToPlay,
       hungerNotificationSent:
@@ -198,6 +237,12 @@ class VirtualPetState {
       'lastFurGrowthAt': lastFurGrowthAt.toIso8601String(),
       'lastTrimAt': lastTrimAt.toIso8601String(),
       'furStageAtLastTrim': furStageAtLastTrim,
+      'isSick': isSick,
+      'recoveryUntil': recoveryUntil?.toIso8601String(),
+      'vaccinationRecords':
+          vaccinationRecords.map((d) => d.toIso8601String()).toList(),
+      'vaccinationRecoveryUntil': vaccinationRecoveryUntil?.toIso8601String(),
+      'neglectedSince': neglectedSince?.toIso8601String(),
       'isSleeping': isSleeping,
       'wantsToPlay': wantsToPlay,
       'hungerNotificationSent': hungerNotificationSent,
@@ -249,6 +294,23 @@ class VirtualPetState {
               ((m['furStage'] as num?)?.toInt() ?? 0))
           .clamp(0, 2)
           .toInt(),
+
+      // Old saved data safely defaults to not sick / not recovering.
+      isSick: m['isSick'] as bool? ?? false,
+      recoveryUntil: m['recoveryUntil'] != null
+          ? DateTime.tryParse(m['recoveryUntil'] as String)
+          : null,
+      vaccinationRecords: ((m['vaccinationRecords'] as List?) ?? const [])
+          .whereType<String>()
+          .map(DateTime.tryParse)
+          .whereType<DateTime>()
+          .toList(),
+      vaccinationRecoveryUntil: m['vaccinationRecoveryUntil'] != null
+          ? DateTime.tryParse(m['vaccinationRecoveryUntil'] as String)
+          : null,
+      neglectedSince: m['neglectedSince'] != null
+          ? DateTime.tryParse(m['neglectedSince'] as String)
+          : null,
 
       // Old saved data will simply default to false.
       isSleeping: m['isSleeping'] as bool? ?? false,

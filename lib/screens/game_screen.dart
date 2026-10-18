@@ -22,6 +22,8 @@ import 'feed_screen.dart';
 import 'play_screen.dart';
 import 'groom_screen.dart';
 import 'shop_screen.dart';
+import 'reminder_screen.dart';
+import 'virtual_reminders_screen.dart';
 
 import '../models/dirty_state.dart';
 import '../models/virtual_pet_status.dart';
@@ -80,6 +82,7 @@ class _GameScreenState extends State<GameScreen> {
   bool _sleepcatLoopActive = false;
 
   bool _askedName = false;
+  bool _careBagVisible = false;
   String catName = 'Meow Meow';
 
   Timer? _thoughtTimer;
@@ -87,6 +90,11 @@ class _GameScreenState extends State<GameScreen> {
   Timer? _petResetTimer;
   Timer? _angryTimer;
   Timer? _nightRoutineTimer;
+  Timer? _recoveryExpiryTimer;
+  DateTime? _scheduledRecoveryDeadline;
+  Timer? _vaccinationExpiryTimer;
+  DateTime? _scheduledVaccinationDeadline;
+  bool _vaccineInteractionStarted = false;
   Timer? _highFiveSoundTimer;
   Timer? _occasionalMeowTimer;
 
@@ -135,6 +143,9 @@ class _GameScreenState extends State<GameScreen> {
   int? _lastSyncedCleanliness;
   int? _lastSyncedEnergy;
   bool? _lastSyncedSleeping;
+  bool? _lastSyncedSick;
+  DateTime? _lastSyncedRecoveryUntil;
+  DateTime? _lastSyncedVaccinationRecoveryUntil;
   int? _lastSyncedFurStage;
 
   @override
@@ -338,6 +349,8 @@ class _GameScreenState extends State<GameScreen> {
     _petResetTimer?.cancel();
     _angryTimer?.cancel();
     _nightRoutineTimer?.cancel();
+    _recoveryExpiryTimer?.cancel();
+    _vaccinationExpiryTimer?.cancel();
     _highFiveSoundTimer?.cancel();
     _occasionalMeowTimer?.cancel();
     _sleepcatLoopActive = false;
@@ -403,6 +416,16 @@ class _GameScreenState extends State<GameScreen> {
       // Once loading changes, context.watch() causes build()
       // to run again and synchronization will happen then.
       if (vp.loading) return;
+      _scheduleRecoveryExpiry(vp);
+      _scheduleVaccinationExpiry(vp);
+      if (vp.vaccinationRecoveryUntil != null && !vp.isVaccinationRecovering) {
+        unawaited(vp.finishVaccinationRecoveryIfExpired());
+      }
+      if (vp.recoveryUntil != null && !vp.isRecovering) {
+        // Reconcile expired recovery immediately after launch/resume. The
+        // provider retains sickness; only the temporary recovery deadline ends.
+        unawaited(vp.finishRecoveryIfExpired());
+      }
       if (!vp.needsNaming) _showWelcomeThought(vp);
       // Keep the looping purr synchronized with the saved sleeping state.
       unawaited(_syncSleepcatLoop(vp.isSleeping || catGame.isSleeping));
@@ -412,7 +435,10 @@ class _GameScreenState extends State<GameScreen> {
           _lastSyncedCleanliness == vp.cleanliness &&
           _lastSyncedEnergy == vp.energy &&
           _lastSyncedSleeping == vp.isSleeping &&
-          _lastSyncedFurStage == vp.furStage;
+          _lastSyncedFurStage == vp.furStage &&
+          _lastSyncedSick == vp.isSick &&
+          _lastSyncedRecoveryUntil == vp.recoveryUntil &&
+          _lastSyncedVaccinationRecoveryUntil == vp.vaccinationRecoveryUntil;
 
       // Nothing changed since the last synchronization.
       if (statsUnchanged) return;
@@ -423,9 +449,58 @@ class _GameScreenState extends State<GameScreen> {
       _lastSyncedCleanliness = vp.cleanliness;
       _lastSyncedEnergy = vp.energy;
       _lastSyncedSleeping = vp.isSleeping;
+      _lastSyncedSick = vp.isSick;
+      _lastSyncedRecoveryUntil = vp.recoveryUntil;
+      _lastSyncedVaccinationRecoveryUntil = vp.vaccinationRecoveryUntil;
 
       _syncLocalState(vp);
     });
+  }
+
+  void _scheduleRecoveryExpiry(VirtualPetProvider vp) {
+    final deadline = vp.recoveryUntil;
+    if (deadline == _scheduledRecoveryDeadline) return;
+
+    _recoveryExpiryTimer?.cancel();
+    _recoveryExpiryTimer = null;
+    _scheduledRecoveryDeadline = deadline;
+
+    if (deadline == null) return;
+
+    final remaining = deadline.difference(DateTime.now());
+    _recoveryExpiryTimer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      () async {
+        _recoveryExpiryTimer = null;
+        _scheduledRecoveryDeadline = null;
+        if (!mounted) return;
+        final provider = context.read<VirtualPetProvider>();
+        await provider.finishRecoveryIfExpired();
+        if (mounted) _scheduleCatStateSync();
+      },
+    );
+  }
+
+  void _scheduleVaccinationExpiry(VirtualPetProvider vp) {
+    final deadline = vp.vaccinationRecoveryUntil;
+    if (deadline == _scheduledVaccinationDeadline) return;
+    _vaccinationExpiryTimer?.cancel();
+    _vaccinationExpiryTimer = null;
+    _scheduledVaccinationDeadline = deadline;
+    if (deadline == null) return;
+    final remaining = deadline.difference(DateTime.now());
+    _vaccinationExpiryTimer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      () async {
+        _vaccinationExpiryTimer = null;
+        _scheduledVaccinationDeadline = null;
+        if (!mounted) return;
+        await context
+            .read<VirtualPetProvider>()
+            .finishVaccinationRecoveryIfExpired();
+        if (mounted) _scheduleCatStateSync();
+      },
+    );
   }
 
   // ==========================================================
@@ -448,6 +523,32 @@ class _GameScreenState extends State<GameScreen> {
 
     DirtyState.instance.setDirty(newDirty);
     catGame.setFurStage(vp.furStage);
+
+    // Medicine recovery is presentation state backed by the persisted
+    // deadline. Resume directly into the existing sleep loop after reopening;
+    // do not replay medicine/yawn or let ordinary state sync cancel recovery.
+    if (catGame.isRecoverySequenceActive &&
+        !vp.isRecovering &&
+        !vp.isVaccinationRecovering) {
+      catGame.stopRecoverySleep(
+        returnToSick: vp.isSick && !vp.isNeglected && vp.furStage == 0,
+      );
+    }
+    if ((vp.isRecovering || vp.isVaccinationRecovering) && !vp.isNeglected) {
+      // Keep the active treatment animation; after reopening, restore sleep
+      // directly without replaying medicine or vaccination.
+      if (!catGame.isRecoverySequenceActive) {
+        if (vp.isVaccinationRecovering) {
+          catGame.resumeVaccinationRecoverySleep();
+        } else {
+          catGame.resumeRecoverySleep();
+        }
+      }
+      return;
+    }
+    if (catGame.isRecoverySleeping && vp.isNeglected) {
+      catGame.stopRecoverySleep(returnToSick: false);
+    }
 
     // Bedtime must win over a stale animation/provider state when GameScreen
     // first opens or rebuilds after 10:30 PM. Otherwise the normal controller
@@ -497,6 +598,10 @@ class _GameScreenState extends State<GameScreen> {
       // Only the Fur1/Fur2 animation is shown until grooming is completed.
       // Status is still stored in the provider and re-evaluated at Fur0.
       catGame.showFurIdle(vp.furStage, force: true);
+    } else if (vp.isSick && !vp.isNeglected) {
+      // Restore saved sickness on launch and whenever provider state changes.
+      // Neglected, fur, and normal bedtime priorities remain unchanged.
+      catGame.showSick(force: true);
     } else {
       catStateController.refresh(
         hunger: vp.hunger,
@@ -522,6 +627,13 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     final vp = context.read<VirtualPetProvider>();
+
+    // Treatment recovery owns the sleep loop; ordinary taps must not wake it.
+    if (vp.isRecovering ||
+        vp.isVaccinationRecovering ||
+        catGame.isRecoverySequenceActive) {
+      return;
+    }
 
     if (isNeglected) {
       _showThoughtBubble();
@@ -905,6 +1017,9 @@ class _GameScreenState extends State<GameScreen> {
     _lastSyncedCleanliness = null;
     _lastSyncedEnergy = null;
     _lastSyncedSleeping = null;
+    _lastSyncedSick = null;
+    _lastSyncedRecoveryUntil = null;
+    _lastSyncedVaccinationRecoveryUntil = null;
 
     _syncLocalState(vp);
     if (vp.furStage > 0 && !_showThought) {
@@ -1037,7 +1152,8 @@ class _GameScreenState extends State<GameScreen> {
 
     final seconds = nighttimeAwake
         ? 20 + _thoughtRandom.nextInt(26) // 20–45 seconds
-        : 12;
+        : 10 +
+            _thoughtRandom.nextInt(6); // daytime random thoughts: 10–15 seconds
 
     _thoughtTimer = Timer(
       Duration(seconds: seconds),
@@ -1115,9 +1231,18 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    // Normal daytime/status thoughts continue to use the existing priority.
-    // Sleeping remains emoji-only, including the 😴 thought.
-    String? emoji = forcedEmoji ?? vp.priorityThoughtEmoji;
+    // Keep urgent care thoughts as emojis, but let ordinary daytime text
+    // thoughts appear when the cat is otherwise okay. Wants-to-play is a
+    // non-urgent status, so it should not suppress everyday text chatter.
+    final statusEmoji = vp.priorityThoughtEmoji;
+    final urgentStatus = vp.isCriticalHunger ||
+        vp.isNeglected ||
+        vp.isDirty ||
+        vp.isSleepy ||
+        vp.isSadOrHungry;
+
+    String? emoji = forcedEmoji ??
+        ((statusEmoji == '🎾' && !urgentStatus) ? null : statusEmoji);
 
     if (emoji == null && NighttimeMode.interactionsLocked) {
       const nightThoughts = ['😴', '💤', '🌙', '⭐'];
@@ -1409,9 +1534,9 @@ class _GameScreenState extends State<GameScreen> {
                                       })>[
                                         (
                                           level: 5,
-                                          title: 'Feed & Grooming',
+                                          title: 'Feed, Grooming & Play',
                                           subtitle:
-                                              'Feeding items and care tools'
+                                              'Feeding items, care tools, and toys'
                                         ),
                                         (
                                           level: 7,
@@ -1739,6 +1864,26 @@ class _GameScreenState extends State<GameScreen> {
                           right: 12,
                           child: RealtimeClock(),
                         ),
+                        // Quick-access controls requested for the two marked
+                        // room slots. They are real buttons, not decorations.
+                        Positioned(
+                          top: 48,
+                          right: 12,
+                          child: _roomQuickButton(
+                            emoji: '👜',
+                            label: 'Care Bag',
+                            onTap: _onCareBag,
+                          ),
+                        ),
+                        Positioned(
+                          top: 104,
+                          right: 12,
+                          child: _roomQuickButton(
+                            emoji: '🔔',
+                            label: 'Reminders',
+                            onTap: _onVirtualReminders,
+                          ),
+                        ),
                         Align(
                           alignment: Alignment.bottomCenter,
                           child: Padding(
@@ -1816,9 +1961,64 @@ class _GameScreenState extends State<GameScreen> {
                                       child: SizedBox(
                                         width: 180,
                                         height: 170,
-                                        child: IgnorePointer(
-                                          child: GameWidget<CatAnimation>(
-                                            game: catGame,
+                                        child: DragTarget<String>(
+                                          onWillAccept: (data) {
+                                            if (NighttimeMode
+                                                .interactionsLocked) {
+                                              return false;
+                                            }
+                                            if (data == 'cat_medicine') {
+                                              return context
+                                                  .read<VirtualPetProvider>()
+                                                  .isSick;
+                                            }
+                                            if (data == 'cat_vaccine') {
+                                              return context
+                                                          .read<RewardService>()
+                                                          .vaccineCount >
+                                                      0 &&
+                                                  catGame.canPlayVaccination;
+                                            }
+                                            return false;
+                                          },
+                                          onMove: (details) {
+                                            if (details.data == 'cat_vaccine' &&
+                                                !_vaccineInteractionStarted) {
+                                              _vaccineInteractionStarted = true;
+                                              unawaited(_useCatVaccine());
+                                            }
+                                          },
+                                          onAccept: (data) {
+                                            if (data == 'cat_vaccine') {
+                                              if (!_vaccineInteractionStarted) {
+                                                _vaccineInteractionStarted =
+                                                    true;
+                                                _useCatVaccine();
+                                              }
+                                            } else if (data == 'cat_medicine') {
+                                              _useCatMedicine();
+                                            }
+                                          },
+                                          builder:
+                                              (context, candidates, rejects) =>
+                                                  DecoratedBox(
+                                            decoration: candidates.isNotEmpty
+                                                ? BoxDecoration(
+                                                    border: Border.all(
+                                                      color: const Color(
+                                                          0xFF70B76B),
+                                                      width: 3,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            18),
+                                                  )
+                                                : const BoxDecoration(),
+                                            child: IgnorePointer(
+                                              child: GameWidget<CatAnimation>(
+                                                game: catGame,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -2060,9 +2260,165 @@ class _GameScreenState extends State<GameScreen> {
               ],
             ),
           ),
+          if (_careBagVisible)
+            Positioned(
+              left: 18,
+              right: 18,
+              bottom: 86,
+              child: Material(
+                color: const Color(0xFFFFF8F0),
+                elevation: 10,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Consumer<RewardService>(
+                    builder: (context, rewards, _) => Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(children: [
+                          const Expanded(
+                            child: Text('👜  Care Bag',
+                                style: TextStyle(
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF85552F))),
+                          ),
+                          IconButton(
+                            onPressed: () =>
+                                setState(() => _careBagVisible = false),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ]),
+                        Row(children: [
+                          Draggable<String>(
+                            data: 'cat_medicine',
+                            feedback: Material(
+                                color: Colors.transparent,
+                                child: Text('💊',
+                                    style: const TextStyle(fontSize: 44))),
+                            childWhenDragging: Opacity(
+                                opacity: .35,
+                                child: _careItemChip(
+                                    '💊', 'Medicine', rewards.medicineCount)),
+                            child: _careItemChip(
+                                '💊', 'Medicine', rewards.medicineCount),
+                          ),
+                          const SizedBox(width: 10),
+                          Draggable<String>(
+                            data: 'cat_vaccine',
+                            maxSimultaneousDrags:
+                                rewards.vaccineCount > 0 ? 1 : 0,
+                            feedback: _vaccineInteractionStarted
+                                ? const SizedBox.shrink()
+                                : Material(
+                                    color: Colors.transparent,
+                                    child: const Text(
+                                      '💉',
+                                      style: TextStyle(fontSize: 44),
+                                    ),
+                                  ),
+                            childWhenDragging: Opacity(
+                              opacity: .35,
+                              child: _careItemChip(
+                                '💉',
+                                'Vaccine',
+                                rewards.vaccineCount,
+                              ),
+                            ),
+                            child: _careItemChip(
+                              '💉',
+                              'Vaccine',
+                              rewards.vaccineCount,
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(height: 8),
+                        Text(
+                          context.watch<VirtualPetProvider>().isSick
+                              ? 'Drag medicine onto your sick cat to begin recovery.'
+                              : 'Medicine can be used when your virtual Persian cat is sick.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Color(0xFFAA7A51)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Widget _careItemChip(String emoji, String label, int count) {
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: const Color(0xFFEBD5BE))),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text(emoji, style: const TextStyle(fontSize: 27)),
+        Text(label,
+            style: const TextStyle(
+                fontWeight: FontWeight.w700, color: Color(0xFF85552F))),
+        Text('× $count', style: const TextStyle(color: Color(0xFFAA7A51))),
+      ]),
+    );
+  }
+
+  Future<void> _useCatMedicine() async {
+    final vp = context.read<VirtualPetProvider>();
+    final rewards = context.read<RewardService>();
+    if (!vp.isSick ||
+        NighttimeMode.interactionsLocked ||
+        rewards.medicineCount <= 0) return;
+    final consumed = await rewards.consumeMedicine();
+    if (!consumed || !mounted) return;
+    await vp.beginMedicineRecovery();
+    if (!mounted) return;
+    setState(() => _careBagVisible = false);
+    await catGame.playTakeMedicineThenRecoverySleep();
+  }
+
+  Future<void> _useCatVaccine() async {
+    final rewards = context.read<RewardService>();
+    final vp = context.read<VirtualPetProvider>();
+    if (NighttimeMode.interactionsLocked ||
+        !catGame.canPlayVaccination ||
+        rewards.vaccineCount <= 0) {
+      _vaccineInteractionStarted = false;
+      return;
+    }
+
+    final consumed = await rewards.consumeVaccine();
+    if (!consumed || !mounted) {
+      _vaccineInteractionStarted = false;
+      return;
+    }
+    if (!mounted) {
+      _vaccineInteractionStarted = false;
+      return;
+    }
+    // Hiding the source immediately releases the dragged vaccine visually.
+    setState(() => _careBagVisible = false);
+    // Start the animation synchronously before notifying listeners about the
+    // saved recovery deadline, so state sync cannot replace it with sleep.
+    final vaccinationAnimation = catGame.playVaccinationThenRecoverySleep();
+    await vp.recordVaccination();
+    await vaccinationAnimation;
+    _vaccineInteractionStarted = false;
+    if (!mounted) return;
+    final last = vp.lastVaccinatedAt;
+    if (last != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                '${vp.catName.isEmpty ? 'Your cat' : vp.catName} vaccination recorded.')),
+      );
+    }
   }
 
   Widget _statRow(
@@ -2235,10 +2591,11 @@ class _GameScreenState extends State<GameScreen> {
     // Groom remains available at night; only direct GameScreen interaction
     // is locked. Nighttime home actions are intentionally limited to care.
 
-    // Match PlayScreen: a critically hungry cat should be fed before normal
-    // grooming. Neglected cats remain groomable so grooming can break the
-    // neglected condition.
-    if (vp.isCriticalHunger && !vp.isNeglected) {
+    // Dirty fur takes priority over hunger: Fur Stage 1/2 must be groomed
+    // before feeding, so never block the Groom screen because of hunger while
+    // the cat still needs its fur cleaned. Only use the hunger block when the
+    // cat is already at Fur Stage 0. Neglected cats remain groomable too.
+    if (vp.isCriticalHunger && vp.furStage == 0 && !vp.isNeglected) {
       _showThoughtBubble(forcedEmoji: '🍗');
       return;
     }
@@ -2291,6 +2648,90 @@ class _GameScreenState extends State<GameScreen> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _roomQuickButton({
+    required String emoji,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: const Color(0xFFFFF1DF).withValues(alpha: 0.96),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          GlobalMusicService.instance.playSfx('click.mp3');
+          onTap();
+        },
+        child: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFC99B72), width: 1.4),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: const [
+              BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 4,
+                  offset: Offset(0, 2)),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 21)),
+              const SizedBox(height: 2),
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF8B6245))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onCareBag() {
+    setState(() => _careBagVisible = !_careBagVisible);
+  }
+
+  Widget _careBagDialogItem(
+      String emoji, String name, int count, String detail) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: const Color(0xFFEBD5BE))),
+      child: Row(children: [
+        Text(emoji, style: const TextStyle(fontSize: 27)),
+        const SizedBox(width: 10),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800, color: Color(0xFF85552F))),
+          Text(detail,
+              style: const TextStyle(fontSize: 12, color: Color(0xFFAA7A51))),
+        ])),
+        Text('× $count',
+            style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 17,
+                color: Color(0xFF85552F))),
+      ]),
+    );
+  }
+
+  void _onVirtualReminders() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const VirtualRemindersScreen()),
     );
   }
 

@@ -82,8 +82,17 @@ Future<void> main() async {
   // 6d. Pet profile photos — loads petId -> local file path map from Hive
   await PetPhotoService.instance.init();
 
-  // 7. Notification service — requests permissions, sets up channels
-  await NotificationService.instance.init();
+  // 7. Notifications are optional for opening the app. If the platform
+  // notification plugin is unavailable, continue to the local-first UI;
+  // ReminderProvider also guards its initial notification reconciliation.
+  try {
+    await NotificationService.instance.init();
+  } catch (error, stackTrace) {
+    debugPrint(
+      'Persipal: notifications unavailable during startup; reminders remain local: $error',
+    );
+    debugPrintStack(stackTrace: stackTrace);
+  }
 
   // Global BGM is started only when the user enters the Virtual Pet module.
   // See GameScreen; it remains active while Feed/Play/Groom are pushed over it.

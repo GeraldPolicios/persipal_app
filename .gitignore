@@ -49,3 +49,7 @@ android/persipal_keys.txt
 android/key.properties
 *.jks
 *.keystore
+
+# Local Firebase configuration
+/ios/Runner/GoogleService-Info.plist
+/macos/Runner/GoogleService-Info.plist

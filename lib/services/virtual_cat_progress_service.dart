@@ -90,10 +90,16 @@ class VirtualCatProgressService extends ChangeNotifier {
       ConnectivityService.instance.addListener(_onAccountOrNetworkChanged);
     }
     notifyListeners();
-    unawaited(syncProgress());
+    if (AuthService.instance.accountSyncAllowed) {
+      unawaited(syncProgress());
+    }
   }
 
-  void _onAccountOrNetworkChanged() => unawaited(syncProgress());
+  void _onAccountOrNetworkChanged() {
+    if (AuthService.instance.accountSyncAllowed) {
+      unawaited(syncProgress());
+    }
+  }
 
   /// Earn XP only for a genuine +1 rise in the persisted gameplay counters.
   /// Loading/restoring the pet establishes a baseline and never grants XP.
