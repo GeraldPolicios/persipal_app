@@ -940,82 +940,102 @@ class _GameScreenState extends State<GameScreen> {
   // ==========================================================
   // CAT NAME
   // ==========================================================
-  void _askCatName(VirtualPetProvider vp) {
-    final ctrl = TextEditingController();
+  void _askCatName(VirtualPetProvider vp, {bool editing = false}) {
+    final ctrl = TextEditingController(text: editing ? vp.catName : '');
+    String? nameError;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          backgroundColor: const Color(0xFFFFF5EE),
-          title: const Row(
-            children: [
-              Text(
-                '🐱 ',
-                style: TextStyle(fontSize: 22),
-              ),
-              Text(
-                'Name your cat!',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            backgroundColor: const Color(0xFFFFF5EE),
+            title: Row(
+              children: [
+                const Text(
+                  '🐱 ',
+                  style: TextStyle(fontSize: 22),
                 ),
+                Text(
+                  editing ? 'Rename your cat' : 'Name your cat!',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              maxLength: 24,
+              textCapitalization: TextCapitalization.words,
+              onChanged: (_) {
+                if (nameError != null) {
+                  setDialogState(() => nameError = null);
+                }
+              },
+              decoration: InputDecoration(
+                hintText: 'e.g. Mochi',
+                errorText: nameError,
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            actions: [
+              if (editing)
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF8C69),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () async {
+                  final enteredName = ctrl.text.trim();
+                  if (editing && enteredName.isEmpty) {
+                    setDialogState(() => nameError = 'Enter a name.');
+                    return;
+                  }
+                  final name = enteredName.isEmpty ? 'Meow Meow' : enteredName;
+
+                  await vp.setName(name);
+
+                  _service.logActivity(
+                    icon: Icons.pets,
+                    iconColor: const Color(0xFF32CD32),
+                    title: editing
+                        ? 'Renamed virtual cat to $name'
+                        : 'Started simulation with cat — $name',
+                  );
+
+                  if (mounted) {
+                    setState(() {
+                      catName = name;
+                    });
+                  }
+
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: Text(editing ? 'Save Name' : "Let's Go!"),
               ),
             ],
           ),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'e.g. Mochi',
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF8C69),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: () async {
-                final name =
-                    ctrl.text.trim().isEmpty ? 'Meow Meow' : ctrl.text.trim();
-
-                await vp.setName(name);
-
-                _service.logActivity(
-                  icon: Icons.pets,
-                  iconColor: const Color(0xFF32CD32),
-                  title: 'Started simulation with cat — $name',
-                );
-
-                if (mounted) {
-                  setState(() {
-                    catName = name;
-                  });
-                }
-
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                }
-              },
-              child: const Text("Let's Go!"),
-            ),
-          ],
         );
       },
-    );
+    ).whenComplete(ctrl.dispose);
   }
 
   // ==========================================================
@@ -1561,6 +1581,21 @@ class _GameScreenState extends State<GameScreen> {
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Edit virtual pet name',
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        onPressed: () => _askCatName(vp, editing: true),
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: Color(0xFFAA7755),
+                          size: 19,
                         ),
                       ),
                       AnimatedBuilder(

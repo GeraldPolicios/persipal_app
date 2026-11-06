@@ -1,0 +1,30 @@
+[1mdiff --git a/pubspec.lock b/pubspec.lock[m
+[1mindex e03e4c9..6b08f47 100644[m
+[1m--- a/pubspec.lock[m
+[1m+++ b/pubspec.lock[m
+[36m@@ -668,10 +668,10 @@[m [mpackages:[m
+     dependency: transitive[m
+     description:[m
+       name: meta[m
+[31m-      sha256: "1741988757a65eb6b36abe716829688cf01910bbf91c34354ff7ec1c3de2b349"[m
+[32m+[m[32m      sha256: "23f08335362185a5ea2ad3a4e597f1375e78bce8a040df5c600c8d3552ef2394"[m
+       url: "https://pub.dev"[m
+     source: hosted[m
+[31m-    version: "1.18.0"[m
+[32m+[m[32m    version: "1.17.0"[m
+   mime:[m
+     dependency: transitive[m
+     description:[m
+[36m@@ -897,10 +897,10 @@[m [mpackages:[m
+     dependency: transitive[m
+     description:[m
+       name: test_api[m
+[31m-      sha256: "949a932224383300f01be9221c39180316445ecb8e7547f70a41a35bf421fb9e"[m
+[32m+[m[32m      sha256: "8161c84903fd860b26bfdefb7963b3f0b68fee7adea0f59ef805ecca346f0c7a"[m
+       url: "https://pub.dev"[m
+     source: hosted[m
+[31m-    version: "0.7.11"[m
+[32m+[m[32m    version: "0.7.10"[m
+   timezone:[m
+     dependency: "direct main"[m
+     description:[m
