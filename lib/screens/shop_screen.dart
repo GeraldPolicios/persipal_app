@@ -87,8 +87,9 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'grooming_brush_mint',
         category: 'Grooming',
-        emoji: '🪮',
+        emoji: '',
         name: 'Mint Brush Card',
+        imageAsset: 'assets/images/items/brush.png',
         description: 'Changes the background color of the brush card to mint.',
         price: 100,
         color: Color(0xFFDDF4E7)),
@@ -138,8 +139,9 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'grooming_brush_pink',
         category: 'Grooming',
-        emoji: '🪮',
+        emoji: '',
         name: 'Pink Brush Card',
+        imageAsset: 'assets/images/items/brush.png',
         description: 'Changes the background color of the brush card to pink.',
         price: 100,
         color: Color(0xFFFFDCE8)),
@@ -691,8 +693,9 @@ class _ShopScreenState extends State<ShopScreen>
     ShopItem(
         id: 'grooming_brush_u2',
         category: 'Grooming',
-        emoji: '🪮',
+        emoji: '',
         name: 'Aqua Brush Card',
+        imageAsset: 'assets/images/items/brush.png',
         description: 'Changes only the brush card in Groom to aqua.',
         price: 90,
         color: Color(0xFF9DEBE8)),

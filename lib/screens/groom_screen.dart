@@ -131,7 +131,7 @@ class _GroomScreenState extends State<GroomScreen> {
       'color': Color(0xFFFFCDD2),
     },
     {
-      'emoji': '🪮',
+      'image': 'brush.png',
       'name': 'Brush',
       'color': Color(0xFFFFE0B2),
     },
@@ -574,8 +574,7 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
     if (pet.cleanliness >= 100 && !_groomGame.isWet) {
-      setState(() => _feedbackText =
-          'Already clean! You can trim or choose another action ✨');
+      setState(() => _feedbackText = 'Already clean! You can trim or brush✨');
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) setState(() => _feedbackText = '');
       });
@@ -665,8 +664,7 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
     if (pet.cleanliness >= 100) {
-      setState(() => _feedbackText =
-          'Already clean! You can trim or choose another action ✨');
+      setState(() => _feedbackText = 'Already clean! You can trim or brush ✨');
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) setState(() => _feedbackText = '');
       });
@@ -1299,7 +1297,7 @@ class _GroomScreenState extends State<GroomScreen> {
 
       _trimMode = false;
 
-      _feedbackText = 'Brush the cat 🪮';
+      _feedbackText = 'Brush the cat';
     });
   }
 
@@ -1358,11 +1356,17 @@ class _GroomScreenState extends State<GroomScreen> {
   }
 
   Widget _brushFeedback(Map<String, dynamic> item) {
-    return const Material(
+    final image = item['image'] as String;
+
+    return Material(
       color: Colors.transparent,
-      child: Text(
-        '🪮',
-        style: TextStyle(fontSize: 46),
+      child: SizedBox(
+        width: 60,
+        height: 60,
+        child: Image.asset(
+          'assets/images/items/$image',
+          fit: BoxFit.contain,
+        ),
       ),
     );
   }
