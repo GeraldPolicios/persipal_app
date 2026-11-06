@@ -934,6 +934,11 @@ class _ReminderScreenState extends State<ReminderScreen>
     final isNotYetDue = !item.isDue;
     final isHighlighted = item.id == _highlightReminderId;
     final cardKey = _cardKeys.putIfAbsent(item.id, () => GlobalKey());
+    final completedAt = item.completedAt;
+    final completionTimeLabel = completedAt == null
+        ? 'Completion time not recorded'
+        : 'Completed: '
+            '${DateFormat('MMM d, yyyy  •  hh:mm a').format(completedAt)}';
 
     return Container(
       key: cardKey,
@@ -1072,8 +1077,10 @@ class _ReminderScreenState extends State<ReminderScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    DateFormat('MMM d, yyyy  •  hh:mm a')
-                        .format(item.scheduledAt),
+                    item.isDone
+                        ? completionTimeLabel
+                        : DateFormat('MMM d, yyyy  •  hh:mm a')
+                            .format(item.scheduledAt),
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
