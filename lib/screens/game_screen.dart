@@ -51,20 +51,59 @@ Widget _equippedRoomDecoration(String itemId) {
   };
   final emoji = decorations[itemId];
   if (emoji == null) return const SizedBox.shrink();
-  return Container(
-    width: 42,
-    height: 42,
-    alignment: Alignment.center,
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.78),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFE8C7AC), width: 1.5),
-      boxShadow: const [
-        BoxShadow(
-            color: Color(0x22000000), blurRadius: 5, offset: Offset(0, 2)),
+
+  // Render the equipped item as a scene prop, not as a shop/UI tile. The
+  // soft ground shadow anchors it to the room floor and the transparent
+  // foreground lets the room artwork show through completely.
+  // All room decorations share one compact footprint so no emoji prop
+  // looks oversized beside another, regardless of its glyph shape.
+  return SizedBox(
+    width: 46,
+    height: 52,
+    child: Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        Positioned(
+          bottom: 5,
+          child: Container(
+            width: 25,
+            height: 6,
+            decoration: BoxDecoration(
+              color: const Color(0x660D1019),
+              borderRadius: BorderRadius.all(Radius.elliptical(34, 8)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 5,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 7),
+          child: Transform.rotate(
+            angle: -0.045,
+            child: Text(
+              emoji,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 29,
+                height: 1,
+                shadows: [
+                  Shadow(
+                    color: Color(0x77000000),
+                    blurRadius: 5,
+                    offset: Offset(1.5, 3),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     ),
-    child: Text(emoji, style: const TextStyle(fontSize: 25)),
   );
 }
 
@@ -166,7 +205,7 @@ class _GameScreenState extends State<GameScreen> {
     dayPeriodNotifier.addListener(_onDayPeriodChanged);
 
     // Check bedtime independently of day-period changes so an already-open
-    // GameScreen notices the 10:00 PM sleepy and 10:30 PM rest transitions.
+    // GameScreen notices the 10:20 PM sleepy and 10:30 PM rest transitions.
     _nightRoutineTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => _maybeStartNightRoutine(),
@@ -214,14 +253,13 @@ class _GameScreenState extends State<GameScreen> {
   // NIGHT BEDTIME ROUTINE
   // ==========================================================
   //
-  // 6:00 PM starts the night environment. At 10:00 PM the cat becomes sleepy;
+  // 6:00 PM starts the night environment. At 10:20 PM the cat becomes sleepy;
   // at 10:30 PM the automatic Rest -> Sleep phase begins:
   //
   //   Idle -> Sleepy -> Rest -> Sleep
   //
-  // The existing VirtualPetProvider neglected-state rule remains in effect:
-  // a genuinely neglected cat is not forced into sleep. Fur stage and normal
-  // hunger/cleanliness thresholds do not block bedtime for other cats.
+  // A cat with any active care need stays awake so the player can respond.
+  // Bedtime begins only when the cat is in good condition.
   // Once the existing sleep animation reaches Sleeping, the shared provider
   // sleep state is persisted so reopening the app keeps the cat asleep.
   Future<void> _maybeStartNightRoutine() async {
@@ -236,8 +274,9 @@ class _GameScreenState extends State<GameScreen> {
     if (_nightRoutineStartedOn == today) return;
 
     final vp = context.read<VirtualPetProvider>();
-    if (vp.loading || vp.isNeglected) return;
+    if (vp.loading || vp.needsCare) return;
 
+    final sleepyStart = DateTime(now.year, now.month, now.day, 22, 20);
     final restStart = DateTime(now.year, now.month, now.day, 22, 30);
 
     // When the player opens the game after bedtime, don't make them wait
@@ -251,11 +290,9 @@ class _GameScreenState extends State<GameScreen> {
       // state permanently skip tonight's sleep reconciliation. At this point
       // the bedtime routine should already have completed while the app was
       // closed, so restore the sleeping pose directly after 10:30 PM.
-      // Fur stage and ordinary hunger/cleanliness thresholds must not leave
-      // a healthy cat awake overnight. The existing neglected-state guard
-      // above remains authoritative, so a genuinely neglected cat still
-      // follows its existing sad/neglected behavior.
-      if (!vp.isNeglected) {
+      // A cat with an active care need remains awake. Only a cat in good
+      // condition is restored directly to the sleeping pose.
+      if (!vp.needsCare) {
         catGame.showSleeping();
         _initialBedtimeReconciled = true;
         _nightRoutineStartedOn = today;
@@ -277,8 +314,10 @@ class _GameScreenState extends State<GameScreen> {
     // Do not interrupt waking or a user-triggered trick.
     if (catGame.isWaking || catGame.isBusy) return;
 
-    // At 10:00 PM the cat becomes sleepy. Keep this state for 30 minutes.
-    // The 30-second timer will retry and begin Rest only at/after 10:30 PM.
+    // Keep the cat in its normal evening behavior until 10:20 PM.
+    // From 10:20–10:29 PM, show Sleepy so the cat can prepare to rest.
+    // At 10:30 PM, continue into the Rest -> Sleep phase.
+    if (now.isBefore(sleepyStart)) return;
     if (now.isBefore(restStart)) {
       if (!catGame.isSleepy && !catGame.isResting) {
         catGame.enterSleepy(force: true);
@@ -416,6 +455,7 @@ class _GameScreenState extends State<GameScreen> {
       // Once loading changes, context.watch() causes build()
       // to run again and synchronization will happen then.
       if (vp.loading) return;
+
       _scheduleRecoveryExpiry(vp);
       _scheduleVaccinationExpiry(vp);
       if (vp.vaccinationRecoveryUntil != null && !vp.isVaccinationRecovering) {
@@ -553,11 +593,25 @@ class _GameScreenState extends State<GameScreen> {
     // Bedtime must win over a stale animation/provider state when GameScreen
     // first opens or rebuilds after 10:30 PM. Otherwise the normal controller
     // can restore Idle/FurIdle while the persisted sleep flag is still saving.
-    // Keep the existing neglected-cat exception unchanged.
+    // A cat with an active care need must remain awake for necessary care.
     final now = DateTime.now();
     final afterBedtime =
         now.hour < 6 || now.hour > 22 || (now.hour == 22 && now.minute >= 30);
-    if (afterBedtime && !vp.isNeglected) {
+    final inSleepyWindow =
+        now.hour == 22 && now.minute >= 20 && now.minute < 30;
+
+    // Keep the 10:20–10:29 PM sleepy state authoritative during every
+    // provider rebuild and whenever GameScreen is revisited. Without this
+    // guard, the normal status controller can replace Sleepy with Idle,
+    // then the 30-second night timer applies Sleepy again.
+    if (inSleepyWindow && !vp.needsCare) {
+      if (!catGame.isSleepy && !catGame.isResting && !catGame.isSleeping) {
+        catGame.enterSleepy(force: true);
+      }
+      return;
+    }
+
+    if (afterBedtime && !vp.needsCare) {
       if (!vp.isSleeping) {
         unawaited(vp.setSleeping(true));
       }
@@ -582,10 +636,7 @@ class _GameScreenState extends State<GameScreen> {
     // ========================================================
     // PROVIDER SAYS CAT IS SLEEPING
     // ========================================================
-    else if (vp.isSleeping &&
-        vp.hunger < 90 &&
-        vp.cleanliness > 30 &&
-        vp.furStage == 0) {
+    else if (vp.isSleeping && !vp.needsCare) {
       catGame.showSleeping();
     }
 
@@ -1468,7 +1519,13 @@ class _GameScreenState extends State<GameScreen> {
       backgroundColor: const Color(0xFFFFE6CC),
       body: Stack(
         children: [
-          const ShopSceneBackground(slot: 'background_room'),
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.12,
+              child:
+                  Image.asset('assets/images/paws_bg.png', fit: BoxFit.cover),
+            ),
+          ),
           SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1829,278 +1886,290 @@ class _GameScreenState extends State<GameScreen> {
                   child: Container(
                     height: 180,
                     decoration: BoxDecoration(
+                      color: const Color(0xFFE9D8C8),
                       borderRadius: BorderRadius.circular(20),
-                      image: DecorationImage(
-                        image: AssetImage(
-                          roomAsset(
-                            dayPeriodNotifier.value,
-                            day: 'assets/images/cat_room/cat_bg_room_ver2.png',
-                            noon:
-                                'assets/images/cat_room/cat_bg_room_ver2noon.png',
-                            night:
-                                'assets/images/cat_room/cat_bg_room_ver2night.png',
-                          ),
-                        ),
-                        fit: BoxFit.cover,
-                      ),
                     ),
-                    child: Stack(
-                      children: [
-                        // The currently equipped room decoration is placed at a
-                        // fixed floor spot. It is intentionally not draggable,
-                        // and RewardService notifications update it immediately.
-                        if (rewards.equippedShopItem('item_room_decor') != null)
-                          Positioned(
-                            left: 22,
-                            bottom: 12,
-                            child: IgnorePointer(
-                              child: _equippedRoomDecoration(
-                                rewards.equippedShopItem('item_room_decor')!,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Stack(
+                        children: [
+                          ShopSceneBackground(
+                            slot: 'background_room',
+                            fallbackAsset: roomAsset(
+                              dayPeriodNotifier.value,
+                              day:
+                                  'assets/images/cat_room/cat_bg_room_ver2.png',
+                              noon:
+                                  'assets/images/cat_room/cat_bg_room_ver2noon.png',
+                              night:
+                                  'assets/images/cat_room/cat_bg_room_ver2night.png',
+                            ),
+                          ),
+                          // Show the equipped item as a room prop blended into
+                          // the floor scene (no card, border, or button styling).
+                          if (rewards.equippedShopItem('item_room_decor') !=
+                              null)
+                            Positioned(
+                              left: 24,
+                              bottom: 5,
+                              child: IgnorePointer(
+                                child: _equippedRoomDecoration(
+                                  rewards.equippedShopItem('item_room_decor')!,
+                                ),
                               ),
                             ),
+                          const Positioned(
+                            top: 10,
+                            right: 12,
+                            child: RealtimeClock(),
                           ),
-                        const Positioned(
-                          top: 10,
-                          right: 12,
-                          child: RealtimeClock(),
-                        ),
-                        // Quick-access controls requested for the two marked
-                        // room slots. They are real buttons, not decorations.
-                        Positioned(
-                          top: 48,
-                          right: 12,
-                          child: _roomQuickButton(
-                            emoji: '👜',
-                            label: 'Care Bag',
-                            onTap: _onCareBag,
-                          ),
-                        ),
-                        Positioned(
-                          top: 104,
-                          right: 12,
-                          child: _roomQuickButton(
-                            emoji: '🔔',
-                            label: 'Reminders',
-                            onTap: _onVirtualReminders,
-                          ),
-                        ),
-                        Align(
-                          alignment: Alignment.bottomCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.only(
-                              bottom: 10,
+                          // Quick-access controls requested for the two marked
+                          // room slots. They are real buttons, not decorations.
+                          Positioned(
+                            top: 48,
+                            right: 12,
+                            child: _roomQuickButton(
+                              emoji: '👜',
+                              label: 'Care Bag',
+                              onTap: _onCareBag,
                             ),
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: NighttimeMode.interactionsLocked
-                                  ? () {}
-                                  : _onCatTap,
-                              onPanStart: (details) {
-                                if (!mounted ||
-                                    NighttimeMode.interactionsLocked) {
-                                  return;
-                                }
+                          ),
+                          Positioned(
+                            top: 104,
+                            right: 12,
+                            child: _roomQuickButton(
+                              emoji: '🔔',
+                              label: 'Reminders',
+                              onTap: _onVirtualReminders,
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                bottom: 10,
+                              ),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: NighttimeMode.interactionsLocked
+                                    ? () {}
+                                    : _onCatTap,
+                                onPanStart: (details) {
+                                  if (!mounted ||
+                                      NighttimeMode.interactionsLocked) {
+                                    return;
+                                  }
 
-                                _swipeStartX = details.localPosition.dx;
+                                  _swipeStartX = details.localPosition.dx;
 
-                                _swipeStartY = details.localPosition.dy;
+                                  _swipeStartY = details.localPosition.dy;
 
-                                _swipeCurrentY = details.localPosition.dy;
+                                  _swipeCurrentY = details.localPosition.dy;
 
-                                setState(() {});
-                              },
-                              onPanUpdate: (details) {
-                                if (!mounted ||
-                                    NighttimeMode.interactionsLocked) {
-                                  return;
-                                }
-
-                                _swipeCurrentY = details.localPosition.dy;
-
-                                final verticalDistance =
-                                    _swipeStartY - _swipeCurrentY;
-
-                                final horizontalDistance =
-                                    (_swipeStartX - details.localPosition.dx)
-                                        .abs();
-
-                                if (verticalDistance.abs() > 40 &&
-                                    verticalDistance.abs() >
-                                        horizontalDistance) {
                                   setState(() {});
-                                } else {
-                                  _onPetting();
-                                }
-                              },
-                              onPanEnd: (details) {
-                                if (!mounted ||
-                                    NighttimeMode.interactionsLocked) {
-                                  return;
-                                }
+                                },
+                                onPanUpdate: (details) {
+                                  if (!mounted ||
+                                      NighttimeMode.interactionsLocked) {
+                                    return;
+                                  }
 
-                                final swipeDistance =
-                                    _swipeStartY - _swipeCurrentY;
+                                  _swipeCurrentY = details.localPosition.dy;
 
-                                if (swipeDistance > 60) {
-                                  _onSwipeUp();
-                                } else if (swipeDistance < -60) {
-                                  _onSwipeDown();
-                                }
+                                  final verticalDistance =
+                                      _swipeStartY - _swipeCurrentY;
 
-                                setState(() {});
-                              },
-                              child: SizedBox(
-                                width: 180,
-                                height: 170,
-                                child: Stack(
-                                  clipBehavior: Clip.none,
-                                  alignment: Alignment.bottomCenter,
-                                  children: [
-                                    Align(
-                                      alignment: Alignment.bottomCenter,
-                                      child: SizedBox(
-                                        width: 180,
-                                        height: 170,
-                                        child: DragTarget<String>(
-                                          onWillAccept: (data) {
-                                            if (NighttimeMode
-                                                .interactionsLocked) {
+                                  final horizontalDistance =
+                                      (_swipeStartX - details.localPosition.dx)
+                                          .abs();
+
+                                  if (verticalDistance.abs() > 40 &&
+                                      verticalDistance.abs() >
+                                          horizontalDistance) {
+                                    setState(() {});
+                                  } else {
+                                    _onPetting();
+                                  }
+                                },
+                                onPanEnd: (details) {
+                                  if (!mounted ||
+                                      NighttimeMode.interactionsLocked) {
+                                    return;
+                                  }
+
+                                  final swipeDistance =
+                                      _swipeStartY - _swipeCurrentY;
+
+                                  if (swipeDistance > 60) {
+                                    _onSwipeUp();
+                                  } else if (swipeDistance < -60) {
+                                    _onSwipeDown();
+                                  }
+
+                                  setState(() {});
+                                },
+                                child: SizedBox(
+                                  width: 180,
+                                  height: 170,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    alignment: Alignment.bottomCenter,
+                                    children: [
+                                      Align(
+                                        alignment: Alignment.bottomCenter,
+                                        child: SizedBox(
+                                          width: 180,
+                                          height: 170,
+                                          child: DragTarget<String>(
+                                            onWillAccept: (data) {
+                                              // Medicine remains available at
+                                              // bedtime when the cat is sick.
+                                              if (NighttimeMode
+                                                      .interactionsLocked &&
+                                                  data != 'cat_medicine') {
+                                                return false;
+                                              }
+                                              if (data == 'cat_medicine') {
+                                                return context
+                                                    .read<VirtualPetProvider>()
+                                                    .isSick;
+                                              }
+                                              if (data == 'cat_vaccine') {
+                                                return context
+                                                            .read<
+                                                                RewardService>()
+                                                            .vaccineCount >
+                                                        0 &&
+                                                    catGame.canPlayVaccination;
+                                              }
                                               return false;
-                                            }
-                                            if (data == 'cat_medicine') {
-                                              return context
-                                                  .read<VirtualPetProvider>()
-                                                  .isSick;
-                                            }
-                                            if (data == 'cat_vaccine') {
-                                              return context
-                                                          .read<RewardService>()
-                                                          .vaccineCount >
-                                                      0 &&
-                                                  catGame.canPlayVaccination;
-                                            }
-                                            return false;
-                                          },
-                                          onMove: (details) {
-                                            if (details.data == 'cat_vaccine' &&
-                                                !_vaccineInteractionStarted) {
-                                              _vaccineInteractionStarted = true;
-                                              unawaited(_useCatVaccine());
-                                            }
-                                          },
-                                          onAccept: (data) {
-                                            if (data == 'cat_vaccine') {
-                                              if (!_vaccineInteractionStarted) {
+                                            },
+                                            onMove: (details) {
+                                              if (details.data ==
+                                                      'cat_vaccine' &&
+                                                  !_vaccineInteractionStarted) {
                                                 _vaccineInteractionStarted =
                                                     true;
-                                                _useCatVaccine();
+                                                unawaited(_useCatVaccine());
                                               }
-                                            } else if (data == 'cat_medicine') {
-                                              _useCatMedicine();
-                                            }
-                                          },
-                                          builder:
-                                              (context, candidates, rejects) =>
-                                                  DecoratedBox(
-                                            decoration: candidates.isNotEmpty
-                                                ? BoxDecoration(
-                                                    border: Border.all(
-                                                      color: const Color(
-                                                          0xFF70B76B),
-                                                      width: 3,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            18),
-                                                  )
-                                                : const BoxDecoration(),
-                                            child: IgnorePointer(
-                                              child: GameWidget<CatAnimation>(
-                                                game: catGame,
+                                            },
+                                            onAccept: (data) {
+                                              if (data == 'cat_vaccine') {
+                                                if (!_vaccineInteractionStarted) {
+                                                  _vaccineInteractionStarted =
+                                                      true;
+                                                  _useCatVaccine();
+                                                }
+                                              } else if (data ==
+                                                  'cat_medicine') {
+                                                _useCatMedicine();
+                                              }
+                                            },
+                                            builder: (context, candidates,
+                                                    rejects) =>
+                                                DecoratedBox(
+                                              decoration: candidates.isNotEmpty
+                                                  ? BoxDecoration(
+                                                      border: Border.all(
+                                                        color: const Color(
+                                                            0xFF70B76B),
+                                                        width: 3,
+                                                      ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              18),
+                                                    )
+                                                  : const BoxDecoration(),
+                                              child: IgnorePointer(
+                                                child: GameWidget<CatAnimation>(
+                                                  game: catGame,
+                                                ),
                                               ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    if (isDirty && !isNeglected)
-                                      const Positioned(
-                                        left: 42,
-                                        top: 62,
-                                        child: DirtOverlay(
-                                          size: 110,
-                                          showFly: false,
-                                        ),
-                                      ),
-                                    if (isNeglected)
-                                      const Positioned(
-                                        left: 42,
-                                        top: 62,
-                                        child: DirtOverlay(
-                                          size: 110,
-                                          showFly: true,
-                                          heavy: true,
-                                        ),
-                                      ),
-                                    if (_showThought && _thoughtText != null)
-                                      NighttimeThoughtBubble(
-                                        text: _thoughtText!,
-                                      )
-                                    else if (_showThought)
-                                      Positioned(
-                                        // Emoji thoughts use a dedicated
-                                        // anchor for the lying sleeping/resting
-                                        // cat. Keep the bubble near the cat's
-                                        // head rather than over its body.
-                                        left: 92,
-                                        bottom: 82,
-                                        child: PetThought(
-                                          emoji: _thoughtEmoji,
-                                          text: null,
-                                        ),
-                                      ),
-                                    if (_showHeart)
-                                      Positioned(
-                                        bottom: 78,
-                                        child: TweenAnimationBuilder<double>(
-                                          tween: Tween(
-                                            begin: 0,
-                                            end: -45,
-                                          ),
-                                          duration: const Duration(
-                                            milliseconds: 900,
-                                          ),
-                                          builder: (
-                                            context,
-                                            value,
-                                            child,
-                                          ) {
-                                            return Transform.translate(
-                                              offset: Offset(
-                                                0,
-                                                value,
-                                              ),
-                                              child: Opacity(
-                                                opacity: 1 - (-value / 45),
-                                                child: child,
-                                              ),
-                                            );
-                                          },
-                                          child: const Text(
-                                            '❤️',
-                                            style: TextStyle(
-                                              fontSize: 28,
+                                      if (isDirty && !isNeglected)
+                                        const Positioned.fill(
+                                          child: Align(
+                                            alignment: Alignment(0, 0.35),
+                                            child: DirtOverlay(
+                                              size: 150,
+                                              showFly: false,
                                             ),
                                           ),
                                         ),
-                                      ),
-                                  ],
+                                      if (isNeglected)
+                                        const Positioned.fill(
+                                          child: Align(
+                                            alignment: Alignment(0, 0.35),
+                                            child: DirtOverlay(
+                                              size: 170,
+                                              showFly: true,
+                                              heavy: true,
+                                            ),
+                                          ),
+                                        ),
+                                      if (_showThought && _thoughtText != null)
+                                        NighttimeThoughtBubble(
+                                          text: _thoughtText!,
+                                        )
+                                      else if (_showThought)
+                                        Positioned(
+                                          // Emoji thoughts use a dedicated
+                                          // anchor for the lying sleeping/resting
+                                          // cat. Keep the bubble near the cat's
+                                          // head rather than over its body.
+                                          left: 92,
+                                          bottom: 82,
+                                          child: PetThought(
+                                            emoji: _thoughtEmoji,
+                                            text: null,
+                                          ),
+                                        ),
+                                      if (_showHeart)
+                                        Positioned(
+                                          bottom: 78,
+                                          child: TweenAnimationBuilder<double>(
+                                            tween: Tween(
+                                              begin: 0,
+                                              end: -45,
+                                            ),
+                                            duration: const Duration(
+                                              milliseconds: 900,
+                                            ),
+                                            builder: (
+                                              context,
+                                              value,
+                                              child,
+                                            ) {
+                                              return Transform.translate(
+                                                offset: Offset(
+                                                  0,
+                                                  value,
+                                                ),
+                                                child: Opacity(
+                                                  opacity: 1 - (-value / 45),
+                                                  child: child,
+                                                ),
+                                              );
+                                            },
+                                            child: const Text(
+                                              '❤️',
+                                              style: TextStyle(
+                                                fontSize: 28,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -2185,17 +2254,36 @@ class _GameScreenState extends State<GameScreen> {
                         // smaller iPhones. Keep the same 2x2 design but let
                         // the cards become slightly shorter when needed.
                         final compact = constraints.maxHeight < 275;
+                        final shopHeight = compact ? 40.0 : 48.0;
+                        // Keep the action cards compact enough that Shop
+                        // stays close to the 2x2 action grid on tall and
+                        // short phones, rather than being pushed toward the
+                        // bottom of the available area.
+                        final gridRatio = compact ? 2.35 : 2.15;
+                        final gridSpacing = compact ? 6.0 : 10.0;
+                        final cardWidth = (constraints.maxWidth - 10) / 2;
+                        final desiredGridHeight =
+                            (cardWidth / gridRatio * 2) + gridSpacing;
+                        final availableGridHeight =
+                            (constraints.maxHeight - shopHeight - 8)
+                                .clamp(0.0, constraints.maxHeight)
+                                .toDouble();
+                        final gridHeight = desiredGridHeight
+                            .clamp(0.0, availableGridHeight)
+                            .toDouble();
 
                         return Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
                           children: [
-                            Expanded(
+                            SizedBox(
+                              height: gridHeight,
                               child: GridView.count(
-                                shrinkWrap: false,
+                                shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
                                 crossAxisCount: 2,
-                                mainAxisSpacing: compact ? 6 : 10,
+                                mainAxisSpacing: gridSpacing,
                                 crossAxisSpacing: 10,
-                                childAspectRatio: compact ? 2.15 : 1.8,
+                                childAspectRatio: gridRatio,
                                 children: [
                                   _actionCard(
                                     '🍗',
@@ -2238,9 +2326,9 @@ class _GameScreenState extends State<GameScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 8),
                             SizedBox(
-                              height: compact ? 40 : 48,
+                              height: shopHeight,
                               width: double.infinity,
                               child: _actionCard(
                                 '🛍️',
@@ -2372,9 +2460,7 @@ class _GameScreenState extends State<GameScreen> {
   Future<void> _useCatMedicine() async {
     final vp = context.read<VirtualPetProvider>();
     final rewards = context.read<RewardService>();
-    if (!vp.isSick ||
-        NighttimeMode.interactionsLocked ||
-        rewards.medicineCount <= 0) return;
+    if (!vp.isSick || rewards.medicineCount <= 0) return;
     final consumed = await rewards.consumeMedicine();
     if (!consumed || !mounted) return;
     await vp.beginMedicineRecovery();

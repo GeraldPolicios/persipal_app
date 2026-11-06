@@ -109,7 +109,7 @@ class NotificationService {
   static const _petNeedChannelId = 'persipal_virtual_pet';
   static const _petNeedChannelName = 'Virtual Pet Needs';
   static const _petNeedChannelDesc =
-      'Hunger, cleanliness, play, and neglected-pet alerts';
+      'Hunger, cleanliness, sickness, and neglected-pet alerts';
 
   static const int virtualPetHungerNotificationId = 210000001;
   static const int virtualPetCleanlinessNotificationId = 210000002;
@@ -120,6 +120,9 @@ class NotificationService {
   // with real-pet care reminders or virtual-pet need notifications.
   static const int virtualPetSleepNotificationId = 210000006;
   static const int virtualPetWakeNotificationId = 210000007;
+  static const int virtualPetSicknessNotificationId = 210000008;
+  static const int virtualPetFurStage1NotificationId = 210000009;
+  static const int virtualPetFurStage2NotificationId = 210000010;
 
   // ── Persistent-reminder tuning ───────────────────────────────────────────
   // A care reminder that isn't marked done keeps re-notifying every

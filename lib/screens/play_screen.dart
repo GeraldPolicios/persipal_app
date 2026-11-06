@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../services/activity_service.dart';
 import '../services/reward_service.dart';
 import '../services/global_music_service.dart';
+import '../widgets/pet_stat_indicator.dart';
+import '../widgets/pet_activity_tip.dart';
 import '../widgets/play_thought.dart';
 import '../game/play.dart';
 import '../game/cat_animation.dart';
@@ -146,6 +148,23 @@ class _PlayScreenState extends State<PlayScreen> {
     });
   }
 
+  Future<void> _showNightRestBlocked() async {
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackEmoji = '🌙';
+      _feedbackText = '🌙 Im resting now. See you in the morning!';
+    });
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackText = '';
+    });
+  }
+
   Future<void> _play(
     String toy,
   ) async {
@@ -159,6 +178,8 @@ class _PlayScreenState extends State<PlayScreen> {
     }
 
     final pet = context.read<VirtualPetProvider>();
+
+    if (pet.isRecovering || pet.isVaccinationRecovering) return;
 
     if (pet.furStage > 0) {
       await _showCleanFirst();
@@ -292,10 +313,9 @@ class _PlayScreenState extends State<PlayScreen> {
 
   Color _shopCardColor(Map<String, dynamic> item, Color fallback) {
     final rewards = context.watch<RewardService>();
-    final equippedId = rewards.equippedShopItem('item_play');
-    if (equippedId == null) return fallback;
-
     final itemName = (item['name'] as String).toLowerCase().replaceAll(' ', '');
+    final equippedId = rewards.equippedShopItem('play_$itemName');
+    if (equippedId == null) return fallback;
     final idParts = equippedId.split('_');
     if (idParts.length < 3 || idParts.first != 'play') {
       return fallback;
@@ -411,6 +431,7 @@ class _PlayScreenState extends State<PlayScreen> {
     final pet = context.watch<VirtualPetProvider>();
 
     final isNighttime = NighttimeMode.isNighttime();
+    final isTreatmentResting = pet.isRecovering || pet.isVaccinationRecovering;
     // Care conditions take visual priority over a stale saved sleep state.
     // Keep neglect detection unchanged; critical hunger or dirt wakes the
     // visual state so the player can see the cat's current needs.
@@ -474,8 +495,15 @@ class _PlayScreenState extends State<PlayScreen> {
                   ),
                 ),
                 const SizedBox(
-                  height: 10,
+                  height: 8,
                 ),
+                PetStatIndicator(
+                  icon: Icons.bolt,
+                  label: 'Energy',
+                  value: pet.energy,
+                  color: const Color(0xFF4F9D75),
+                ),
+                const SizedBox(height: 8),
                 Stack(
                   children: [
                     DragTarget<String>(
@@ -483,6 +511,7 @@ class _PlayScreenState extends State<PlayScreen> {
                         // Keep Play available at night, but hide the cat and
                         // prevent toy interactions during nighttime.
                         if (isNighttime) {
+                          unawaited(_showNightRestBlocked());
                           return false;
                         }
 
@@ -574,7 +603,9 @@ class _PlayScreenState extends State<PlayScreen> {
                                 right: 12,
                                 child: RealtimeClock(),
                               ),
-                              if (!isSleeping && !isNighttime)
+                              if (!isSleeping &&
+                                  !isNighttime &&
+                                  !isTreatmentResting)
                                 Positioned.fill(
                                   child: Center(
                                     child: SizedBox(
@@ -642,25 +673,92 @@ class _PlayScreenState extends State<PlayScreen> {
                       },
                     ),
 
-                    // Only show a thought bubble after an interaction.
-                    // Do not show ordinary feedback while sleeping.
-                    if (_feedbackText.isNotEmpty && !isSleeping && !isNighttime)
+                    if (isTreatmentResting)
                       Positioned(
-                        bottom: 118,
-                        left: 0,
-                        right: 0,
+                        bottom: 130,
+                        left: 16,
+                        right: 16,
                         child: Center(
-                          child: PlayThought(
-                            emoji: _feedbackEmoji,
-                            text: _feedbackText,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 280),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.88),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                pet.isVaccinationRecovering
+                                    ? '💉 I’m resting after my vaccination. Please let me relax! 😴'
+                                    : '💊 I’m resting after taking medicine. Please let me recover! 😴',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF7A3B1E),
+                                ),
+                              ),
+                            ),
                           ),
+                        ),
+                      ),
+
+                    // Show the nighttime resting message with the same
+                    // translucent bubble used by the Groom screen.
+                    if (!isTreatmentResting &&
+                        _feedbackText.isNotEmpty &&
+                        (_feedbackText.startsWith('🌙') ||
+                            (!isSleeping && !isNighttime)))
+                      Positioned(
+                        bottom: _feedbackText.startsWith('🌙') ? 130 : 118,
+                        left: _feedbackText.startsWith('🌙') ? 16 : 0,
+                        right: _feedbackText.startsWith('🌙') ? 16 : 0,
+                        child: Center(
+                          child: _feedbackText.startsWith('🌙')
+                              ? ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 270,
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.85,
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      _feedbackText,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF7A3B1E),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : PlayThought(
+                                  emoji: _feedbackEmoji,
+                                  text: _feedbackText,
+                                ),
                         ),
                       ),
                   ],
                 ),
-                const SizedBox(
-                  height: 14,
+                const SizedBox(height: 10),
+                const PetActivityTip(
+                  text: 'Playtime keeps your cat active, happy, and engaged.',
                 ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: GridView.builder(
                     padding: const EdgeInsets.symmetric(

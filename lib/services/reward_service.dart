@@ -49,6 +49,9 @@ class RewardService extends ChangeNotifier {
   Set<String> _claimed = {};
   Map<String, int> _shopPurchases = {};
   Map<String, String> _equippedShopItems = {};
+  // Per-slot revisions let an explicit unequip win over stale cloud snapshots.
+  // The revision remains even when a slot has no equipped item.
+  Map<String, int> _equippedShopItemVersions = {};
   int _medicineCount = 0;
   int _medicineSpent = 0;
   int _vaccineCount = 0;
@@ -79,11 +82,33 @@ class RewardService extends ChangeNotifier {
   Set<String> get purchasedShopItems =>
       Set.unmodifiable(_shopPurchases.keys.toSet());
 
-  String? equippedShopItem(String slot) => _equippedShopItems[slot];
+  String? equippedShopItem(String slot) {
+    final itemId = _equippedShopItems[slot];
+    return itemId == null || itemId.isEmpty ? null : itemId;
+  }
+
+  int _nextEquipmentRevision() => DateTime.now().microsecondsSinceEpoch;
 
   Future<void> equipShopItem(String itemId, String slot) async {
     if (!_shopPurchases.containsKey(itemId)) return;
     _equippedShopItems = {..._equippedShopItems, slot: itemId};
+    _equippedShopItemVersions = {
+      ..._equippedShopItemVersions,
+      slot: _nextEquipmentRevision(),
+    };
+    await _changed();
+  }
+
+  /// Restores the built-in default appearance for a shop equipment slot.
+  /// Purchased items remain owned and can be equipped again at any time.
+  Future<void> unequipShopItem(String slot) async {
+    if (!_equippedShopItems.containsKey(slot)) return;
+    _equippedShopItems = Map<String, String>.from(_equippedShopItems)
+      ..remove(slot);
+    _equippedShopItemVersions = {
+      ..._equippedShopItemVersions,
+      slot: _nextEquipmentRevision(),
+    };
     await _changed();
   }
 
@@ -118,6 +143,7 @@ class RewardService extends ChangeNotifier {
         _claimed = {};
         _shopPurchases = {};
         _equippedShopItems = {};
+        _equippedShopItemVersions = {};
         _medicineCount = 0;
         _medicineSpent = 0;
         _vaccineCount = 0;
@@ -138,6 +164,10 @@ class RewardService extends ChangeNotifier {
         for (final e in (m['equippedShopItems'] as Map? ?? {}).entries)
           e.key as String: e.value as String,
       };
+      _equippedShopItemVersions = {
+        for (final e in (m['equippedShopItemVersions'] as Map? ?? {}).entries)
+          e.key as String: (e.value as num).toInt(),
+      };
       _medicineCount = (m['medicineCount'] as num?)?.toInt() ?? 0;
       _medicineSpent = (m['medicineSpent'] as num?)?.toInt() ?? 0;
       _vaccineCount = (m['vaccineCount'] as num?)?.toInt() ?? 0;
@@ -147,6 +177,7 @@ class RewardService extends ChangeNotifier {
       _claimed = {};
       _shopPurchases = {};
       _equippedShopItems = {};
+      _equippedShopItemVersions = {};
       _medicineCount = 0;
       _medicineSpent = 0;
       _vaccineCount = 0;
@@ -159,6 +190,7 @@ class RewardService extends ChangeNotifier {
         'claimed': _claimed.toList(),
         'shopPurchases': _shopPurchases,
         'equippedShopItems': _equippedShopItems,
+        'equippedShopItemVersions': _equippedShopItemVersions,
         'medicineCount': _medicineCount,
         'medicineSpent': _medicineSpent,
         'vaccineCount': _vaccineCount,
@@ -172,6 +204,8 @@ class RewardService extends ChangeNotifier {
     _ledger = {};
     _claimed = {};
     _shopPurchases = {};
+    _equippedShopItems = {};
+    _equippedShopItemVersions = {};
     notifyListeners();
   }
 
@@ -184,6 +218,7 @@ class RewardService extends ChangeNotifier {
     _claimed = {};
     _shopPurchases = {};
     _equippedShopItems = {};
+    _equippedShopItemVersions = {};
     await _save();
     notifyListeners();
   }
@@ -377,11 +412,53 @@ class RewardService extends ChangeNotifier {
             (cloud['vaccineCount'] as num?)?.toInt() ?? _vaccineCount;
         _vaccineSpent =
             (cloud['vaccineSpent'] as num?)?.toInt() ?? _vaccineSpent;
-        _equippedShopItems = {
-          ..._equippedShopItems,
+        // Merge each equipment slot by its own revision. An unequip is
+        // represented by the absence of that slot plus a newer revision, so
+        // an older cloud snapshot cannot silently equip the item again.
+        final cloudEquipped = {
           for (final e in (cloud['equippedShopItems'] as Map? ?? {}).entries)
             e.key as String: e.value as String,
         };
+        final cloudEquipmentVersions = {
+          for (final e
+              in (cloud['equippedShopItemVersions'] as Map? ?? {}).entries)
+            e.key as String: (e.value as num).toInt(),
+        };
+        final equipmentSlots = <String>{
+          ..._equippedShopItems.keys,
+          ..._equippedShopItemVersions.keys,
+          ...cloudEquipped.keys,
+          ...cloudEquipmentVersions.keys,
+        };
+        final mergedEquipment = Map<String, String>.from(_equippedShopItems);
+        final mergedEquipmentVersions =
+            Map<String, int>.from(_equippedShopItemVersions);
+        for (final slot in equipmentSlots) {
+          final localVersion = _equippedShopItemVersions[slot] ?? 0;
+          final cloudVersion = cloudEquipmentVersions[slot] ?? 0;
+          final hasLocalRevision = _equippedShopItemVersions.containsKey(slot);
+          final hasLocalValue = _equippedShopItems.containsKey(slot);
+          final hasCloudValue = cloudEquipped.containsKey(slot);
+
+          // Import legacy cloud equipment when this device has never changed
+          // that slot. Otherwise, only the newer revision wins.
+          final cloudWins = cloudVersion > localVersion ||
+              (!hasLocalRevision && !hasLocalValue && hasCloudValue);
+          if (cloudWins) {
+            if (hasCloudValue) {
+              mergedEquipment[slot] = cloudEquipped[slot]!;
+            } else {
+              mergedEquipment.remove(slot);
+            }
+          }
+          final newestVersion =
+              localVersion > cloudVersion ? localVersion : cloudVersion;
+          if (newestVersion > 0) {
+            mergedEquipmentVersions[slot] = newestVersion;
+          }
+        }
+        _equippedShopItems = mergedEquipment;
+        _equippedShopItemVersions = mergedEquipmentVersions;
         await lessons.mergeCompleted(
             ((cloud['lessons'] as List?) ?? const []).cast<String>());
         await _save();
@@ -392,6 +469,7 @@ class RewardService extends ChangeNotifier {
         'claimed': _claimed.toList(),
         'shopPurchases': _shopPurchases,
         'equippedShopItems': _equippedShopItems,
+        'equippedShopItemVersions': _equippedShopItemVersions,
         'medicineCount': _medicineCount,
         'medicineSpent': _medicineSpent,
         'vaccineCount': _vaccineCount,

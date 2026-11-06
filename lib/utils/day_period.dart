@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import 'nighttime_mode.dart';
+
 enum DayPeriod {
   day,
   noon,
@@ -9,6 +11,12 @@ enum DayPeriod {
 }
 
 DayPeriod currentDayPeriod([DateTime? now]) {
+  // Temporary testing override: keep all room backgrounds and music in the
+  // morning/day period even when the device clock is in the evening.
+  if (NighttimeMode.forceDaytimeForTesting) {
+    return DayPeriod.day;
+  }
+
   final hour = (now ?? DateTime.now()).hour;
 
   if (hour >= 6 && hour < 12) {

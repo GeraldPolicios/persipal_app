@@ -7,7 +7,10 @@
 class NighttimeMode {
   NighttimeMode._();
 
-  // Nighttime rules are enabled for the nighttime care flow.
+  // Use the actual local time to determine whether nighttime mode is active.
+  static const bool forceDaytimeForTesting = false;
+
+  // Nighttime rules remain enabled when the testing override is turned off.
   static const bool enabled = true;
 
   static const int nightStartHour = 18; // 6:00 PM
@@ -16,19 +19,20 @@ class NighttimeMode {
 
   /// True from 6:00 PM until 6:00 AM.
   static bool isNighttime([DateTime? now]) {
-    if (!enabled) return false;
+    if (forceDaytimeForTesting || !enabled) return false;
     final hour = (now ?? DateTime.now()).hour;
     return hour >= nightStartHour || hour < morningHour;
   }
 
   /// True from 10:00 PM until 6:00 AM.
   static bool isBedtime([DateTime? now]) {
-    if (!enabled) return false;
+    if (forceDaytimeForTesting || !enabled) return false;
     final hour = (now ?? DateTime.now()).hour;
     return hour >= bedtimeHour || hour < morningHour;
   }
 
-  /// During nighttime the player cannot interact with the cat or use care
-  /// actions. Thought bubbles remain available.
-  static bool get interactionsLocked => isNighttime();
+  /// The cat may still receive necessary care during the evening.
+  /// General interactions are locked only once bedtime begins.
+  /// Feed/Groom screens apply their own care-need checks during 6 PM–10 PM.
+  static bool get interactionsLocked => isBedtime();
 }

@@ -6,7 +6,13 @@ import '../services/reward_service.dart';
 /// the original subtle paw wallpaper when no background has been equipped.
 class ShopSceneBackground extends StatelessWidget {
   final String slot;
-  const ShopSceneBackground({super.key, required this.slot});
+  final String? fallbackAsset;
+
+  const ShopSceneBackground({
+    super.key,
+    required this.slot,
+    this.fallbackAsset,
+  });
 
   static const Map<String, String> _assets = {
     'background_room_sunroom_morning': 'assets/packs/room/sunroom.png',
@@ -56,6 +62,11 @@ class ShopSceneBackground extends StatelessWidget {
       final asset = id == null ? null : _assets[id];
       if (asset != null) {
         return Positioned.fill(child: Image.asset(asset, fit: BoxFit.cover));
+      }
+      if (fallbackAsset != null) {
+        return Positioned.fill(
+          child: Image.asset(fallbackAsset!, fit: BoxFit.cover),
+        );
       }
       return Positioned.fill(
         child: Opacity(

@@ -175,6 +175,7 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
     await _save();
     notifyListeners();
+    await _syncPetNotifications();
   }
 
   /// Starts the one-hour recovery window after medicine interaction succeeds.
@@ -250,6 +251,16 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   bool get isDirty => _pet.cleanliness <= 30;
+
+  /// True when the cat has an actual care need that should override
+  /// nighttime rest restrictions. Ordinary low energy is not a care need.
+  bool get needsCare =>
+      furStage > 0 ||
+      isSick ||
+      isNeglected ||
+      hunger >= 70 ||
+      cleanliness <= 30 ||
+      happiness <= 20;
 
   bool get isNeglected => petStatus == VirtualPetStatus.neglected;
 
@@ -669,6 +680,58 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
     // never depend on Firebase.
     final petState = _pet;
 
+    // Sickness is an independent automatic care alert. It is synchronized
+    // alongside hunger, cleanliness, and neglect regardless of day/night.
+    await _syncNeedNotification(
+      id: NotificationService.virtualPetSicknessNotificationId,
+      active: petState.isSick,
+      sent: petState.sicknessNotificationSent,
+      title: 'Your Persian cat is sick',
+      body:
+          'Your virtual cat is sick and needs medicine. Open Persipal to care for your cat.',
+      onSent: () {
+        _pet = _pet.copyWith(sicknessNotificationSent: true);
+      },
+      onReset: () {
+        _pet = _pet.copyWith(sicknessNotificationSent: false);
+      },
+      scheduleAt: null,
+    );
+
+    // Fur stages have their own care alerts, separate from cleanliness.
+    // Each stage notifies once; the flag resets after trimming below that stage.
+    await _syncNeedNotification(
+      id: NotificationService.virtualPetFurStage1NotificationId,
+      active: petState.furStage >= 1,
+      sent: petState.furStage1NotificationSent,
+      title: '${petState.catName}\'s fur is growing',
+      body:
+          '${petState.catName}\'s coat is starting to grow. Check the Groom screen when convenient.',
+      onSent: () {
+        _pet = _pet.copyWith(furStage1NotificationSent: true);
+      },
+      onReset: () {
+        _pet = _pet.copyWith(furStage1NotificationSent: false);
+      },
+      scheduleAt: null,
+    );
+
+    await _syncNeedNotification(
+      id: NotificationService.virtualPetFurStage2NotificationId,
+      active: petState.furStage >= 2,
+      sent: petState.furStage2NotificationSent,
+      title: '${petState.catName} needs a coat trim',
+      body:
+          '${petState.catName}\'s fur has grown long. Grooming is needed. Open Persipal to trim the coat.',
+      onSent: () {
+        _pet = _pet.copyWith(furStage2NotificationSent: true);
+      },
+      onReset: () {
+        _pet = _pet.copyWith(furStage2NotificationSent: false);
+      },
+      scheduleAt: null,
+    );
+
     await _syncNeedNotification(
       id: NotificationService.virtualPetNeglectedNotificationId,
       active: isNeglected,
@@ -1044,6 +1107,7 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
     required int happinessDelta,
     int cleanlinessDelta = 0,
     int energyDelta = 0,
+    bool countAsFeeding = true,
   }) async {
     _pet = _applyElapsedDecay(_pet);
 
@@ -1063,7 +1127,9 @@ class VirtualPetProvider extends ChangeNotifier with WidgetsBindingObserver {
           lastTickAt: now,
           updatedAt: now,
 
-          simFeedCount: _pet.simFeedCount + 1,
+          // Drinking water affects the existing Hunger bar but is not a
+          // feeding activity for feeding XP, achievements, or milestones.
+          simFeedCount: _pet.simFeedCount + (countAsFeeding ? 1 : 0),
           wantsToPlay: true,
         )
         .clamp();

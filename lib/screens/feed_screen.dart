@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../services/activity_service.dart';
 import '../services/reward_service.dart';
 import '../services/global_music_service.dart';
+import '../widgets/pet_stat_indicator.dart';
+import '../widgets/pet_activity_tip.dart';
 import '../widgets/feed_thought.dart';
 import '../game/feed.dart';
 import '../game/cat_animation.dart';
@@ -66,6 +68,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   bool _isEating = false;
   bool _isHappyReaction = false;
+  bool _showUnsafeFoodInfo = false;
   String _foodExplanation = '';
 
   final List<Map<String, dynamic>> _foods = const [
@@ -147,6 +150,30 @@ class _FeedScreenState extends State<FeedScreen> {
     return pet.hunger >= 90 && pet.happiness <= 20 && pet.cleanliness <= 20;
   }
 
+  bool _needsCareAtNight(VirtualPetProvider pet) {
+    return pet.needsCare;
+  }
+
+  Future<void> _showSleepingBlocked() async {
+    if (!mounted) return;
+
+    setState(() {
+      _feedbackEmoji = '😴';
+      // The moon prefix uses the existing soft sleep-message bubble.
+      _feedbackText = '🌙 Shhh... I\'m sleeping! See you in the morning. 😴';
+      _showFeedEffect = true;
+    });
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    setState(() {
+      _showFeedEffect = false;
+      _feedbackText = '';
+    });
+  }
+
   Future<void> _showSleepyBlocked() async {
     if (!mounted) return;
 
@@ -190,7 +217,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
     setState(() {
       _feedbackEmoji = '🌙';
-      _feedbackText = 'I’m not hungry. Let me rest!';
+      _feedbackText = '🌙 Im resting now. See you in the morning!';
       _showFeedEffect = true;
     });
 
@@ -234,19 +261,64 @@ class _FeedScreenState extends State<FeedScreen> {
 
     final pet = context.read<VirtualPetProvider>();
 
+    if (pet.isRecovering || pet.isVaccinationRecovering) return;
+
+    // Unsafe foods use the existing thought bubble and food-information card.
+    // This check runs before other care-state restrictions so the educational
+    // warning is always shown after an unsafe item is dropped. It returns
+    // before any eating animation, provider update, or activity log can run.
+    const unsafeFoodInformation = <String, Map<String, String>>{
+      'Chocolate': {
+        'thought': 'That is dangerous for me!',
+        'explanation':
+            'Chocolate is toxic to cats. It can cause vomiting, a racing or irregular heartbeat, tremors, and seizures.',
+      },
+      'Onion': {
+        'thought': 'I should stay away from that!',
+        'explanation':
+            'Onions can damage a cat’s red blood cells and cause anemia, weakness, and pale gums.',
+      },
+      'Garlic': {
+        'thought': 'No thanks, that is not safe!',
+        'explanation':
+            'Garlic can damage a cat’s red blood cells and cause anemia, weakness, and stomach upset.',
+      },
+    };
+    final unsafeInfo = unsafeFoodInformation[food];
+    if (unsafeInfo != null) {
+      setState(() {
+        _feedbackEmoji = '🙀';
+        _feedbackText = unsafeInfo['thought']!;
+        _foodExplanation = unsafeInfo['explanation']!;
+        _showUnsafeFoodInfo = true;
+        _showFeedEffect = true;
+      });
+      Future.delayed(const Duration(seconds: 5), () {
+        if (!mounted) return;
+        setState(() {
+          _showUnsafeFoodInfo = false;
+          _showFeedEffect = false;
+          _feedbackText = '';
+          _foodExplanation = '';
+        });
+      });
+      return;
+    }
+
     // Long fur blocks feeding before any bowl/animation state starts.
     if (pet.furStage > 0) {
       await _showCleanFirst();
       return;
     }
 
-    // Sleeping/Sleepy cats cannot be fed.
-    // Keep the two states distinct: sleeping silently blocks feeding, while
-    // a sleepy (but awake) cat shows the sleepy feedback.
-    if (pet.isSleeping) {
+    // A cat that needs care can be attended to even during bedtime.
+    // Healthy cats remain asleep and cannot be fed just for activity.
+    final needsCareAtNight = _needsCareAtNight(pet);
+    if (pet.isSleeping && !needsCareAtNight) {
+      await _showSleepingBlocked();
       return;
     }
-    if (pet.isSleepy) {
+    if (pet.isSleepy && !needsCareAtNight) {
       await _showSleepyBlocked();
       return;
     }
@@ -265,42 +337,9 @@ class _FeedScreenState extends State<FeedScreen> {
       return;
     }
 
-    // At night, feeding is allowed only when the cat actually needs care.
-    // Keep this aligned with the Feed screen's nighttime visibility rule:
-    // hunger >= 70, dirt, or fur means care is still permitted.
-    final needsCareAtNight =
-        pet.hunger >= 70 || pet.isDirty || pet.furStage > 0;
+    // At night, feeding is allowed only when some care need is active.
     if (NighttimeMode.isNighttime() && !needsCareAtNight) {
       await _showNighttimeBlocked();
-      return;
-    }
-
-    // Unsafe foods are educational choices only: the cat refuses them,
-    // no eating animation starts, and care stats are never changed.
-    final unsafeExplanations = <String, String>{
-      'Chocolate': 'Chocolate is toxic to cats.',
-      'Onion': 'Onions can damage a cat’s red blood cells.',
-      'Garlic': 'Garlic is toxic to cats.',
-    };
-    const unsafeThoughts = <String, String>{
-      'Chocolate': 'That is dangerous for me!',
-      'Onion': 'I should stay away from that!',
-      'Garlic': 'No thanks, that is not safe!',
-    };
-    if (unsafeExplanations.containsKey(food)) {
-      setState(() {
-        _feedbackEmoji = '🙀';
-        _feedbackText = unsafeThoughts[food]!;
-        _foodExplanation = unsafeExplanations[food]!;
-        _showFeedEffect = true;
-      });
-      Future.delayed(const Duration(seconds: 3), () {
-        if (!mounted) return;
-        setState(() {
-          _showFeedEffect = false;
-          _feedbackText = '';
-        });
-      });
       return;
     }
 
@@ -318,10 +357,21 @@ class _FeedScreenState extends State<FeedScreen> {
     final thought =
         eatingThoughts[food] ?? const {'emoji': '😺', 'text': 'Yum!'};
 
-    // Mark the care animation and thought bubble active together so the
-    // reaction is visible while the cat eats/drinks.
+    // Set the matching educational tip before the eating animation starts,
+    // so the reserved card appears for the entire eating sequence.
+    const eatingExplanations = <String, String>{
+      'Dry Food': 'Balanced cat food provides essential nutrients.',
+      'Wet Food': 'Complete wet food provides nutrients and extra moisture.',
+      'Fish': 'Plain, cooked, boneless fish is an occasional treat.',
+      'Milk': 'Many cats cannot digest cow’s milk well. Water is better.',
+      'Water': 'Fresh water helps keep your cat hydrated.',
+      'Treat': 'Cat-safe treats should be given in small amounts.',
+    };
+
+    // Mark the care animation, thought bubble, and tip active together.
     setState(() {
       _foodInBowl = food;
+      _foodExplanation = eatingExplanations[food] ?? '';
       _isEating = true;
       _feedbackEmoji = thought['emoji']!;
       _feedbackText = thought['text']!;
@@ -424,7 +474,8 @@ class _FeedScreenState extends State<FeedScreen> {
         emoji = '🥛';
         break;
       case 'Water':
-        cleanlinessDelta = 10;
+        // Water uses the existing Hunger bar; it does not change Cleanliness.
+        hungerDelta = -10;
         feedback = 'Ahh, fresh water!';
         emoji = '💧';
         break;
@@ -443,6 +494,7 @@ class _FeedScreenState extends State<FeedScreen> {
       hungerDelta: hungerDelta,
       happinessDelta: happinessDelta,
       cleanlinessDelta: cleanlinessDelta,
+      countAsFeeding: food != 'Water',
     );
     if (!mounted) return;
 
@@ -500,38 +552,25 @@ class _FeedScreenState extends State<FeedScreen> {
 
   Color _shopCardColor(Map<String, dynamic> item, Color fallback) {
     final rewards = context.watch<RewardService>();
-    final equippedId = rewards.equippedShopItem('item_feed');
-    if (equippedId == null) return fallback;
-
     final itemName = (item['name'] as String).toLowerCase().replaceAll(' ', '');
-    final idParts = equippedId.split('_');
-
-    // The Unsafe Food Card theme applies to all three educational unsafe-food
-    // cards together, rather than to a purchasable food item.
     final isUnsafeFood =
         const {'Chocolate', 'Onion', 'Garlic'}.contains(item['name']);
-    if (isUnsafeFood &&
-        idParts.length == 3 &&
-        idParts[0] == 'feed' &&
-        idParts[1] == 'unsafe') {
-      switch (idParts[2]) {
-        case 'pink':
-          return const Color(0xFFFFDCE8);
-        case 'mint':
-          return const Color(0xFFDDF4E7);
-        case 'blue':
-          return const Color(0xFFD9EEFF);
-        case 'lilac':
-          return const Color(0xFFEADFFF);
-        case 'peach':
-          return const Color(0xFFFFE2D4);
-      }
-    }
+
+    // Each food card owns its own slot. The shared unsafe-food skin is the
+    // only intentional exception: it styles Chocolate, Onion, and Garlic.
+    final equippedId = rewards.equippedShopItem('feed_$itemName') ??
+        (isUnsafeFood ? rewards.equippedShopItem('feed_unsafe') : null);
+    if (equippedId == null) return fallback;
+
+    final idParts = equippedId.split('_');
     if (idParts.length < 3 || idParts.first != 'feed') {
       return fallback;
     }
     final equippedItemName = idParts.sublist(1, idParts.length - 1).join('');
-    if (equippedItemName != itemName) return fallback;
+    if (equippedItemName != itemName &&
+        !(isUnsafeFood && equippedItemName == 'unsafe')) {
+      return fallback;
+    }
 
     switch (idParts.last) {
       case 'mint':
@@ -681,16 +720,16 @@ class _FeedScreenState extends State<FeedScreen> {
     // Care conditions take visual priority over a stale saved sleep state.
     // Keep neglect detection unchanged; critical hunger or dirt wakes the
     // visual state so the player can see the cat's current needs.
-    final isSleeping =
-        pet.isSleeping && pet.hunger < 90 && pet.cleanliness > 30;
+    final isTreatmentResting = pet.isRecovering || pet.isVaccinationRecovering;
+    final isSleeping = pet.isSleeping && !pet.needsCare;
     final isNeglected = _isNeglected(pet);
     final isSleepy = pet.isSleepy && !isSleeping && !isNeglected;
     final isSad = !isSleeping && !isNeglected && !isSleepy && pet.isSadOrHungry;
     final isNight = NighttimeMode.isNighttime();
-    final needsCareAtNight =
-        isNeglected || pet.hunger >= 70 || pet.isDirty || pet.furStage > 0;
-    final showCat =
-        isNeglected || (!isSleeping && (!isNight || needsCareAtNight));
+    final needsCareAtNight = pet.needsCare;
+    final showCat = !isSleeping &&
+        !isTreatmentResting &&
+        (isNeglected || !isNight || needsCareAtNight);
     _feedGame.setFurStage(pet.furStage);
     if (isSleepy) {
       _sleepyCatGame.enterSleepy();
@@ -751,18 +790,33 @@ class _FeedScreenState extends State<FeedScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
+                PetStatIndicator(
+                  icon: Icons.restaurant,
+                  label: 'Hunger',
+                  value: pet.hunger,
+                  color: const Color(0xFFE69A35),
+                ),
+                const SizedBox(height: 8),
                 Stack(
                   children: [
                     DragTarget<String>(
-                      onWillAcceptWithDetails: (_) {
-                        // Long fur must be groomed and trimmed before feeding.
-                        if (pet.furStage > 0) {
+                      onWillAcceptWithDetails: (details) {
+                        // Unsafe foods are always accepted for their
+                        // educational warning, even when normal feeding is
+                        // temporarily blocked by fur or sleep.
+                        const unsafeFoods = {'Chocolate', 'Onion', 'Garlic'};
+                        final isUnsafeFood = unsafeFoods.contains(details.data);
+
+                        // Long fur must be groomed and trimmed before safe food.
+                        if (pet.furStage > 0 && !isUnsafeFood) {
                           unawaited(_showCleanFirst());
                           return false;
                         }
 
-                        // Actual Sleeping cannot receive food.
+                        // When Mochi is actually sleeping, all food items,
+                        // including unsafe food, use the same sleeping message.
                         if (isSleeping) {
+                          unawaited(_showSleepingBlocked());
                           return false;
                         }
 
@@ -941,23 +995,95 @@ class _FeedScreenState extends State<FeedScreen> {
                         );
                       },
                     ),
-                    if (_showFeedEffect &&
-                        _feedbackText.isNotEmpty &&
-                        !isSleeping)
+                    if (isTreatmentResting)
                       Positioned(
-                        bottom: 118,
-                        left: 0,
-                        right: 0,
+                        bottom: 130,
+                        left: 16,
+                        right: 16,
                         child: Center(
-                          child: FeedThought(
-                            emoji: _feedbackEmoji,
-                            text: _feedbackText,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 280),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.88),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                pet.isVaccinationRecovering
+                                    ? '💉 I’m resting after my vaccination. Please let me relax! 😴'
+                                    : '💊 I’m resting after taking medicine. Please let me recover! 😴',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF7A3B1E),
+                                ),
+                              ),
+                            ),
                           ),
+                        ),
+                      ),
+                    if (!isTreatmentResting &&
+                        _showFeedEffect &&
+                        _feedbackText.isNotEmpty &&
+                        (!isSleeping || _feedbackText.startsWith('🌙')))
+                      Positioned(
+                        bottom: _feedbackText.startsWith('🌙') ? 130 : 118,
+                        left: _feedbackText.startsWith('🌙') ? 16 : 0,
+                        right: _feedbackText.startsWith('🌙') ? 16 : 0,
+                        child: Center(
+                          child: _feedbackText.startsWith('🌙')
+                              ? ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 270,
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.85,
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      _feedbackText,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF7A3B1E),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : FeedThought(
+                                  emoji: _feedbackEmoji,
+                                  text: _feedbackText,
+                                ),
                         ),
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
+                // Reserve the information-card space even while the cat is idle.
+                // This keeps the food grid in the same lower position at all times.
+                SizedBox(
+                  height: _showUnsafeFoodInfo ? 76 : 44,
+                  child: (_isEating || _showUnsafeFoodInfo) &&
+                          _foodExplanation.isNotEmpty
+                      ? PetActivityTip(text: _foodExplanation)
+                      : null,
+                ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: GridView.builder(
                     padding: const EdgeInsets.symmetric(
@@ -969,6 +1095,9 @@ class _FeedScreenState extends State<FeedScreen> {
                       maxCrossAxisExtent: 120,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
+                      // Slightly shorter tiles let all three food rows fit
+                      // beneath the reserved eating-tip area on iPhone screens.
+                      childAspectRatio: 1.15,
                     ),
                     itemBuilder: (_, i) {
                       return _draggable(
@@ -977,28 +1106,6 @@ class _FeedScreenState extends State<FeedScreen> {
                     },
                   ),
                 ),
-                if (_foodExplanation.isNotEmpty)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.symmetric(horizontal: 18),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF3E0),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFFE8C8A8)),
-                    ),
-                    child: Text(
-                      _foodExplanation,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF80583F),
-                      ),
-                    ),
-                  ),
                 const SizedBox(height: 8),
               ],
             ),

@@ -11,6 +11,8 @@ import '../services/global_music_service.dart';
 import '../game/groom.dart';
 import '../game/cat_animation.dart';
 import '../providers/virtual_pet_provider.dart';
+import '../widgets/pet_stat_indicator.dart';
+import '../widgets/pet_activity_tip.dart';
 import '../widgets/realtime_clock.dart';
 import '../widgets/shop_scene_background.dart';
 
@@ -160,9 +162,9 @@ class _GroomScreenState extends State<GroomScreen> {
   }
 
   bool _isNightCareNeeded(VirtualPetProvider pet, {required bool trimming}) {
-    // Nighttime is a strict no-grooming period. Keep the existing daytime
-    // eligibility rules unchanged, but block every tool consistently at night.
-    if (NighttimeMode.isNighttime()) return false;
+    // Grooming remains available at night whenever the cat needs attention.
+    // Healthy cats are left undisturbed until morning.
+    if (NighttimeMode.isNighttime()) return pet.needsCare;
     return true;
   }
 
@@ -209,14 +211,20 @@ class _GroomScreenState extends State<GroomScreen> {
 
   Future<void> _groom(String tool) async {
     final pet = context.read<VirtualPetProvider>();
+    if (pet.isRecovering || pet.isVaccinationRecovering) return;
     final oldCleanliness = pet.cleanliness;
-    if (!_isNightCareNeeded(pet, trimming: tool == 'Trim')) {
+    final isDryingTool = tool == 'Towel' || tool == 'Blower';
+    if (!_isNightCareNeeded(pet, trimming: tool == 'Trim') &&
+        !(pet.isNeglected && isDryingTool)) {
       await _showNightRestBlocked();
       return;
     }
 
     // Once the cat is fully clean, Trim is the only usable grooming tool.
-    if (pet.cleanliness >= 100 && tool != 'Trim') {
+    if (pet.cleanliness >= 100 &&
+        tool != 'Trim' &&
+        tool != 'Towel' &&
+        tool != 'Blower') {
       if (mounted) {
         setState(() {
           _feedbackText = 'Already clean! Trim the fur ✂️';
@@ -230,7 +238,9 @@ class _GroomScreenState extends State<GroomScreen> {
 
     // Prevent cleaning tools from repeating the wash/clean effect.
     const cleaningTools = {'Soap', 'Shower', 'Towel', 'Brush'};
-    if (pet.cleanliness >= 100 && cleaningTools.contains(tool)) {
+    if (pet.cleanliness >= 100 &&
+        cleaningTools.contains(tool) &&
+        tool != 'Towel') {
       if (mounted) {
         setState(() {
           _feedbackText =
@@ -248,11 +258,11 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       await _showSleepyBlocked();
       return;
     }
@@ -272,7 +282,7 @@ class _GroomScreenState extends State<GroomScreen> {
         cleanliness = 100;
         isDirty = false;
 
-        _feedbackText = 'Squeaky clean ✨';
+        _feedbackText = 'Shower finished ✨';
       } else if (_groomProgress >= 5) {
         cleanliness = 60;
 
@@ -308,7 +318,7 @@ class _GroomScreenState extends State<GroomScreen> {
       isDirty = pet.isDirty;
     });
 
-    if (!pet.isNeglected) {
+    if (!pet.isNeglected && tool != 'Towel') {
       _groomGame.showIdle();
     }
 
@@ -563,7 +573,7 @@ class _GroomScreenState extends State<GroomScreen> {
       unawaited(_showNightRestBlocked());
       return;
     }
-    if (pet.cleanliness >= 100) {
+    if (pet.cleanliness >= 100 && !_groomGame.isWet) {
       setState(() => _feedbackText =
           'Already clean! You can trim or choose another action ✨');
       Future.delayed(const Duration(seconds: 2), () {
@@ -576,13 +586,13 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -667,13 +677,13 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -813,8 +823,24 @@ class _GroomScreenState extends State<GroomScreen> {
     _groomGame.showWetCat();
 
     final pet = context.read<VirtualPetProvider>();
-    final delta = 100 - pet.cleanliness;
-    if (delta > 0) {
+
+    // A completed shower is one grooming action, not an instant full reset.
+    // Keep its progress consistent with the other grooming tools: each
+    // completed shower advances the grooming counter, while cleanliness
+    // increases gradually and only reaches 100 after enough grooming actions.
+    _groomProgress += 2; // Shower counts as two grooming progress points.
+
+    final int targetCleanliness;
+    if (_groomProgress >= 10) {
+      targetCleanliness = 100;
+    } else if (_groomProgress >= 5) {
+      targetCleanliness = pet.cleanliness < 60 ? 60 : pet.cleanliness;
+    } else {
+      targetCleanliness = (pet.cleanliness + 10).clamp(0, 100);
+    }
+
+    final delta = targetCleanliness - pet.cleanliness;
+    if (delta != 0) {
       await pet.groom(
         cleanlinessDelta: delta,
         happinessDelta: 5,
@@ -914,22 +940,32 @@ class _GroomScreenState extends State<GroomScreen> {
     // Match Trim: unavailable cats must never leave a grooming-tool sound playing.
     _stopGroomingSound();
     final pet = context.read<VirtualPetProvider>();
-    if (!_isNightCareNeeded(pet, trimming: false)) {
+    if (!_isNightCareNeeded(pet, trimming: false) && !pet.isNeglected) {
       unawaited(_showNightRestBlocked());
       return;
     }
+    // A fully clean, already-dry cat no longer needs the blower.
+    // Keep it available only when the cat still has wet fur to dry.
+    if (pet.cleanliness >= 100 && !_groomGame.isWet) {
+      setState(() => _feedbackText = 'Already clean and dry! Trim the fur ✂️');
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _feedbackText = '');
+      });
+      return;
+    }
+
     if (_isGroomingBlockedByHunger(pet)) {
       unawaited(_showHungryBlocked());
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
@@ -996,6 +1032,12 @@ class _GroomScreenState extends State<GroomScreen> {
     _groomGame.moveBlower(
       blowerCenter,
     );
+
+    // Stop the blower immediately once the cat is fully clean and dry.
+    if (context.read<VirtualPetProvider>().cleanliness >= 100 &&
+        !_groomGame.isWet) {
+      _finishBlower();
+    }
   }
 
   void _finishBlower() {
@@ -1080,16 +1122,8 @@ class _GroomScreenState extends State<GroomScreen> {
     // Match Trim: unavailable cats must never leave a grooming-tool sound playing.
     _stopGroomingSound();
     final pet = context.read<VirtualPetProvider>();
-    if (!_isNightCareNeeded(pet, trimming: false)) {
+    if (!_isNightCareNeeded(pet, trimming: false) && !pet.isNeglected) {
       unawaited(_showNightRestBlocked());
-      return;
-    }
-    if (pet.cleanliness >= 100) {
-      setState(() => _feedbackText =
-          'Already clean! You can trim or choose another action ✨');
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) setState(() => _feedbackText = '');
-      });
       return;
     }
     if (_isGroomingBlockedByHunger(pet)) {
@@ -1097,19 +1131,20 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showSleepyBlocked());
       return;
     }
 
     _cancelShowerInteraction();
+    _groomGame.beginTowelSwipe();
     setState(() {
       _towelDragging = true;
       _soapDragging = false;
@@ -1138,11 +1173,6 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
-    if (_lastTowelPosition != null &&
-        (localPosition - _lastTowelPosition!).distance < 10) {
-      return;
-    }
-
     _playGroomingSoundOnSwipe('towel.wav', localPosition);
     _lastTowelPosition = localPosition;
 
@@ -1163,13 +1193,23 @@ class _GroomScreenState extends State<GroomScreen> {
       return;
     }
 
+    final completed = _groomGame.finishTowelSwipe();
+
     setState(() {
       _towelDragging = false;
       _lastTowelPosition = null;
-      _feedbackText = '';
+      _feedbackText = completed ? '' : 'Keep wiping over the cat 🧺';
     });
 
-    _groom('Towel');
+    if (completed) {
+      _groom('Towel');
+    } else {
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted && !_towelDragging) {
+          setState(() => _feedbackText = '');
+        }
+      });
+    }
   }
 
   Widget _towelFeedback(
@@ -1232,13 +1272,13 @@ class _GroomScreenState extends State<GroomScreen> {
 
     _cancelShowerInteraction();
 
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       _stopGroomingSound();
       unawaited(_showNightRestBlocked());
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       unawaited(_showSleepyBlocked());
       return;
     }
@@ -1318,13 +1358,11 @@ class _GroomScreenState extends State<GroomScreen> {
   }
 
   Widget _brushFeedback(Map<String, dynamic> item) {
-    final emoji = item['emoji'] as String;
-
-    return Material(
+    return const Material(
       color: Colors.transparent,
       child: Text(
-        emoji,
-        style: const TextStyle(fontSize: 46),
+        '🪮',
+        style: TextStyle(fontSize: 46),
       ),
     );
   }
@@ -1366,11 +1404,11 @@ class _GroomScreenState extends State<GroomScreen> {
     }
 
     _cancelShowerInteraction();
-    if (pet.isSleeping && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleeping && !pet.needsCare) {
       return;
     }
 
-    if (pet.isSleepy && !pet.isNeglected && pet.furStage == 0) {
+    if (pet.isSleepy && !pet.needsCare) {
       _showSleepyBlocked();
       return;
     }
@@ -1558,16 +1596,17 @@ class _GroomScreenState extends State<GroomScreen> {
 
   Color _shopCardColor(Map<String, dynamic> item, Color fallback) {
     final rewards = context.watch<RewardService>();
-    final equippedId = rewards.equippedShopItem('item_grooming');
-    if (equippedId == null) return fallback;
-
     final itemName = (item['name'] as String).toLowerCase().replaceAll(' ', '');
+    final equippedId = rewards.equippedShopItem('grooming_$itemName');
+    if (equippedId == null) return fallback;
     final idParts = equippedId.split('_');
     if (idParts.length < 3 || idParts.first != 'grooming') {
       return fallback;
     }
     final equippedItemName = idParts.sublist(1, idParts.length - 1).join('');
-    if (equippedItemName != itemName) return fallback;
+    final targetsTrimCard =
+        itemName == 'trim' && equippedItemName == 'scissors';
+    if (equippedItemName != itemName && !targetsTrimCard) return fallback;
 
     switch (idParts.last) {
       case 'mint':
@@ -1740,19 +1779,18 @@ class _GroomScreenState extends State<GroomScreen> {
     // Care conditions take visual priority over a stale saved sleep state.
     // Keep neglect detection unchanged; critical hunger or dirt wakes the
     // visual state so the player can see the cat's current needs.
-    final isSleeping = pet.isSleeping &&
-        pet.hunger < 90 &&
-        pet.cleanliness > 30 &&
-        pet.furStage == 0;
+    final isTreatmentResting = pet.isRecovering || pet.isVaccinationRecovering;
+    final isSleeping = pet.isSleeping && !pet.needsCare;
     final isNeglected =
         pet.hunger >= 90 && pet.happiness <= 20 && pet.cleanliness <= 20;
     final isSleepy = pet.isSleepy && !isSleeping && !isNeglected;
     final isSad = !isSleeping && !isNeglected && !isSleepy && pet.isSadOrHungry;
     final isNight = NighttimeMode.isNighttime();
-    final needsCareAtNight =
-        isNeglected || pet.isDirty || pet.furStage > 0 || pet.hunger >= 70;
-    final showCat =
-        isNeglected || (!isSleeping && (!isNight || needsCareAtNight));
+    // At night, show the cat only when it needs care and is awake.
+    // A healthy sleeping cat remains hidden on this screen.
+    final showCat = !isTreatmentResting &&
+        !isSleeping &&
+        (isNight ? pet.needsCare : (isNeglected || !isSleeping));
     // Active grooming interactions must keep control of the Flame cat
     // animation. In particular, do not call showSad() on every rebuild while
     // the shower timer is running, because that can repeatedly replace the
@@ -1854,28 +1892,11 @@ class _GroomScreenState extends State<GroomScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.cleaning_services,
-                        color: Color(0xFF7B68EE),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Cleanliness: ${pet.cleanliness}%',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF7A3B1E),
-                        ),
-                      ),
-                    ],
-                  ),
+                PetStatIndicator(
+                  icon: Icons.cleaning_services,
+                  label: 'Cleanliness',
+                  value: pet.cleanliness,
+                  color: const Color(0xFF7B68EE),
                 ),
                 const SizedBox(height: 8),
                 Stack(
@@ -1885,7 +1906,8 @@ class _GroomScreenState extends State<GroomScreen> {
                         if (_isGroomingBlockedByHunger(pet)) {
                           return false;
                         }
-                        return !isSleeping || isNeglected || pet.furStage > 0;
+                        if (isNight && !pet.needsCare) return false;
+                        return !isSleeping || pet.needsCare;
                       },
                       onAcceptWithDetails: (details) {
                         if (details.data == 'Soap') {
@@ -2008,8 +2030,42 @@ class _GroomScreenState extends State<GroomScreen> {
                       },
                     ),
 
+                    if (isTreatmentResting)
+                      Positioned(
+                        bottom: 130,
+                        left: 16,
+                        right: 16,
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 280),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.88),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                pet.isVaccinationRecovering
+                                    ? '💉 I’m resting after my vaccination. Please let me relax! 😴'
+                                    : '💊 I’m resting after taking medicine. Please let me recover! 😴',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF7A3B1E),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
                     // Feedback message.
-                    if (_feedbackText.isNotEmpty &&
+                    if (!isTreatmentResting &&
+                        _feedbackText.isNotEmpty &&
                         (!isSleeping || _feedbackText.startsWith('🌙')))
                       Positioned(
                         // Keep feedback below the room clock and above the cat.
@@ -2080,7 +2136,12 @@ class _GroomScreenState extends State<GroomScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
+                const PetActivityTip(
+                  text:
+                      'Regular grooming keeps your cat’s coat clean and healthy.',
+                ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: GridView.builder(
                     padding: const EdgeInsets.symmetric(

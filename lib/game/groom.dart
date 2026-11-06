@@ -32,12 +32,15 @@ class GroomGame extends FlameGame {
   bool _pendingSad = false;
   int _furStage = 0;
 
+  TowelDryEffect? _towelDryEffect;
+
   DirtLayer? _dirtLayer;
   double _dirtOpacity = 1.0;
   double _dirtWashProgress = 0.0;
   bool _dirtHeavy = false;
 
   double _dryProgress = 0.0;
+  bool _towelTouchedCat = false;
 
   bool get catWashed => _catWashed;
 
@@ -202,6 +205,8 @@ class GroomGame extends FlameGame {
       position: cat!.position.clone(),
     );
     add(_dirtLayer!);
+    _towelDryEffect = TowelDryEffect(position: cat!.position.clone());
+    add(_towelDryEffect!);
   }
 
   @override
@@ -223,6 +228,7 @@ class GroomGame extends FlameGame {
         size.y / 2 + 30,
       );
       _dirtLayer?.position = cat!.position.clone();
+      _towelDryEffect?.position = cat!.position.clone();
     }
 
     if (_pendingSoapBubbles.isNotEmpty) {
@@ -314,7 +320,7 @@ class GroomGame extends FlameGame {
   }
 
   void showIdle() {
-    if (cat == null) return;
+    if (cat == null || _isShowingHappy) return;
     _isShowingHappy = false;
     // A normal rebuild/status refresh must not erase the wet pose. The cat
     // stays visibly wet after the shower is released and until the blower
@@ -339,6 +345,7 @@ class GroomGame extends FlameGame {
 
     _isWet = true;
     _dryProgress = 0.0;
+    _towelDryEffect?.setProgress(0.0);
 
     if (!_isShowingHappy && cat!.animation != _currentWetAnimation()) {
       // Do not reassign the same animation on every drag update.
@@ -350,17 +357,12 @@ class GroomGame extends FlameGame {
 
   // HAPPY CAT FROM TOWEL
 
-  Future<void> showHappyCat() async {
-    if (cat == null) {
-      return;
-    }
-
-    if (_isShowingHappy) {
+  Future<void> _showTowelCompletionReaction() async {
+    if (cat == null || _isShowingHappy) {
       return;
     }
 
     _isShowingHappy = true;
-
     cat!.animation = happyAnimation;
 
     add(
@@ -369,18 +371,15 @@ class GroomGame extends FlameGame {
       ),
     );
 
-    await Future.delayed(
-      const Duration(
-        milliseconds: 900,
-      ),
-    );
+    // Keep the wet sprite visible while the towel is moving. The moisture
+    // overlay fades in real time; the dry idle reaction plays at completion.
+    await Future.delayed(const Duration(milliseconds: 900));
 
     if (cat != null) {
-      if (_isWet) {
-        cat!.animation = _currentWetAnimation();
-      } else {
-        cat!.animation = _currentIdleAnimation();
-      }
+      _isWet = false;
+      _dryProgress = 1.0;
+      _towelDryEffect?.setProgress(1.0);
+      cat!.animation = _currentIdleAnimation();
     }
 
     _isShowingHappy = false;
@@ -388,31 +387,52 @@ class GroomGame extends FlameGame {
 
   // TOWEL
 
-  void towelSwipe(
-    Offset towelPosition,
-  ) {
+  /// Starts a towel interaction. Wet-cat drying progress is preserved between
+  /// drags, while a dry-cat swipe is tracked for its immediate reaction.
+  void beginTowelSwipe() {
+    _towelTouchedCat = false;
+  }
+
+  /// Tracks towel contact and adds drying progress when the cat is wet.
+  bool towelSwipe(Offset towelPosition) {
     final gameSize = _layoutSize;
     if (!_layoutReady || gameSize == null) {
-      return;
+      return false;
     }
 
     final catCenter = Vector2(
       gameSize.x / 2,
       gameSize.y / 2 + 30,
     );
+    final towelCenter = Vector2(towelPosition.dx, towelPosition.dy);
 
-    final towelCenter = Vector2(
-      towelPosition.dx,
-      towelPosition.dy,
-    );
-
-    final distance = towelCenter.distanceTo(
-      catCenter,
-    );
-
-    if (distance <= 75) {
-      showHappyCat();
+    if (towelCenter.distanceTo(catCenter) <= 75) {
+      _towelTouchedCat = true;
+      if (_isWet) {
+        // Update on every drag event, like the blower, so drying responds
+        // continuously while the towel is moved over the cat.
+        _dryProgress = (_dryProgress + 0.006).clamp(0.0, 1.0).toDouble();
+        _towelDryEffect?.setProgress(_dryProgress);
+      }
+      return true;
     }
+
+    return false;
+  }
+
+  /// Shows the happy reaction after drying a wet cat, or after a towel swipe
+  /// directly over a cat that was already dry.
+  bool finishTowelSwipe() {
+    if (_isWet) {
+      if (_dryProgress < 1.0) {
+        return false;
+      }
+    } else if (!_towelTouchedCat) {
+      return false;
+    }
+
+    _showTowelCompletionReaction();
+    return true;
   }
 
   // SOAP
@@ -708,6 +728,47 @@ class GroomGame extends FlameGame {
   void stopTransientEffects() {
     stopShower();
     stopBlower();
+  }
+}
+
+// Towel moisture marks fade continuously as the towel passes over the cat.
+class TowelDryEffect extends PositionComponent {
+  double _progress = 0.0;
+
+  TowelDryEffect({required Vector2 position})
+      : super(
+            position: position, size: Vector2.all(110), anchor: Anchor.center);
+
+  void setProgress(double value) {
+    _progress = value.clamp(0.0, 1.0).toDouble();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    final alpha = (1.0 - _progress) * 0.42;
+    if (alpha <= 0) return;
+
+    final paint = Paint()
+      ..color = const Color(0xFF79C9E8).withValues(alpha: alpha)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+
+    const drops = <Offset>[
+      Offset(-25, 12),
+      Offset(24, 18),
+      Offset(-10, 34),
+      Offset(12, -22),
+      Offset(34, -5),
+      Offset(-32, -12),
+    ];
+    for (final drop in drops) {
+      canvas.drawOval(
+        Rect.fromCenter(center: drop, width: 5, height: 9),
+        paint,
+      );
+    }
   }
 }
 

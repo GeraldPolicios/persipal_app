@@ -71,6 +71,9 @@ class VirtualPetState {
   final bool hungerNotificationSent;
   final bool cleanlinessNotificationSent;
   final bool neglectedNotificationSent;
+  final bool sicknessNotificationSent;
+  final bool furStage1NotificationSent;
+  final bool furStage2NotificationSent;
   final bool wantsToPlayNotificationSent;
 
   final DateTime lastTickAt;
@@ -104,6 +107,9 @@ class VirtualPetState {
     this.hungerNotificationSent = false,
     this.cleanlinessNotificationSent = false,
     this.neglectedNotificationSent = false,
+    this.sicknessNotificationSent = false,
+    this.furStage1NotificationSent = false,
+    this.furStage2NotificationSent = false,
     this.wantsToPlayNotificationSent = false,
     required this.lastTickAt,
     this.lastSleepRecoveryAt,
@@ -168,6 +174,9 @@ class VirtualPetState {
     bool? hungerNotificationSent,
     bool? cleanlinessNotificationSent,
     bool? neglectedNotificationSent,
+    bool? sicknessNotificationSent,
+    bool? furStage1NotificationSent,
+    bool? furStage2NotificationSent,
     bool? wantsToPlayNotificationSent,
     DateTime? lastTickAt,
     Object? lastSleepRecoveryAt = _unset,
@@ -208,6 +217,12 @@ class VirtualPetState {
           cleanlinessNotificationSent ?? this.cleanlinessNotificationSent,
       neglectedNotificationSent:
           neglectedNotificationSent ?? this.neglectedNotificationSent,
+      sicknessNotificationSent:
+          sicknessNotificationSent ?? this.sicknessNotificationSent,
+      furStage1NotificationSent:
+          furStage1NotificationSent ?? this.furStage1NotificationSent,
+      furStage2NotificationSent:
+          furStage2NotificationSent ?? this.furStage2NotificationSent,
       wantsToPlayNotificationSent:
           wantsToPlayNotificationSent ?? this.wantsToPlayNotificationSent,
       lastTickAt: lastTickAt ?? this.lastTickAt,
@@ -248,6 +263,9 @@ class VirtualPetState {
       'hungerNotificationSent': hungerNotificationSent,
       'cleanlinessNotificationSent': cleanlinessNotificationSent,
       'neglectedNotificationSent': neglectedNotificationSent,
+      'sicknessNotificationSent': sicknessNotificationSent,
+      'furStage1NotificationSent': furStage1NotificationSent,
+      'furStage2NotificationSent': furStage2NotificationSent,
       'wantsToPlayNotificationSent': wantsToPlayNotificationSent,
       'lastTickAt': lastTickAt.toIso8601String(),
       'lastSleepRecoveryAt': lastSleepRecoveryAt?.toIso8601String(),
@@ -322,6 +340,11 @@ class VirtualPetState {
           m['cleanlinessNotificationSent'] as bool? ?? false,
       neglectedNotificationSent:
           m['neglectedNotificationSent'] as bool? ?? false,
+      sicknessNotificationSent: m['sicknessNotificationSent'] as bool? ?? false,
+      furStage1NotificationSent:
+          m['furStage1NotificationSent'] as bool? ?? false,
+      furStage2NotificationSent:
+          m['furStage2NotificationSent'] as bool? ?? false,
       wantsToPlayNotificationSent:
           m['wantsToPlayNotificationSent'] as bool? ?? false,
 

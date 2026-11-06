@@ -1197,6 +1197,26 @@ class _ShopScreenState extends State<ShopScreen>
         .toList();
   }
 
+  // Keep Shop equipment keys identical to the keys read by FeedScreen,
+  // GroomScreen and PlayScreen. Card item IDs end with a color/variant token,
+  // so remove only that final token (for example feed_dryfood_mint ->
+  // feed_dryfood). Items with an explicit slot, such as room backgrounds,
+  // continue to use their configured slot.
+  String _equipmentSlotFor(ShopItem item) {
+    if (item.equipSlot != null) return item.equipSlot!;
+
+    final parts = item.id.split('_');
+    const cardCategories = {'feed', 'grooming', 'play'};
+    if (parts.length >= 3 && cardCategories.contains(parts.first)) {
+      final baseSlot = parts.sublist(0, parts.length - 1).join('_');
+      // The scissors cosmetic is displayed on the Trim card in Groom.
+      if (baseSlot == 'grooming_scissors') return 'grooming_trim';
+      return baseSlot;
+    }
+
+    return 'item_${item.category.toLowerCase().replaceAll(' ', '_')}';
+  }
+
   int _requiredLevelForCategory(String category) => switch (category) {
         'Grooming' || 'Feed' || 'Play' => 5,
         'Decor' => 7,
@@ -1265,10 +1285,7 @@ class _ShopScreenState extends State<ShopScreen>
     if (!mounted) return;
 
     if (purchased) {
-      await rewards.equipShopItem(
-          item.id,
-          item.equipSlot ??
-              'item_${item.category.toLowerCase().replaceAll(' ', '_')}');
+      await rewards.equipShopItem(item.id, _equipmentSlotFor(item));
       if (!mounted) return;
       showPersipalSnackBar(
         context,
@@ -1539,16 +1556,86 @@ class _ShopScreenState extends State<ShopScreen>
 
   Widget _buildCategory(String category, RewardService rewards) {
     final items = _itemsFor(category);
+    final hasDefaultBackgroundOption = category == 'All Rooms';
+    final defaultSlot = 'background_${_selectedRoom.toLowerCase()}';
+    final defaultIsEquipped = rewards.equippedShopItem(defaultSlot) == null;
     final itemList = ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: items.length,
+      itemCount: items.length + (hasDefaultBackgroundOption ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final item = items[index];
+        if (hasDefaultBackgroundOption && index == 0) {
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFCF8),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppTheme.gold, width: 1.5),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 66,
+                  height: 66,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF2E5D8),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(Icons.home_rounded,
+                      color: AppTheme.darkBrown, size: 34),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Default Background',
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.darkBrown)),
+                      SizedBox(height: 4),
+                      Text('Restore the original room background.',
+                          style: TextStyle(
+                              fontSize: 10, color: AppTheme.softBrown)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 72,
+                  child: defaultIsEquipped
+                      ? const Icon(Icons.check_circle_rounded,
+                          color: AppTheme.teal, size: 25)
+                      : ElevatedButton(
+                          onPressed: () async {
+                            await rewards.unequipShopItem(defaultSlot);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.teal,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: const Text('EQUIP',
+                              style: TextStyle(
+                                  fontSize: 9, fontWeight: FontWeight.w900)),
+                        ),
+                ),
+              ],
+            ),
+          );
+        }
+        final item = items[index - (hasDefaultBackgroundOption ? 1 : 0)];
         final isMedicine = item.id == 'medicine_consumable';
-        final owned = !isMedicine && rewards.isShopItemPurchased(item.id);
-        final slot = item.equipSlot ??
-            'item_${item.category.toLowerCase().replaceAll(' ', '_')}';
+        final isVaccine = item.id == 'persian_vaccine_consumable';
+        final isCareConsumable = isMedicine || isVaccine;
+        final careQuantity = isMedicine
+            ? rewards.medicineCount
+            : (isVaccine ? rewards.vaccineCount : 0);
+        final owned = !isCareConsumable && rewards.isShopItemPurchased(item.id);
+        final slot = _equipmentSlotFor(item);
         final equipped = rewards.equippedShopItem(slot) == item.id;
         final canBuy = rewards.points >= item.price;
         final itemCategory = item.category == 'Room Decor'
@@ -1602,6 +1689,7 @@ class _ShopScreenState extends State<ShopScreen>
                   ),
                   alignment: Alignment.center,
                   child: Stack(
+                    clipBehavior: Clip.none,
                     children: [
                       Center(
                         child: item.imageAsset != null
@@ -1633,6 +1721,20 @@ class _ShopScreenState extends State<ShopScreen>
                             child: const Center(
                               child: Icon(Icons.lock_rounded,
                                   size: 23, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      if (isCareConsumable)
+                        Positioned(
+                          right: -5,
+                          bottom: -13,
+                          child: Text(
+                            '${careQuantity}x',
+                            style: const TextStyle(
+                              color: Color(0xFFFF3030),
+                              fontSize: 13,
+                              height: 1,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
@@ -1715,13 +1817,20 @@ class _ShopScreenState extends State<ShopScreen>
                   SizedBox(
                     width: 68,
                     child: equipped
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                                color: AppTheme.teal.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(14)),
-                            child: const Icon(Icons.check_rounded,
-                                color: AppTheme.teal, size: 21),
+                        ? ElevatedButton(
+                            onPressed: () async {
+                              await rewards.unequipShopItem(slot);
+                            },
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.softBrown,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14))),
+                            child: const Text('UNEQUIP',
+                                style: TextStyle(
+                                    fontSize: 8, fontWeight: FontWeight.w900)),
                           )
                         : ElevatedButton(
                             onPressed: () async {
