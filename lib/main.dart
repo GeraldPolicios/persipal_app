@@ -1,6 +1,8 @@
 // lib/main.dart
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
@@ -55,14 +57,32 @@ Future<void> main() async {
     debugPrintStack(stackTrace: stackTrace);
   }
 
-  // 3. Auth listener (no-op when Firebase did not initialize)
+  // Web auth persistence is configurable. Select persistent storage before
+  // reading the initial auth state so closing the browser/app keeps the
+  // Firebase session available for restoration on the next launch.
+  if (kIsWeb && Firebase.apps.isNotEmpty) {
+    try {
+      await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    } catch (error) {
+      // Keep startup available if browser storage is restricted. Firebase's
+      // existing persistence mode remains in effect in that case.
+      debugPrint('Persipal: could not set web auth persistence: $error');
+    }
+  }
+
+  // 3. Session manager — waits for Firebase's initial persisted auth state
+  // before falling back to Hive, so a restored account cannot be mistaken
+  // for a guest during cold start.
+  await SessionManager.instance.init(
+    googleSessionRestorer: AuthService.instance.restoreGoogleSessionIfAvailable,
+  );
+
+  // 4. Auth listener (no-op when Firebase did not initialize). Attach after
+  // the session box has opened so its initial event can safely update Hive.
   await AuthService.instance.init();
 
-  // 4. Connectivity watcher
+  // 5. Connectivity watcher
   await ConnectivityService.instance.init();
-
-  // 5. Session manager — restores last session from Hive
-  await SessionManager.instance.init();
 
   // 6. Activity log — loads from Hive
   await ActivityLogService.instance.init();

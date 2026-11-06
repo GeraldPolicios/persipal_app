@@ -115,7 +115,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Future<void> _signOut() async {
     setState(() => _signingOut = true);
     try {
-      await AuthService.instance.signOut();
+      await AuthService.instance
+          .signOut(reason: 'verify_email_explicit_sign_out');
       if (!mounted) return;
       Navigator.pushReplacement(
         context,

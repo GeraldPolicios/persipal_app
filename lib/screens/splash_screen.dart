@@ -83,25 +83,47 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
-    final hasSession = SessionManager.instance.hasSession;
+    final auth = AuthService.instance;
+    final firebaseUser = auth.currentUser;
+    final hasLocalAuthenticatedSession =
+        SessionManager.instance.isAuthenticated;
+    debugPrint(
+      'Persipal: startup auth state: '
+      'Firebase user ${firebaseUser == null ? 'not restored' : 'restored'}, '
+      'local session ${hasLocalAuthenticatedSession ? 'authenticated' : 'guest/missing'}.',
+    );
+
+    // Firebase is authoritative when available. If it restored a user after
+    // SessionManager's snapshot was read, reconcile the local session before
+    // routing so a stale guest snapshot cannot send that user to LoginScreen.
+    if (firebaseUser != null &&
+        (!SessionManager.instance.isAuthenticated ||
+            SessionManager.instance.userId != firebaseUser.uid)) {
+      await SessionManager.instance.onFirebaseLogin(firebaseUser);
+      if (!mounted) return;
+    }
 
     // Catches an authenticated-but-unverified user reopening the app —
     // Firebase persists sign-in state locally regardless of verification,
     // so without this check they could bypass VerifyEmailScreen just by
     // restarting. Google sign-ins are never affected (already verified).
-    final needsVerification = AuthService.instance.needsEmailVerification;
+    final needsVerification = auth.needsEmailVerification;
 
     Widget destination;
 
-    if (!hasSession || SessionManager.instance.isGuest) {
-      // Always show the existing account-choice UI to users without an
-      // authenticated account, including returning offline guests. Their
-      // guest ID/local data remains stored; choosing Guest reuses that ID.
-      destination = const LoginScreen();
-    } else if (needsVerification) {
-      destination = const VerifyEmailScreen();
-    } else {
+    if (firebaseUser != null || SessionManager.instance.isAuthenticated) {
+      destination = needsVerification
+          ? const VerifyEmailScreen()
+          : const HomeScreen();
+    } else if (SessionManager.instance.restoredGuestSession) {
+      // A guest who deliberately continued offline already chose to use the
+      // app without an account. Restore that guest directly instead of
+      // presenting the login-choice screen again on every cold start.
       destination = const HomeScreen();
+    } else {
+      // Show account choices for a fresh install or stale account session.
+      // A returning guest session was routed directly to Home above.
+      destination = const LoginScreen();
     }
 
     Navigator.pushReplacement(

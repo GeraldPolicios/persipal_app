@@ -234,7 +234,9 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _skipAsGuest() async {
     _clearError();
     _setGuestLoading(true);
-    await SessionManager.instance.createGuestSession();
+    await SessionManager.instance.createGuestSession(
+      reason: 'user_selected_continue_as_guest',
+    );
     await ActivityLogService.instance.logGuestCreated();
     _setGuestLoading(false);
     _goHome();
@@ -330,20 +332,48 @@ class _LoginScreenState extends State<LoginScreen>
         ]),
         content: Text(
           errorMessage == null
-              ? 'You have offline progress saved locally. What would you like to do?'
-              : '$errorMessage\n\nThe operation may have partially completed. Please retry your choice or cancel to return to guest mode.',
+              ? 'You have offline progress saved locally. Choose how to continue. Staying as a guest will sign you out of this account.'
+              : '$errorMessage\n\nThe operation may have partially completed. Please retry your choice or stay as a guest to sign out of this account.',
           style: const TextStyle(fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () async {
-              // Cancel means keep using the local guest save. Sign out of the
-              // newly authenticated account before releasing the sync gate so
-              // background sync cannot silently upload guest data to it.
-              Navigator.pop(ctx);
+              // Require a separate confirmation before signing out so a
+              // mistaken tap on this guest-only choice cannot end the account
+              // session immediately after a successful sign-in.
+              final shouldSignOut = await showDialog<bool>(
+                context: context,
+                builder: (confirmContext) => AlertDialog(
+                  title: const Text('Sign out and stay as Guest?'),
+                  content: const Text(
+                    'Your Firebase account will be signed out. Your local '
+                    'progress will stay on this phone, and you can sign in '
+                    'again later.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(confirmContext, false),
+                      child: const Text('Keep me signed in'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(confirmContext, true),
+                      child: const Text('Sign out'),
+                    ),
+                  ],
+                ),
+              );
+              if (shouldSignOut != true || !mounted) return;
+
+              // Sign out before releasing the sync gate so background sync
+              // cannot silently upload guest data to the authenticated account.
+              Navigator.of(context).pop();
               try {
-                await AuthService.instance.signOut();
-                await SessionManager.instance.createGuestSession();
+                await AuthService.instance
+                    .signOut(reason: 'post_login_stay_as_guest');
+                await SessionManager.instance.createGuestSession(
+                  reason: 'post_login_stay_as_guest',
+                );
               } catch (error) {
                 debugPrint('Persipal: could not return to guest mode: $error');
                 if (!mounted) {
@@ -358,7 +388,8 @@ class _LoginScreenState extends State<LoginScreen>
               }
               _goHome();
             },
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text('Sign Out & Stay as Guest',
+                style: TextStyle(color: Colors.grey)),
           ),
           OutlinedButton(
             style: OutlinedButton.styleFrom(
@@ -398,8 +429,11 @@ class _LoginScreenState extends State<LoginScreen>
                   // Don't leave automatic account sync held forever if this
                   // screen is gone; return to guest mode before releasing it.
                   try {
-                    await AuthService.instance.signOut();
-                    await SessionManager.instance.createGuestSession();
+                    await AuthService.instance
+                        .signOut(reason: 'post_login_cloud_restore_failure');
+                    await SessionManager.instance.createGuestSession(
+                      reason: 'post_login_cloud_restore_failure',
+                    );
                   } catch (_) {}
                   AuthService.instance.completeAccountResolution();
                   return;
@@ -452,8 +486,11 @@ class _LoginScreenState extends State<LoginScreen>
                     'Persipal: Merge Progress failed: $error\n$stackTrace');
                 if (!mounted) {
                   try {
-                    await AuthService.instance.signOut();
-                    await SessionManager.instance.createGuestSession();
+                    await AuthService.instance
+                        .signOut(reason: 'post_login_merge_failure');
+                    await SessionManager.instance.createGuestSession(
+                      reason: 'post_login_merge_failure',
+                    );
                   } catch (_) {}
                   AuthService.instance.completeAccountResolution();
                   return;

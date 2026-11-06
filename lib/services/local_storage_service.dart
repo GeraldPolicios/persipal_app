@@ -269,10 +269,8 @@ class LocalStorageService {
       _virtualAchievements.put(_kVirtualAchievementsKey, jsonEncode(state));
 
   // ── Pet Photos (device-local only — never uploaded to Firestore) ───────────
-  // A raw file path is meaningless on another device, and the existing
-  // FullPetProfile/Firestore sync model has no support for binary blobs, so
-  // this is kept entirely separate from full_pet_profiles. See
-  // PetPhotoService's header comment for the full reasoning.
+  // These paths are only a local cache. PetPhotoService separately syncs
+  // image bytes under the authenticated user's pet_photos collection.
 
   Future<Map<String, String>> fetchPetPhotoPaths() async {
     final raw = _petPhotos.get(_kPetPhotosKey);

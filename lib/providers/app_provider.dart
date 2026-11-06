@@ -337,6 +337,7 @@ class AppProvider extends ChangeNotifier {
         await Future.wait([
           _sync.flushPendingOps(this),
           PetProfileProvider.instance.flushPendingOpsIfPossible(),
+          PetPhotoService.instance.flushPendingCloudPhotosIfPossible(),
           reminderProvider.flushPendingOpsIfPossible(),
           virtualPetProvider.flushPendingOpsIfPossible(),
         ]).timeout(const Duration(seconds: 5));
@@ -346,7 +347,7 @@ class AppProvider extends ChangeNotifier {
       }
     }
 
-    await _auth.signOut();
+    await _auth.signOut(reason: 'settings_explicit_sign_out');
     // keepPetPhotos: true — unlike everything else cleared here, pet photos
     // have no cloud copy to restore from (see PetPhotoService's header
     // comment), so a plain sign-out must leave the files in place for this

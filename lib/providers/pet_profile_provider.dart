@@ -112,6 +112,7 @@ class PetProfileProvider extends ChangeNotifier {
     if (_connectivity.isOnline &&
         _auth.isAuthenticated &&
         _auth.accountSyncAllowed) {
+      unawaited(_downloadFromCloud());
       unawaited(_flushPendingOps());
     }
   }
@@ -333,6 +334,9 @@ class PetProfileProvider extends ChangeNotifier {
       final snapshot = await collection.get();
 
       if (snapshot.docs.isEmpty) {
+        await PetPhotoService.instance.restorePhotosForPetIds(
+          _profiles.map((profile) => profile.id),
+        );
         return;
       }
 
@@ -370,6 +374,10 @@ class PetProfileProvider extends ChangeNotifier {
           (a, b) => a.createdAt.compareTo(b.createdAt),
         );
 
+      await PetPhotoService.instance.restorePhotosForPetIds(
+        _profiles.map((profile) => profile.id),
+        uploadMissingLocalPhotosFor: snapshot.docs.map((doc) => doc.id),
+      );
       notifyListeners();
     } catch (e) {
       debugPrint(
@@ -1522,7 +1530,12 @@ class PetProfileProvider extends ChangeNotifier {
 
   /// "Merge Progress": push every local (guest) profile to this account's
   /// cloud data, then pull down whatever else already exists there.
-  Future<void> pushGuestDataToCloud() => syncNow();
+  Future<void> pushGuestDataToCloud() async {
+    await PetPhotoService.instance.uploadLocalPhotosForPets(
+      _profiles.map((profile) => profile.id),
+    );
+    await syncNow();
+  }
 
   /// "Use Cloud Data": discard local (guest) profiles without uploading
   /// them, then replace local state with whatever is in the cloud.
@@ -1531,7 +1544,9 @@ class PetProfileProvider extends ChangeNotifier {
       return;
     }
 
-    for (final profile in List<FullPetProfile>.from(_profiles)) {
+    final localProfiles = List<FullPetProfile>.from(_profiles);
+    for (final profile in localProfiles) {
+      await PetPhotoService.instance.removeLocalPhotosForPet(profile.id);
       await _deleteFromHive(profile.id);
     }
     _profiles = [];

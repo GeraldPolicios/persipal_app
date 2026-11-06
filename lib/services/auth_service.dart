@@ -4,6 +4,8 @@
 // Exposes a clean async API.  Never throws raw FirebaseAuthExceptions
 // to the UI — converts them to friendly strings via friendlyError().
 
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -73,6 +75,9 @@ class AuthService extends ChangeNotifier {
     if (!isFirebaseAvailable) return;
     try {
       _auth.authStateChanges().listen((user) {
+        debugPrint(
+          'Persipal: Firebase auth event: ${user == null ? 'no user' : 'user restored/sign-in active'}.',
+        );
         if (user != null) {
           SessionManager.instance.onFirebaseLogin(user);
         }
@@ -87,6 +92,45 @@ class AuthService extends ChangeNotifier {
 
   // ── Email / password ──────────────────────────────────────────────────────
 
+  /// Recovers a missing Firebase session using the cached Google account, but
+  /// only when its email matches the last local account. Native Firebase
+  /// persistence remains the normal path; this is a noninteractive fallback.
+  Future<User?> restoreGoogleSessionIfAvailable(String? expectedEmail) async {
+    if (!isFirebaseAvailable ||
+        currentUser != null ||
+        expectedEmail == null ||
+        expectedEmail.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      final googleUser = await _google
+          .signInSilently()
+          .timeout(const Duration(seconds: 4));
+      if (googleUser == null ||
+          googleUser.email.toLowerCase() != expectedEmail.toLowerCase()) {
+        return null;
+      }
+
+      final googleAuth = await googleUser.authentication;
+      final idToken = googleAuth.idToken;
+      if (idToken == null || idToken.isEmpty) return null;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: idToken,
+      );
+      final result = await _auth.signInWithCredential(credential);
+      notifyListeners();
+      return result.user;
+    } catch (error) {
+      // Silent recovery is best-effort; ordinary guest/login routing remains
+      // available if Google has no cached account or connectivity is limited.
+      debugPrint('Persipal: silent Google session restore unavailable: $error');
+      return null;
+    }
+  }
+
   Future<AuthResult> signInWithEmail(String email, String password) async {
     if (!isFirebaseAvailable) {
       return AuthResult.failure(
@@ -99,6 +143,7 @@ class AuthService extends ChangeNotifier {
         password: password,
       );
       await SessionManager.instance.onFirebaseLogin(cred.user!);
+      debugPrint('Persipal: email/password sign-in succeeded.');
       notifyListeners();
       return AuthResult.success(cred.user!);
     } on FirebaseAuthException catch (e) {
@@ -135,6 +180,7 @@ class AuthService extends ChangeNotifier {
         await cred.user?.sendEmailVerification();
       } catch (_) {}
       await SessionManager.instance.onFirebaseLogin(cred.user!);
+      debugPrint('Persipal: email/password account creation succeeded.');
       notifyListeners();
       return AuthResult.success(cred.user!);
     } on FirebaseAuthException catch (e) {
@@ -195,6 +241,7 @@ class AuthService extends ChangeNotifier {
       );
       final cred = await _auth.signInWithCredential(credential);
       await SessionManager.instance.onFirebaseLogin(cred.user!);
+      debugPrint('Persipal: Google sign-in succeeded.');
       notifyListeners();
       return AuthResult.success(cred.user!);
     } on FirebaseAuthException catch (e) {
@@ -223,7 +270,8 @@ class AuthService extends ChangeNotifier {
 
   // ── Sign out ──────────────────────────────────────────────────────────────
 
-  Future<void> signOut() async {
+  Future<void> signOut({String reason = 'unspecified'}) async {
+    debugPrint('Persipal: sign-out requested ($reason).');
     if (!isFirebaseAvailable) {
       // Keep the local session intact while cloud auth is unavailable.
       notifyListeners();
@@ -235,6 +283,7 @@ class AuthService extends ChangeNotifier {
       // Ignore when there is no active Google session.
     }
     await _auth.signOut();
+    debugPrint('Persipal: Firebase sign-out completed.');
     await SessionManager.instance.onFirebaseSignOut();
     notifyListeners();
   }

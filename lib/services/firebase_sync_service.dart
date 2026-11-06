@@ -325,6 +325,7 @@ class FirebaseSyncService extends ChangeNotifier {
       'settings',
       'quizzes',
       'full_pet_profiles',
+      'pet_photos',
       'reminder_items',
       'virtual_pet',
     ];
