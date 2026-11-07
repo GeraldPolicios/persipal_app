@@ -963,79 +963,34 @@ class _GameScreenState extends State<GameScreen> {
   // ==========================================================
   // CAT NAME
   // ==========================================================
-  void _askCatName(VirtualPetProvider vp) {
-    final ctrl = TextEditingController();
-
-    showDialog(
+  Future<void> _askCatName(
+    VirtualPetProvider vp, {
+    bool isEditing = false,
+  }) async {
+    await showDialog<void>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: isEditing,
       builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          backgroundColor: const Color(0xFFFFF5EE),
-          title: const Row(
-            children: [
-              Text(
-                '🐱 ',
-                style: TextStyle(fontSize: 22),
-              ),
-              Text(
-                'Name your cat!',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'e.g. Mochi',
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF8C69),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: () async {
-                final name =
-                    ctrl.text.trim().isEmpty ? 'Meow Meow' : ctrl.text.trim();
+        return _CatNameDialog(
+          initialName: isEditing ? vp.catName : '',
+          isEditing: isEditing,
+          onSave: (name) async {
+            await vp.setName(name);
 
-                await vp.setName(name);
+            _service.logActivity(
+              icon: Icons.pets,
+              iconColor: const Color(0xFF32CD32),
+              title: isEditing
+                  ? 'Renamed virtual cat to $name'
+                  : 'Started simulation with cat — $name',
+            );
 
-                _service.logActivity(
-                  icon: Icons.pets,
-                  iconColor: const Color(0xFF32CD32),
-                  title: 'Started simulation with cat — $name',
-                );
-
-                if (mounted) {
-                  setState(() {
-                    catName = name;
-                  });
-                }
-
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                }
-              },
-              child: const Text("Let's Go!"),
-            ),
-          ],
+            if (mounted) {
+              setState(() {
+                catName = name;
+              });
+            }
+          },
         );
       },
     );
@@ -1593,6 +1548,12 @@ class _GameScreenState extends State<GameScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        tooltip: 'Edit cat name',
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        onPressed: () =>
+                            _askCatName(vp, isEditing: true),
                       ),
                       AnimatedBuilder(
                         animation: VirtualCatProgressService.instance,
@@ -2956,6 +2917,123 @@ class _GameScreenState extends State<GameScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _CatNameDialog extends StatefulWidget {
+  const _CatNameDialog({
+    required this.initialName,
+    required this.isEditing,
+    required this.onSave,
+  });
+
+  final String initialName;
+  final bool isEditing;
+  final Future<void> Function(String name) onSave;
+
+  @override
+  State<_CatNameDialog> createState() => _CatNameDialogState();
+}
+
+class _CatNameDialogState extends State<_CatNameDialog> {
+  late final TextEditingController _controller;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final enteredName = _controller.text.trim();
+    final name = enteredName.isEmpty && !widget.isEditing
+        ? 'Meow Meow'
+        : enteredName;
+    if (name.isEmpty) {
+      setState(() => _error = 'Please enter a name for your cat.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(name);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not save the name. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: const Color(0xFFFFF5EE),
+      title: Text(
+        widget.isEditing ? 'Edit your cat name' : 'Name your cat!',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            enabled: !_saving,
+            onSubmitted: (_) => _save(),
+            decoration: InputDecoration(
+              hintText: 'e.g. Mochi',
+              errorText: _error,
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        if (widget.isEditing)
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFFF8C69),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(widget.isEditing ? 'Save' : "Let's Go!"),
+        ),
+      ],
     );
   }
 }
