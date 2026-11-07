@@ -25,51 +25,51 @@ class _VirtualPetWelcomeTutorialState extends State<VirtualPetWelcomeTutorial> {
 
   static const List<_TutorialSlide> _slides = [
     _TutorialSlide(
-      title: 'Meet Mochi!',
+      title: 'Meet Your Virtual Pet',
       subtitle: 'Your virtual Persian cat',
       description:
-          'Welcome to Mochi’s room! You are in charge of keeping him happy, clean, fed, and healthy. The Game Screen is your main place to check on him and choose what care he needs.',
+          'Welcome to your virtual Persian cat’s room! You are in charge of keeping your cat happy, clean, fed, and healthy. The Game Screen is your main place to check your pet and choose the care it needs.',
       steps: [
-        'Look at Mochi and tap him to interact.',
+        'Look at your cat and tap it to interact.',
         'Use Feed, Groom, Play, and Status to open each activity.',
         'Check the room clock to see the current in-game time.',
       ],
       tip:
-          'Watch Mochi’s needs. His status can change as time passes and as you care for him.',
+          'Watch your pet’s needs. Its status can change as time passes and as you provide care.',
       emoji: '🐱',
       accent: Color(0xFFFFE3D5),
       icon: Icons.touch_app_rounded,
     ),
     _TutorialSlide(
-      title: 'Feed Mochi',
-      subtitle: 'Keep his hunger under control',
+      title: 'Feed Your Pet',
+      subtitle: 'Keep your pet well-fed',
       description:
-          'The Feed screen lets you choose food for Mochi. You can see the available food items and use the food that suits his needs.',
+          'The Feed screen lets you choose food for your virtual cat. You can view the available food items and choose what suits your pet’s needs.',
       steps: [
         'Tap Feed on the Game Screen.',
         'Choose an available food item, such as dry food or wet food.',
-        'Drag the food and drop it onto Mochi to feed him.',
-        'Check his Hunger status afterward.',
+        'Drag the food and drop it onto your cat to feed it.',
+        'Check your pet’s Hunger status afterward.',
       ],
       tip:
-          'Only give Mochi suitable food. If an item is unsafe, follow the warning shown in the app.',
+          'Only give your pet suitable food. If an item is unsafe, follow the warning shown in the app.',
       emoji: '🍗',
       accent: Color(0xFFFFE9C9),
       icon: Icons.restaurant_rounded,
     ),
     _TutorialSlide(
-      title: 'Groom Mochi',
-      subtitle: 'Keep his fur clean and neat',
+      title: 'Groom Your Pet',
+      subtitle: 'Keep your pet’s fur clean and neat',
       description:
-          'The Groom screen contains care actions for Mochi’s coat. You can clean him, brush his fur, and trim it when it is ready.',
+          'The Groom screen contains care actions for your cat’s coat. You can clean its fur, brush it, and trim it when it is ready.',
       steps: [
         'Tap Groom on the Game Screen.',
-        'Choose the cleaning tool when Mochi’s fur is dirty.',
-        'Drag or swipe the brush over Mochi to brush his fur.',
-        'When his fur is clean, choose Trim if you want to trim it.',
+        'Choose the cleaning tool when your cat’s fur is dirty.',
+        'Drag or swipe the brush over your cat to brush its fur.',
+        'When the fur is clean, choose Trim if you want to trim it.',
       ],
       tip:
-          'Clean dirty fur first. Some grooming actions become available only after Mochi is clean.',
+          'Clean dirty fur first. Some grooming actions become available only after your cat is clean.',
       emoji: '🪮',
       accent: Color(0xFFE8E2FF),
       icon: Icons.cleaning_services_rounded,
@@ -77,17 +77,17 @@ class _VirtualPetWelcomeTutorialState extends State<VirtualPetWelcomeTutorial> {
     ),
     _TutorialSlide(
       title: 'Play Together',
-      subtitle: 'Keep Mochi happy and active',
+      subtitle: 'Keep your pet happy and active',
       description:
-          'The Play screen lets you spend time with Mochi using his toys. Playing helps his happiness, but remember that he also needs enough energy to rest.',
+          'The Play screen lets you spend time with your virtual cat using its toys. Playing helps your pet stay happy, but remember that it also needs enough energy to rest.',
       steps: [
         'Tap Play on the Game Screen.',
         'Choose one of the available toys.',
-        'Drag the toy and drop it onto Mochi to start playing.',
-        'Check his Happiness and Energy after playtime.',
+        'Drag the toy and drop it onto your cat to start playing.',
+        'Check your pet’s Happiness and Energy after playtime.',
       ],
       tip:
-          'If Mochi is too hungry or needs cleaning, take care of that need before trying to play.',
+          'If your cat is too hungry or needs cleaning, take care of that need before trying to play.',
       emoji: '🧶',
       accent: Color(0xFFDDF5F0),
       icon: Icons.sports_esports_rounded,
@@ -96,15 +96,15 @@ class _VirtualPetWelcomeTutorialState extends State<VirtualPetWelcomeTutorial> {
       title: 'Check His Care',
       subtitle: 'Monitor his needs and health',
       description:
-          'Use Status to review Mochi’s four care indicators. The Care Bag keeps his care items together, while Virtual Reminders help you remember regular care tasks.',
+          'Use Status to review your pet’s four care indicators. The Care Bag keeps care items together, while Virtual Reminders help you remember regular care tasks.',
       steps: [
         'Tap Status to check Hunger, Happiness, Cleanliness, and Energy.',
         'Tap Care Bag to view your available care items, such as medicine and vaccines.',
         'Tap Reminders to manage care reminders, including feeding, grooming, and health checks.',
-        'When Mochi is sick, check his health and use the appropriate care item.',
+        'When your cat is sick, check its health and use the appropriate care item.',
       ],
       tip:
-          'Check Mochi’s status regularly so you can respond to his needs before they become urgent.',
+          'Check your pet’s status regularly so you can respond to its needs before they become urgent.',
       emoji: '❤️',
       accent: Color(0xFFFFE0E5),
       icon: Icons.health_and_safety_rounded,
@@ -113,7 +113,7 @@ class _VirtualPetWelcomeTutorialState extends State<VirtualPetWelcomeTutorial> {
       title: 'Make His Room Yours',
       subtitle: 'Shop, equip, and customize',
       description:
-          'Visit the Shop to browse room backgrounds and decorations. Items you obtain can be equipped to change the look of Mochi’s room.',
+          'Visit the Shop to browse room backgrounds and decorations. Items you obtain can be equipped to customize your virtual pet’s room.',
       steps: [
         'Tap Shop on the Game Screen.',
         'Browse the available backgrounds and decorations.',
@@ -121,7 +121,7 @@ class _VirtualPetWelcomeTutorialState extends State<VirtualPetWelcomeTutorial> {
         'Equip an owned item to use it in the room. You can switch and re-equip owned items later.',
       ],
       tip:
-          'That’s the tour! You can revisit these activities whenever Mochi needs care or you want to change his room.',
+          'That’s the tour! You can revisit these activities whenever your pet needs care or you want to customize its room.',
       emoji: '🏡',
       accent: Color(0xFFE5F0FF),
       icon: Icons.storefront_rounded,

@@ -124,6 +124,7 @@ class _GameScreenState extends State<GameScreen> {
 
   bool _askedName = false;
   bool _tutorialCheckStarted = false;
+  bool _tutorialCheckFinished = false;
   bool _showWelcomeTutorial = false;
   // Actual release: false. The testing patch overrides this to true.
   static const bool _forceTutorialForTesting = false;
@@ -232,14 +233,6 @@ class _GameScreenState extends State<GameScreen> {
 
       final vp = context.read<VirtualPetProvider>();
 
-      // The provider may still be restoring the saved virtual pet from Hive
-      // or reconciling it with Firestore. Never show the naming dialog from
-      // the temporary initial state while that restoration is in progress.
-      if (!vp.loading && vp.needsNaming && !_askedName) {
-        _askedName = true;
-        _askCatName(vp);
-      }
-
       _scheduleCatStateSync();
       _maybeStartNightRoutine();
     });
@@ -254,9 +247,10 @@ class _GameScreenState extends State<GameScreen> {
     final completed =
         await LocalStorageService.instance.hasCompletedVirtualPetTutorial();
     if (!mounted) return;
-    if (_forceTutorialForTesting || !completed) {
-      setState(() => _showWelcomeTutorial = true);
-    }
+    setState(() {
+      _tutorialCheckFinished = true;
+      _showWelcomeTutorial = _forceTutorialForTesting || !completed;
+    });
   }
 
   Future<void> _completeWelcomeTutorial() async {
@@ -1479,7 +1473,7 @@ class _GameScreenState extends State<GameScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted ||
             _askedName ||
-            !_tutorialCheckStarted ||
+            !_tutorialCheckFinished ||
             _showWelcomeTutorial) return;
         final currentVp = context.read<VirtualPetProvider>();
         if (currentVp.loading || !currentVp.needsNaming) return;
@@ -1552,8 +1546,7 @@ class _GameScreenState extends State<GameScreen> {
                       IconButton(
                         tooltip: 'Edit cat name',
                         icon: const Icon(Icons.edit_outlined, size: 18),
-                        onPressed: () =>
-                            _askCatName(vp, isEditing: true),
+                        onPressed: () => _askCatName(vp, isEditing: true),
                       ),
                       AnimatedBuilder(
                         animation: VirtualCatProgressService.instance,
@@ -2955,9 +2948,8 @@ class _CatNameDialogState extends State<_CatNameDialog> {
 
   Future<void> _save() async {
     final enteredName = _controller.text.trim();
-    final name = enteredName.isEmpty && !widget.isEditing
-        ? 'Meow Meow'
-        : enteredName;
+    final name =
+        enteredName.isEmpty && !widget.isEditing ? 'Meow Meow' : enteredName;
     if (name.isEmpty) {
       setState(() => _error = 'Please enter a name for your cat.');
       return;
